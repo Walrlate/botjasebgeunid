@@ -229,7 +229,8 @@ const Dashboard = () => {
       const uidsSection = accountCount > 1 && userIdsInput.trim()
         ? `\n– List UserID: ${userIdsInput.trim()}`
         : '';
-      return `🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧
+      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</b>
+– ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username: ${getUsername() || '@username'}
 – Durasi userbot: ${selectedPackage.duration}
 – Jumlah Akun: ${accountCount} Akun${uidsSection}
@@ -238,7 +239,8 @@ const Dashboard = () => {
 – Payment: ${paymentText}
 – Total Harga: Rp ${currentPrice.toLocaleString('id-ID')}`;
     } else {
-      return `🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦
+      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>
+– ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username akun: ${getUsername() || '@username'}
 – Durasi Jaseb: ${selectedPackage.duration}
 – Paket jaseb: JASEB ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM
@@ -1344,6 +1346,7 @@ const Dashboard = () => {
                                 {selectedPackage.type === 'userbot' ? (
                                   <>
                                     <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</p>
+                                    <p>– ID Telegram: {user?.id || 'Belum terdeteksi'}</p>
                                     <p>– Username: "{getUsername() || '@username'}"</p>
                                     <p>– Durasi: "{selectedPackage.duration}"</p>
                                     <p>– Jumlah Akun: "{accountCount} Akun"</p>
@@ -1354,6 +1357,7 @@ const Dashboard = () => {
                                 ) : (
                                   <>
                                     <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</p>
+                                    <p>– ID Telegram: {user?.id || 'Belum terdeteksi'}</p>
                                     <p>– Username: "{getUsername() || '@username'}"</p>
                                     <p>– Durasi: "{selectedPackage.duration}"</p>
                                     <p>– Paket: "JASEB {selectedPackage.type.toUpperCase()} {selectedPackage.lpm} LPM"</p>

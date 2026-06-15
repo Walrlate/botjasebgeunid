@@ -455,6 +455,111 @@ def _register_admin_handlers(bot):
                 f"👤 User: `{target_uid}`"
             )
 
+    # ── Parser Format Pesanan Manual ──
+    @bot.on(events.NewMessage)
+    async def admin_paste_format_handler(event):
+        if event.sender_id != ADMIN_ID:
+            return
+
+        text = event.text or ""
+        
+        # Bersihkan format HTML & Markdown agar deteksi substring lebih akurat
+        import re
+        text_clean = re.sub(r'<[^>]+>', '', text)
+        text_clean = text_clean.replace('**', '').replace('__', '').replace('*', '').replace('_', '')
+        
+        is_userbot_fmt = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" in text_clean or "FORMAT PASANG USERBOT" in text_clean.upper()
+        is_jaseb_fmt = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦" in text_clean or "FORMAT JASEB OTOMATIS" in text_clean.upper()
+
+        if not (is_userbot_fmt or is_jaseb_fmt):
+            return
+
+        lines = text_clean.split("\n")
+        user_id = None
+        username = ""
+        duration = "1 Bulan"
+        package_name = ""
+        amount = 0
+
+        for line in lines:
+            line_clean = line.replace("–", "-").strip()
+            if "ID Telegram" in line_clean:
+                match = re.search(r"ID Telegram\s*[:\-]?\s*\"?(\d+)\"?", line_clean, re.IGNORECASE)
+                if match:
+                    user_id = int(match.group(1))
+            elif "Username" in line_clean:
+                match = re.search(r"Username(?:\s*akun)?\s*[:\-]?\s*\"?@?([^\"]+)\"?", line_clean, re.IGNORECASE)
+                if match:
+                    username = match.group(1).strip()
+            elif "Durasi" in line_clean:
+                match = re.search(r"Durasi(?:\s*userbot|\s*jaseb)?\s*[:\-]?\s*\"?([^\"]+)\"?", line_clean, re.IGNORECASE)
+                if match:
+                    duration = match.group(1).strip()
+            elif "Paket" in line_clean:
+                match = re.search(r"Paket(?:\s*jaseb)?\s*[:\-]?\s*\"?([^\"]+)\"?", line_clean, re.IGNORECASE)
+                if match:
+                    package_name = match.group(1).strip()
+            elif "Harga" in line_clean or "Total" in line_clean or "Nominal" in line_clean:
+                match = re.search(r"(?:Harga|Total|Nominal)\s*[:\-]?\s*(?:Rp\s*)?([\d\.,]+)", line_clean, re.IGNORECASE)
+                if match:
+                    amt_str = match.group(1).replace(".", "").replace(",", "").strip()
+                    if amt_str.isdigit():
+                        amount = int(amt_str)
+
+        if not user_id:
+            # Fallback search globally
+            match = re.search(r"ID Telegram[^\d]*(\d{7,15})", text_clean, re.IGNORECASE)
+            if match:
+                user_id = int(match.group(1))
+
+        if not user_id:
+            await event.respond("❌ **Format Ditolak:** ID Telegram pembeli tidak ditemukan di dalam format pesanan.")
+            return
+
+        if not package_name:
+            if is_userbot_fmt:
+                package_name = f"Jaseb Userbot {duration}"
+            else:
+                package_name = f"Jaseb Jasa Pasang {duration}"
+
+        if amount <= 0:
+            amount = 39000
+
+        await event.respond(
+            f"⏳ **Format Terdeteksi! Memproses Aktivasi Manual...**\n\n"
+            f"👤 Client ID: `{user_id}`\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Nominal: Rp {amount:,}\n"
+            f"📅 Durasi: {duration}"
+        )
+
+        import time, random
+        dummy_trx_id = f"MAN-{int(time.time())}{random.randint(100, 999)}"
+
+        from src.database import get_db
+        async with get_db() as db:
+            await db.execute(
+                "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username",
+                (user_id, username, f"Client Manual {user_id}")
+            )
+            await db.execute(
+                "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, dummy_trx_id, package_name, amount, "manual", "pending")
+            )
+            await db.commit()
+
+        from src.main import process_successful_payment
+        success, msg = await process_successful_payment(dummy_trx_id)
+
+        if success:
+            await event.respond(
+                f"✅ **Aktivasi Manual Sukses!**\n\n"
+                f"Obrolan konfirmasi sukses pembayaran & panduan setup otomatis telah dikirim ke chat bot pribadi pengguna (ID: `{user_id}`)."
+            )
+        else:
+            await event.respond(f"❌ **Gagal melakukan aktivasi:** {msg}")
+
 
 # ═══ Helper functions ═══════════════════════════
 
