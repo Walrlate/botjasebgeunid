@@ -1369,14 +1369,26 @@ async def scrape_lpm_handler(event):
     if not raw_args:
         await event.respond(
             "📋 **Cara Pakai Scraper LPM:**\n"
-            "Kirim perintah: `/scrape_lpm @channel_target`\n\n"
-            "Contoh: `/scrape_lpm @RUMAHLPM`\n"
+            "Kirim perintah: `/scrape_lpm @channel_target [limit]`\n\n"
+            "Contoh:\n"
+            "• `/scrape_lpm @RUMAHLPM` (Bawaan membaca 100 pesan)\n"
+            "• `/scrape_lpm @RUMAHLPM 500` (Membaca 500 pesan)\n\n"
             "Bot akan men-scrape pesan terakhir di channel tersebut dan mengekstrak grup LPM baru secara otomatis."
         )
         return
 
-    channel_username = raw_args.strip()
-    await event.respond(f"⏳ Mengakses channel **{channel_username}** menggunakan Ubot Admin...")
+    parts = raw_args.strip().split()
+    channel_username = parts[0]
+    limit = 100
+    if len(parts) > 1:
+        try:
+            limit = int(parts[1])
+            # Batasi maksimal 1000 pesan agar tidak membebani memori server
+            limit = min(max(1, limit), 1000)
+        except ValueError:
+            pass
+
+    await event.respond(f"⏳ Mengakses channel **{channel_username}** untuk membaca **{limit} pesan** menggunakan Ubot Admin...")
 
     # Ambil sesi ubot admin
     async with get_db() as db:
@@ -1404,7 +1416,7 @@ async def scrape_lpm_handler(event):
 
     found_usernames = set()
     try:
-        async for msg in engine.client.iter_messages(channel_username, limit=100):
+        async for msg in engine.client.iter_messages(channel_username, limit=limit):
             if msg.text:
                 # Cari pola @username
                 matches = re.findall(r'@([a-zA-Z0-9_]{5,32})', msg.text)
@@ -1419,7 +1431,7 @@ async def scrape_lpm_handler(event):
         return
 
     if not found_usernames:
-        await event.respond(f"❌ Tidak ditemukan username bertema LPM di 100 pesan terakhir channel **{channel_username}**.")
+        await event.respond(f"❌ Tidak ditemukan username bertema LPM di {limit} pesan terakhir channel **{channel_username}**.")
         await engine.stop()
         return
 
