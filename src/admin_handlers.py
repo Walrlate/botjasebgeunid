@@ -77,6 +77,7 @@ def _register_admin_handlers(bot):
     async def admin_command(event):
         if not await _admin_only_check(event):
             return
+        _login_states.pop(event.sender_id, None)
         await _show_admin_panel(event)
 
     @bot.on(events.CallbackQuery(data=b"admin_main"))
@@ -278,6 +279,7 @@ def _register_admin_handlers(bot):
     async def setprice_command(event):
         if not await _admin_only_check(event):
             return
+        _login_states.pop(event.sender_id, None)
         await _show_price_categories(event)
 
     @bot.on(events.CallbackQuery(data=b"admin_prices"))

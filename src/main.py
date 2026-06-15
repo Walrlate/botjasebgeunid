@@ -207,11 +207,13 @@ async def get_web_app_url(user_id: int) -> str:
 async def start_handler(event):
     if not await check_channel_join(event):
         return
+    login_states.pop(event.sender_id, None)
     await _show_start_menu(event, is_callback=False)
 
 
 @bot.on(events.CallbackQuery(data=b"start"))
 async def callback_start_handler(event):
+    login_states.pop(event.sender_id, None)
     await _show_start_menu(event, is_callback=True)
 
 
