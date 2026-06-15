@@ -340,6 +340,38 @@ def _register_handlers(bot):
         await event.answer("🚀 Sedang memulai ulang broadcast...", alert=False)
         asyncio.create_task(start_user_broadcast(event.sender_id))
 
+    @bot.on(events.CallbackQuery(data=b"client_set_interval"))
+    async def client_set_interval_callback(event):
+        _login_states[event.sender_id] = {"state": "client_set_interval"}
+        await event.respond(
+            "⏰ **Atur Jeda Sebar Userbot**\n\n"
+            "Ketik interval sebar otomatis yang Anda inginkan dalam jam.\n"
+            "Masukkan angka jam saja (contoh: `1` untuk setiap jam, `2` untuk setiap 2 jam, dll. Maksimal 24 jam):"
+        )
+
+    @bot.on(events.CallbackQuery(data=b"client_reset_userbot"))
+    async def client_reset_userbot_handler(event):
+        uid = event.sender_id
+        session_file = f"data/sessions/user_{uid}.session"
+        if os.path.exists(session_file):
+            try:
+                os.remove(session_file)
+            except Exception as e:
+                logger.error(f"Gagal hapus session file user {uid}: {e}")
+        
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE userbots SET status='disconnected' WHERE user_id=?", (uid,)
+            )
+            await db.commit()
+            
+        _login_states[uid] = {"state": "waiting_for_phone"}
+        await event.respond(
+            "🔌 **Koneksi Userbot Berhasil Direset!**\n\n"
+            "Silakan kirimkan nomor HP akun Telegram Anda kembali untuk melakukan pairing ulang (format internasional).\n"
+            "Contoh: `+628123456789`"
+        )
+
 
 async def _show_help_main(event):
     """Tampilkan menu help utama."""
@@ -447,12 +479,24 @@ async def _show_mystatus(event, user_id: int):
             f"  ✅ Berhasil: {total_sent} grup\n"
             f"  ❌ Gagal: {total_failed} grup"
         )
-        buttons = [
-            [Button.inline("🔄 Kirim Ulang Sekarang", b"resend_jaseb"),
-             Button.inline("✍️ Edit Teks", b"edit_jaseb_btn")],
-            [Button.inline("📜 Riwayat Kirim", b"view_logs"),
-             Button.inline("⬅️ Menu Utama", b"start")]
-        ]
+        
+        is_userbot_package = "userbot" in pkg_name.lower()
+        if is_userbot_package:
+            buttons = [
+                [Button.inline("🔄 Kirim Ulang Sekarang", b"resend_jaseb"),
+                 Button.inline("✍️ Edit Teks", b"edit_jaseb_btn")],
+                [Button.inline("⏰ Atur Jeda Sebar", b"client_set_interval"),
+                 Button.inline("🔌 Reset Koneksi", b"client_reset_userbot")],
+                [Button.inline("📜 Riwayat Kirim", b"view_logs"),
+                 Button.inline("⬅️ Menu Utama", b"start")]
+            ]
+        else:
+            buttons = [
+                [Button.inline("🔄 Kirim Ulang Sekarang", b"resend_jaseb"),
+                 Button.inline("✍️ Edit Teks", b"edit_jaseb_btn")],
+                [Button.inline("📜 Riwayat Kirim", b"view_logs"),
+                 Button.inline("⬅️ Menu Utama", b"start")]
+            ]
 
     if hasattr(event, "edit"):
         try:

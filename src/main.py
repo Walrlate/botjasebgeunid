@@ -23,7 +23,8 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, KeyboardButtonUrl
+from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, KeyboardButtonUrl, PeerChannel, PeerUser, PeerChat
+from telethon.extensions import html
 
 from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME, MINI_APP_URL
 from src.database import init_db, get_db
@@ -535,6 +536,22 @@ async def user_input_handler(event):
 
     text = (event.text or "").strip()
 
+    # ── State: Menunggu jeda broadcast kustom dari client userbot ──
+    if current_state == "client_set_interval":
+        if not text.isdigit() or int(text) < 1 or int(text) > 24:
+            await event.respond("❌ Masukkan angka jam yang valid (1-24). Contoh: `2`")
+            return
+        hours = int(text)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status='active'",
+                (hours, event.sender_id)
+            )
+            await db.commit()
+        del login_states[event.sender_id]
+        await event.respond(f"✅ Jeda sebar userbot Anda berhasil diatur menjadi **setiap {hours} jam**.")
+        return
+
     # ── State: Menunggu bukti transfer manual ──
     if current_state == "waiting_for_proof":
         if not event.message.photo and not event.message.document:
@@ -598,26 +615,94 @@ async def user_input_handler(event):
 
     # ── State: Menunggu materi jaseb dari client ──
     elif current_state == "waiting_for_ad":
-        content_text = event.message.message or ""
-        media_path = ""
-
-        await event.respond("⏳ Menyimpan materi jaseb Anda...")
-
-        if event.message.media:
-            try:
-                os.makedirs("data/media", exist_ok=True)
-                media_path = await event.message.download_media(file="data/media/")
-            except Exception as e:
-                logger.error(f"Gagal download media: {e}")
-                await event.respond("⚠️ Gagal unduh media. Jaseb disimpan tanpa media.")
-
+        # 1. Cek paket aktif user untuk membedakan Forward vs Regular/Userbot
         async with get_db() as db:
-            await db.execute("DELETE FROM user_ads WHERE user_id=?", (event.sender_id,))
-            await db.execute(
-                "INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, ?, ?, ?)",
-                (event.sender_id, "Jaseb Utama", content_text, media_path)
-            )
-            await db.commit()
+            cur = await db.execute("""
+                SELECT package_name FROM subscriptions
+                WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+                ORDER BY end_date DESC LIMIT 1
+            """, (event.sender_id,))
+            sub_row = await cur.fetchone()
+        package_name = sub_row[0] if sub_row else ""
+        is_forward_pkg = "forward" in package_name.lower()
+
+        if is_forward_pkg:
+            # Harus berupa pesan forward asli
+            if not event.message.forward:
+                await event.respond(
+                    "❌ **Gagal!** Paket Anda adalah **Forward**.\n\n"
+                    "Silakan **teruskan (forward) pesan asli** dari channel/grup publik Anda ke bot ini agar link/views channel Anda bertambah."
+                )
+                return
+            
+            fwd_header = event.message.forward
+            fwd_chat_id = None
+            fwd_peer_type = None
+            fwd_msg_id = fwd_header.channel_post or fwd_header.from_message_id
+
+            if fwd_header.from_id:
+                peer = fwd_header.from_id
+                if isinstance(peer, PeerChannel):
+                    fwd_chat_id = peer.channel_id
+                    fwd_peer_type = 'channel'
+                elif isinstance(peer, PeerUser):
+                    fwd_chat_id = peer.user_id
+                    fwd_peer_type = 'user'
+                elif isinstance(peer, PeerChat):
+                    fwd_chat_id = peer.chat_id
+                    fwd_peer_type = 'chat'
+            
+            if not fwd_chat_id and fwd_header.chat_id:
+                fwd_chat_id = fwd_header.chat_id
+                fwd_peer_type = 'chat'
+
+            if not fwd_chat_id or not fwd_msg_id:
+                await event.respond("❌ **Gagal!** Tidak bisa membaca info asal forward. Pastikan meneruskan dari Channel publik.")
+                return
+
+            await event.respond("⏳ Menyimpan tautan forward jaseb Anda...")
+            
+            # Cek username jika channel publik agar lebih aman diakses userbot manapun
+            fwd_chat_id_str = str(fwd_chat_id)
+            if fwd_peer_type == 'channel':
+                try:
+                    chat_entity = await event.client.get_entity(PeerChannel(fwd_chat_id))
+                    if hasattr(chat_entity, 'username') and chat_entity.username:
+                        fwd_chat_id_str = chat_entity.username
+                        fwd_peer_type = 'username'
+                except Exception as e:
+                    logger.error(f"Gagal get entity channel username: {e}")
+
+            async with get_db() as db:
+                await db.execute("DELETE FROM user_ads WHERE user_id=?", (event.sender_id,))
+                await db.execute(
+                    "INSERT INTO user_ads (user_id, title, content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (event.sender_id, "Jaseb Utama", None, None, fwd_chat_id_str, fwd_peer_type, fwd_msg_id)
+                )
+                await db.commit()
+
+        else:
+            # Paket Regular atau Userbot -> Gunakan salinan HTML + unduh media
+            await event.respond("⏳ Menyimpan materi jaseb Anda...")
+            
+            content_html = html.unparse(event.message.message or "", event.message.entities or [])
+            media_path = ""
+
+            if event.message.media:
+                try:
+                    os.makedirs("data/media", exist_ok=True)
+                    media_path = await event.message.download_media(file="data/media/")
+                except Exception as e:
+                    logger.error(f"Gagal download media: {e}")
+                    await event.respond("⚠️ Gagal unduh media. Jaseb disimpan tanpa media.")
+
+            async with get_db() as db:
+                await db.execute("DELETE FROM user_ads WHERE user_id=?", (event.sender_id,))
+                await db.execute(
+                    "INSERT INTO user_ads (user_id, title, content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (event.sender_id, "Jaseb Utama", content_html, media_path, None, None, None)
+                )
+                await db.commit()
 
         login_states[event.sender_id]["state"] = "waiting_for_lpm_request"
         await notify_client_ad_saved(bot, event.sender_id)
@@ -954,9 +1039,11 @@ async def process_successful_payment(trx_id: str):
         else:
             new_end = now + timedelta(days=days)
             new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            is_userbot = "userbot" in package_name.lower()
+            default_interval = 2 if is_userbot else 1
             await db.execute(
-                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active', default_interval)
             )
         await db.commit()
 
@@ -1134,9 +1221,11 @@ async def approve_manual_handler(event):
         else:
             new_end = now + timedelta(days=days)
             new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            is_userbot = "userbot" in package_name.lower()
+            default_interval = 2 if is_userbot else 1
             await db.execute(
-                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active', default_interval)
             )
         await db.commit()
     

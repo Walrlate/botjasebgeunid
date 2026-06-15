@@ -3,6 +3,7 @@ import random
 import logging
 from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
+from telethon.tl.types import PeerChannel, PeerUser, PeerChat
 from telethon.errors import FloodWaitError
 from src.database import get_db
 
@@ -34,16 +35,16 @@ class JasebEngine:
         """
         self.is_running = True
         async with get_db() as db:
-            # Ambil konten iklan
-            cursor = await db.execute("SELECT content, media_path FROM user_ads WHERE id = ?", (ad_id,))
+            # Ambil konten iklan beserta info forward jika ada
+            cursor = await db.execute("SELECT content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id FROM user_ads WHERE id = ?", (ad_id,))
             ad = await cursor.fetchone()
             if not ad:
                 logger.error(f"Ad {ad_id} not found")
                 self.is_running = False
                 return False
             
-            content, media_path = ad
-
+            content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id = ad
+ 
             # Ambil package_name untuk mendeteksi apakah Regular
             cursor = await db.execute("""
                 SELECT package_name FROM subscriptions 
@@ -52,12 +53,12 @@ class JasebEngine:
             """, (user_id,))
             sub_row = await cursor.fetchone()
             package_name = sub_row[0] if sub_row else ""
-
+ 
             # Tambahkan watermark jika paket Regular
-            if package_name and "regular" in package_name.lower():
+            if package_name and "regular" in package_name.lower() and content:
                 from src.config import BOT_USERNAME
                 content = f"{content}\n\n• Promote Auto by @{BOT_USERNAME}"
-
+ 
             for link in group_links:
                 if not self.is_running:
                     break
@@ -76,10 +77,28 @@ class JasebEngine:
                     async with self.client.action(entity, 'typing'):
                         await asyncio.sleep(random.uniform(3, 7)) # Jeda simulasi mengetik manusiawi
 
-                        if media_path:
-                            msg = await self.client.send_file(entity, media_path, caption=content)
+                        if fwd_chat_id and fwd_msg_id:
+                            # METODE NATIVE FORWARD (Paket Forward)
+                            if fwd_peer_type == 'username':
+                                from_peer = fwd_chat_id
+                            elif fwd_peer_type == 'channel':
+                                from_peer = PeerChannel(int(fwd_chat_id))
+                            elif fwd_peer_type == 'user':
+                                from_peer = PeerUser(int(fwd_chat_id))
+                            elif fwd_peer_type == 'chat':
+                                from_peer = PeerChat(int(fwd_chat_id))
+                            else:
+                                from_peer = int(fwd_chat_id) if fwd_chat_id.isdigit() else fwd_chat_id
+
+                            # Lakukan forward secara native
+                            msg_list = await self.client.forward_messages(entity, messages=fwd_msg_id, from_peer=from_peer)
+                            msg = msg_list[0] if isinstance(msg_list, list) else msg_list
                         else:
-                            msg = await self.client.send_message(entity, content)
+                            # METODE COPY-PASTE HTML (Paket Regular & Userbot)
+                            if media_path:
+                                msg = await self.client.send_file(entity, media_path, caption=content, parse_mode='html')
+                            else:
+                                msg = await self.client.send_message(entity, content, parse_mode='html')
                         
                         # Buat link pesan (Proof Hub)
                         msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else "Private/Linked"
