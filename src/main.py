@@ -536,26 +536,26 @@ async def user_input_handler(event):
     text = event.text.strip()
     
     if current_state == "waiting_for_ad":
-        # 1. Simpan pesan atau media iklan
+        # 1. Simpan pesan atau media jaseb
         content_text = event.message.message or ""
         media_path = ""
         
-        await event.respond("⏳ **Sedang memproses dan menyimpan materi iklan Anda...**")
+        await event.respond("⏳ **Sedang memproses dan menyimpan materi jaseb Anda...**")
         
         if event.message.media:
             try:
                 os.makedirs("data/media", exist_ok=True)
                 media_path = await event.message.download_media(file="data/media/")
             except Exception as e:
-                logger.error(f"Gagal mengunduh media iklan: {e}")
-                await event.respond("⚠️ Gagal mengunduh file media. Iklan akan disimpan tanpa media.")
+                logger.error(f"Gagal mengunduh media jaseb: {e}")
+                await event.respond("⚠️ Gagal mengunduh file media. Jaseb akan disimpan tanpa media.")
                 
         async with await get_db() as db:
-            # Bersihkan iklan lama milik user
+            # Bersihkan jaseb lama milik user
             await db.execute("DELETE FROM user_ads WHERE user_id = ?", (event.sender_id,))
             await db.execute(
                 "INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, ?, ?, ?)",
-                (event.sender_id, "Iklan Utama", content_text, media_path)
+                (event.sender_id, "Jaseb Utama", content_text, media_path)
             )
             await db.commit()
             
@@ -563,7 +563,7 @@ async def user_input_handler(event):
         login_states[event.sender_id]["state"] = "waiting_for_lpm_request"
         
         await event.respond(
-            "📝 **Iklan Anda berhasil disimpan!**\n\n"
+            "📝 **Teks jaseb Anda berhasil disimpan!**\n\n"
             "Sekarang, silakan kirimkan daftar username/link grup LPM kustom Anda (maksimal 10 grup, dipisahkan dengan spasi).\n"
             "Contoh: `@grup1 @grup2` atau `t.me/grup3`\n\n"
             "Jika Anda tidak memiliki LPM kustom dan ingin menggunakan LPM default sistem, silakan ketik **/skip**."
@@ -605,8 +605,8 @@ async def user_input_handler(event):
         del login_states[event.sender_id]
         
         await event.respond(
-            "🎉 **Proses Registrasi Iklan Selesai!**\n\n"
-            "Iklan Anda telah didaftarkan dan akan disebarkan secara otomatis oleh engine autopilot.\n"
+            "🎉 **Proses Registrasi Jaseb Selesai!**\n\n"
+            "Teks jaseb Anda telah didaftarkan dan akan disebarkan secara otomatis oleh engine autopilot.\n"
             "Ketik /start untuk melihat detail profil langganan Anda."
         )
         
@@ -985,7 +985,7 @@ async def check_payment_status_handler(event):
                         
                         await db.commit()
                         
-                        # Set state percakapan ke waiting_for_ad untuk meminta materi iklan
+                        # Set state percakapan ke waiting_for_ad untuk meminta teks jaseb
                         login_states[u_id] = {
                             "state": "waiting_for_ad",
                             "user_id": u_id,
@@ -1000,8 +1000,8 @@ async def check_payment_status_handler(event):
                             f"💰 Total: Rp {amount:,}\n"
                             f"📅 Berlaku Hingga: **{new_end_str}**\n\n"
                             f"✍️ **Langkah Selanjutnya (Wajib):**\n"
-                            f"Silakan kirimkan materi iklan Anda langsung ke chat ini.\n"
-                            f"Iklan dapat berupa teks biasa, foto/video dengan caption, emoji premium, atau pesan forward iklan toko Anda."
+                            f"Silakan kirim teks yang mau di promote langsung ke chat ini.\n"
+                            f"Pesan jaseb dapat berupa teks biasa, foto/video dengan caption, emoji premium, atau pesan forward dari channel toko Anda."
                         )
                         return
                     else:
@@ -1043,9 +1043,9 @@ async def start_user_broadcast(user_id):
         """, (user_id,))
         ad_row = await cursor.fetchone()
         if not ad_row:
-            logger.warning(f"Tidak ada materi iklan terdaftar untuk user_id: {user_id}")
+            logger.warning(f"Tidak ada materi jaseb terdaftar untuk user_id: {user_id}")
             # Kirim peringatan ke user
-            await bot.send_message(user_id, "⚠️ **Materi iklan kosong!** Silakan kirimkan materi iklan (teks/media/forward) yang ingin disebarkan ke chat bot ini.")
+            await bot.send_message(user_id, "⚠️ **Teks jaseb kosong!** Silakan kirim teks yang mau di promote langsung ke chat bot ini.")
             return
         ad_id = ad_row[0]
         
@@ -1062,7 +1062,7 @@ async def start_user_broadcast(user_id):
             else:
                 logger.warning(f"Sesi userbot pembeli {user_id} terputus atau tidak aktif.")
                 # Kirim peringatan ke user
-                await bot.send_message(user_id, "⚠️ **Sesi Userbot Anda terputus!** Silakan sambungkan kembali via menu /start agar iklan dapat disebarkan.")
+                await bot.send_message(user_id, "⚠️ **Sesi Userbot Anda terputus!** Silakan sambungkan kembali via menu /start agar jaseb dapat disebarkan.")
                 return
         else:
             # Cari sesi userbot admin (untuk paket Regular/Forward)
@@ -1073,7 +1073,7 @@ async def start_user_broadcast(user_id):
             else:
                 logger.warning("Sesi userbot admin terputus. Jaseb biasa tidak dapat disebarkan.")
                 # Kirim peringatan ke admin
-                await bot.send_message(ADMIN_ID, "⚠️ **Sesi Ubot Admin terputus!** Silakan sambungkan kembali ubot Anda agar iklan Jaseb Regular/Forward pelanggan dapat disebarkan.")
+                await bot.send_message(ADMIN_ID, "⚠️ **Sesi Ubot Admin terputus!** Silakan sambungkan kembali ubot Anda agar jaseb Regular/Forward pelanggan dapat disebarkan.")
                 return
                 
         # 4. Bangun daftar LPM target
