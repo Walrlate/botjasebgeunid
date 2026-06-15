@@ -145,27 +145,36 @@ async def start_handler(event):
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
     
     title = f"{EMOJI_UI['start']} GEUNID-JASEB REVOLUTION"
-    content = (
-        f"Halo **{full_name}**, selamat datang di ekosistem Jaseb tercanggih.\n\n"
-        f"{EMOJI_UI['rocket']} **Kenapa GEUNID-JASEB?**\n"
-        "• Pengiriman 10x lebih aman (Stealth Mode)\n"
-        "• Laporan Real-Time (Proof Hub)\n"
-        "• Pembayaran Otomatis (QRIS)\n"
-        "• Sistem Multi-Account Cluster\n"
-        "• Hubungkan Ubot instan dengan ketik `/install`"
-    )
-    
-    welcome_text = format_menu_text(title, content)
     web_app_url = await get_web_app_url(user_id)
     
-    buttons = [
-        [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-        [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
-        [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
-        [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-        [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
-    ]
-    
+    if user_id == ADMIN_ID:
+        content = (
+            f"Halo **{full_name}** (Admin), selamat datang di panel kendali Jaseb.\n\n"
+            f"{EMOJI_UI['rocket']} **Fitur Admin:**\n"
+            "• Kelola bot & pengiriman iklan\n"
+            "• Hubungkan Ubot instan dengan ketik `/install`\n"
+            "• Pindai LPM aktif dengan `/scan`"
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
+            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
+            [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
+            [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
+        ]
+    else:
+        content = (
+            f"Halo **{full_name}**, selamat datang di layanan GEUNID-JASEB.\n\n"
+            f"Untuk mengetahui daftar fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, "
+            f"silakan gunakan tombol **📞 Hubungi Admin / Bantuan** di bawah ini."
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
+            [Button.url("📞 Hubungi Admin / Bantuan", "https://t.me/JASEBAOSHI")]
+        ]
+        
+    welcome_text = format_menu_text(title, content)
     await event.respond(welcome_text, buttons=buttons)
 
 
@@ -176,27 +185,36 @@ async def callback_start_handler(event):
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
     
     title = f"{EMOJI_UI['start']} GEUNID-JASEB REVOLUTION"
-    content = (
-        f"Halo **{full_name}**, selamat datang di ekosistem Jaseb tercanggih.\n\n"
-        f"{EMOJI_UI['rocket']} **Kenapa GEUNID-JASEB?**\n"
-        "• Pengiriman 10x lebih aman (Stealth Mode)\n"
-        "• Laporan Real-Time (Proof Hub)\n"
-        "• Pembayaran Otomatis (QRIS)\n"
-        "• Sistem Multi-Account Cluster\n"
-        "• Hubungkan Ubot instan dengan ketik `/install`"
-    )
-    
-    welcome_text = format_menu_text(title, content)
     web_app_url = await get_web_app_url(user_id)
     
-    buttons = [
-        [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-        [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
-        [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
-        [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-        [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
-    ]
-    
+    if user_id == ADMIN_ID:
+        content = (
+            f"Halo **{full_name}** (Admin), selamat datang di panel kendali Jaseb.\n\n"
+            f"{EMOJI_UI['rocket']} **Fitur Admin:**\n"
+            "• Kelola bot & pengiriman iklan\n"
+            "• Hubungkan Ubot instan dengan ketik `/install`\n"
+            "• Pindai LPM aktif dengan `/scan`"
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
+            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
+            [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
+            [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
+        ]
+    else:
+        content = (
+            f"Halo **{full_name}**, selamat datang di layanan GEUNID-JASEB.\n\n"
+            f"Untuk mengetahui daftar fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, "
+            f"silakan gunakan tombol **📞 Hubungi Admin / Bantuan** di bawah ini."
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
+            [Button.url("📞 Hubungi Admin / Bantuan", "https://t.me/JASEBAOSHI")]
+        ]
+        
+    welcome_text = format_menu_text(title, content)
     await event.edit(welcome_text, buttons=buttons)
 
 
@@ -258,6 +276,9 @@ async def profile_handler(event):
 
 @bot.on(events.CallbackQuery(data=b"login_userbot"))
 async def login_userbot_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.answer("⚠️ Menu Userbot hanya dapat diakses oleh Admin.", alert=True)
+        return
     if not await check_channel_join(event):
         return
     async with await get_db() as db:
@@ -314,6 +335,14 @@ async def disconnect_userbot_handler(event):
 
 @bot.on(events.CallbackQuery(data=b"view_packages"))
 async def view_packages(event):
+    if event.sender_id != ADMIN_ID:
+        await event.edit(
+            "📞 **Hubungi Bantuan / Admin**\n\n"
+            "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
+            "Telegram Admin: @JASEBAOSHI",
+            buttons=[[Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")], [Button.inline("⬅️ Kembali", b"start")]]
+        )
+        return
     promo_text = (
         "── **𝗣𝗔𝗞𝗘𝗧 𝗥𝗘𝗚𝗨𝗟𝗔𝗥 𝟮𝟬 𝗟𝗣𝗠**\n"
         "𖤓 5 HARI : 9.500 (Promo)\n"
@@ -347,6 +376,14 @@ from src.jaseb_engine import JasebEngine
 
 @bot.on(events.CallbackQuery(data=b"order"))
 async def order_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.edit(
+            "📞 **Hubungi Bantuan / Admin**\n\n"
+            "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
+            "Telegram Admin: @JASEBAOSHI",
+            buttons=[[Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")], [Button.inline("⬅️ Kembali", b"start")]]
+        )
+        return
     if not await check_channel_join(event):
         return
     text = (
@@ -462,6 +499,9 @@ login_states = {}
 
 @bot.on(events.NewMessage(pattern='/install'))
 async def install_command_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.respond("⚠️ Perintah `/install` hanya dapat digunakan oleh Admin. Hubungi admin di @JASEBAOSHI untuk bantuan.")
+        return
     if not await check_channel_join(event):
         return
     login_states[event.sender_id] = {"state": "waiting_for_phone"}
@@ -473,6 +513,9 @@ async def install_command_handler(event):
 
 @bot.on(events.CallbackQuery(data=b"add_number"))
 async def add_number_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.answer("⚠️ Menu ini hanya dapat diakses oleh Admin.", alert=True)
+        return
     if not await check_channel_join(event):
         return
     login_states[event.sender_id] = {"state": "waiting_for_phone"}
@@ -613,6 +656,9 @@ async def order_format_parser(event):
     is_userbot_format = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" in text or "FORMAT PASANG USERBOT" in text
     
     if is_jaseb_format or is_userbot_format:
+        if event.sender_id != ADMIN_ID:
+            await event.respond("⚠️ Pembuatan invoice QRIS otomatis saat ini hanya diperbolehkan untuk Admin. Silakan hubungi admin di @JASEBAOSHI untuk memesan paket.")
+            return
         if not await check_channel_join(event):
             return
             
@@ -682,6 +728,9 @@ async def order_format_parser(event):
 
 @bot.on(events.NewMessage(pattern=r'/scan(?:\s+(.+))?'))
 async def scan_lpm_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.respond("⚠️ Perintah `/scan` hanya dapat digunakan oleh Admin. Hubungi admin di @JASEBAOSHI untuk bantuan.")
+        return
     if not await check_channel_join(event):
         return
         
