@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.tl.types import KeyboardButtonWebView
+from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, KeyboardButtonUrl
 
 from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME
 from src.database import init_db, get_db
@@ -265,13 +265,13 @@ async def _show_start_menu(event, is_callback: bool = False):
             "• `/install` — Sambung ubot admin"
         )
         buttons = [
-            [KeyboardButtonWebView(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline("🛡️ Panel Admin", b"admin_main"),
-             Button.inline("📊 Statistik", b"admin_stats")],
-            [Button.inline("💰 Edit Harga", b"admin_prices"),
-             Button.inline("👥 Billing", b"admin_billing")],
-            [Button.inline("🤖 Userbot", b"admin_ubots"),
-             Button.inline("📋 Order", b"admin_orders")],
+            [KeyboardButtonWebView(text=f"{EMOJI_UI['rocket']} Buka Mini App", url=web_app_url)],
+            [KeyboardButtonCallback(text="🛡️ Panel Admin", data=b"admin_main"),
+             KeyboardButtonCallback(text="📊 Statistik", data=b"admin_stats")],
+            [KeyboardButtonCallback(text="💰 Edit Harga", data=b"admin_prices"),
+             KeyboardButtonCallback(text="👥 Billing", data=b"admin_billing")],
+            [KeyboardButtonCallback(text="🤖 Userbot", data=b"admin_ubots"),
+             KeyboardButtonCallback(text="📋 Order", data=b"admin_orders")],
         ]
     else:
         title = f"{EMOJI_UI['start']} GEUNID-JASEB"
@@ -283,11 +283,11 @@ async def _show_start_menu(event, is_callback: bool = False):
             "📊 `/mystatus` — Cek status jaseb Anda"
         )
         buttons = [
-            [KeyboardButtonWebView(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline("📖 Bantuan & Harga", b"help_main"),
-             Button.inline("🛒 Order Sekarang", b"order_start")],
-            [Button.inline("📊 Status Jaseb Saya", b"my_status")],
-            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
+            [KeyboardButtonWebView(text=f"{EMOJI_UI['rocket']} Buka Mini App", url=web_app_url)],
+            [KeyboardButtonCallback(text="📖 Bantuan & Harga", data=b"help_main"),
+             KeyboardButtonCallback(text="🛒 Order Sekarang", data=b"order_start")],
+            [KeyboardButtonCallback(text="📊 Status Jaseb Saya", data=b"my_status")],
+            [KeyboardButtonUrl(text="📞 Hubungi Admin", url=f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
         ]
 
     text = format_menu_text(title, content)
