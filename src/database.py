@@ -1,0 +1,103 @@
+import aiosqlite
+import os
+from src.config import DB_PATH
+
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Table for Users
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                full_name TEXT,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Table for Packages/Subscriptions
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                package_name TEXT,
+                capacity_lpm INTEGER,
+                start_date TIMESTAMP,
+                end_date TIMESTAMP,
+                status TEXT DEFAULT 'active',
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Table for User Ads (Multi-Variation)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS user_ads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                title TEXT,
+                content TEXT,
+                media_path TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Table for LPM Lists (Enhanced)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS lpm_lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_link TEXT UNIQUE,
+                group_id INTEGER,
+                group_name TEXT,
+                member_count INTEGER DEFAULT 0,
+                last_active TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1
+            )
+        ''')
+
+        # Table for Detailed Transaction Tracking (KlikQRIS)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                trx_id TEXT UNIQUE,
+                package_id INTEGER,
+                amount INTEGER,
+                status TEXT DEFAULT 'pending', -- pending, success, expired
+                payment_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+
+        # Table for Forward Logs (Proof Hub)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS forward_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                ad_id INTEGER,
+                group_id INTEGER,
+                msg_link TEXT,
+                status TEXT, -- success, failed
+                error_msg TEXT,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id),
+                FOREIGN KEY (ad_id) REFERENCES user_ads (id)
+            )
+        ''')
+
+        # Table for Multi-Session Userbots
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS userbots (
+                user_id INTEGER PRIMARY KEY,
+                phone_number TEXT,
+                session_name TEXT,
+                status TEXT DEFAULT 'disconnected',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        await db.commit()
+
+async def get_db():
+    return await aiosqlite.connect(DB_PATH)

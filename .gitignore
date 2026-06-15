@@ -1,0 +1,44 @@
+# Environment Variables (SENSITIVE)
+.env
+
+# Database (SQLite)
+data/jaseb.db
+data/*.db
+
+# Telegram Session files (SENSITIVE)
+*.session
+data/sessions/
+*.session-journal
+
+# Python
+__pycache__/
+src/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+venv/
+.venv/
+env/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js Build Output
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# IDEs and System files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store

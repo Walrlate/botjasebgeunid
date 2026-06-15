@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-geun-bg text-slate-800 antialiased selection:bg-blue-500/20 selection:text-blue-900;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+}
+
+/* Custom Scrollbar for Telegram WebView (Light Premium) */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.8);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(36, 129, 204, 0.15);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(36, 129, 204, 0.3);
+}
+
+/* Light Mode Grid Overlay */
+.grid-bg {
+  background-image: 
+    linear-gradient(to right, rgba(36, 129, 204, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(36, 129, 204, 0.02) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 75%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 75%, transparent 100%);
+}
+
+/* Pastel Orbiting Glow Blobs */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: 0;
+  animation: orbit 20s infinite alternate ease-in-out;
+}
+
+@keyframes orbit {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(25px, -35px) scale(1.15);
+  }
+  100% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+}
+
+.transition-spring {
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Light Mode Glassmorphism Panels */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.glass-panel-active {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(36, 129, 204, 0.25);
+  box-shadow: 0 10px 30px rgba(36, 129, 204, 0.06);
+}
+
+/* Light Mode Glow Pulse Animation */
+@keyframes light-border-pulse {
+  0% {
+    border-color: rgba(36, 129, 204, 0.15);
+    box-shadow: 0 8px 30px rgba(36, 129, 204, 0.02);
+  }
+  100% {
+    border-color: rgba(74, 144, 226, 0.45);
+    box-shadow: 0 12px 40px rgba(74, 144, 226, 0.08);
+  }
+}
+
+.border-glowing-active {
+  animation: light-border-pulse 3s infinite alternate ease-in-out;
+}
+
+/* Half Circle Notches for Ticket Stub Effect (Light Mode) */
+.ticket-notch-l {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #F1F5F9; /* matches geun-bg body color */
+  transform: translateY(-50%);
+  border-right: 1px solid rgba(36, 129, 204, 0.06);
+  z-index: 10;
+}
+
+.ticket-notch-r {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #F1F5F9; /* matches geun-bg body color */
+  transform: translateY(-50%);
+  border-left: 1px solid rgba(36, 129, 204, 0.06);
+  z-index: 10;
+}
+
+/* Shimmer Reflection Effect for Premium Badges */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-badge {
+  background: linear-gradient(90deg, #2481CC 25%, #63A4F0 50%, #2481CC 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite linear;
+}
+
+.shimmer-badge-emerald {
+  background: linear-gradient(90deg, #10B981 25%, #34D399 50%, #10B981 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite linear;
+}
