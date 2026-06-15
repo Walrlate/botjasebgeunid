@@ -1296,6 +1296,11 @@ async def import_lpm_handler(event):
                 )
                 if cursor.rowcount > 0:
                     success_count += 1
+                # Pastikan status diaktifkan kembali jika sebelumnya sempat tidak aktif
+                await db.execute(
+                    "UPDATE lpm_lists SET is_active=1 WHERE group_link=?",
+                    (link,)
+                )
             except Exception as e:
                 logger.error(f"Gagal mengimpor LPM {link}: {e}")
         await db.commit()
