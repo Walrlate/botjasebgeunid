@@ -1369,6 +1369,42 @@ async def run_expiry_reminder():
 
 
 # ─────────────────────────────────────────
+# HTTP Web API Server (Dinamis untuk Vercel)
+# ─────────────────────────────────────────
+from aiohttp import web
+
+async def handle_prices_api(request):
+    try:
+        prices_path = os.path.join("frontend", "src", "prices.json")
+        if os.path.exists(prices_path):
+            with open(prices_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return web.json_response(data, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            })
+        return web.json_response({"error": "Prices file not found"}, status=404)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def run_web_server():
+    app = web.Application()
+    app.router.add_get('/api/prices', handle_prices_api)
+    app.router.add_options('/api/prices', lambda r: web.Response(headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }))
+    port = int(os.environ.get("PORT", 8080))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    logger.info(f"Memulai API HTTP Server di port {port}...")
+    await site.start()
+
+
+# ─────────────────────────────────────────
 # Main Entry Point
 # ─────────────────────────────────────────
 async def main():
@@ -1391,6 +1427,7 @@ async def main():
     logger.info("Memulai Scheduler & Services...")
     asyncio.create_task(run_jaseb_scheduler())
     asyncio.create_task(run_expiry_reminder())
+    asyncio.create_task(run_web_server())
 
     logger.info("Bot GEUNID-JASEB siap! Semua sistem aktif.")
     await bot.run_until_disconnected()
