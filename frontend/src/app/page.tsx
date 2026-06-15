@@ -301,7 +301,7 @@ const Dashboard = () => {
         if (isPaid) {
           clearInterval(pollInterval);
         }
-      }, 6000);
+      }, 4000);
     }
     return () => clearInterval(pollInterval);
   }, [checkoutStep, qrisData]);
@@ -1227,23 +1227,21 @@ const Dashboard = () => {
                             </ul>
                           </div>
 
-                          {/* Action Button */}
-                          <div className="space-y-2.5">
-                            <button
-                              onClick={handleCheckQRISStatusManual}
-                              disabled={loadingCheckout}
-                              className="w-full bg-gradient-to-r from-geun-blue to-geun-purple text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium hover:opacity-90 active:scale-98 transition-all duration-300"
-                            >
-                              {loadingCheckout ? "⏳ Memeriksa..." : "🔄 Cek Status Bayar"}
-                            </button>
+                          {/* Status Indicator & Alternative Web Checkout */}
+                          <div className="pt-2 flex flex-col items-center justify-center space-y-3">
+                            <div className="flex items-center gap-2 text-[10px] font-extrabold text-slate-500 bg-slate-100 px-4 py-2.5 rounded-full border border-slate-200/50 shadow-inner">
+                              <span className="w-2.5 h-2.5 rounded-full border-2 border-geun-blue border-t-transparent animate-spin shrink-0"></span>
+                              <span className="animate-pulse tracking-wide uppercase">Menunggu Pembayaran Otomatis...</span>
+                            </div>
+
                             {qrisData?.payment_url && (
                               <a
                                 href={qrisData.payment_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider text-center block transition-all duration-300"
+                                className="text-[9px] font-black text-geun-muted hover:text-geun-blue uppercase tracking-wider underline transition-colors"
                               >
-                                🔗 Bayar via Browser / Web Checkout
+                                Alternatif: Bayar via Browser / Web Checkout ↗
                               </a>
                             )}
                           </div>
