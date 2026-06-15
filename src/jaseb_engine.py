@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class JasebEngine:
     def __init__(self, user_session_name, api_id, api_hash):
-        self.client = TelegramClient(user_session_name, api_id, api_hash)
+        self.client = TelegramClient(user_session_name, api_id, api_hash, receive_updates=False)
         self.is_running = False
 
     async def start(self):

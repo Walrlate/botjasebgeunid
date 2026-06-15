@@ -56,6 +56,17 @@ bot = TelegramClient('data/bot_session', API_ID, API_HASH)
 # State machine untuk percakapan multi-langkah
 login_states = {}
 
+async def clear_login_state(user_id):
+    """Membersihkan state login client dengan aman dan memutus koneksi client jika ada."""
+    state_data = login_states.pop(user_id, None)
+    if state_data and "client" in state_data:
+        try:
+            client = state_data["client"]
+            if client and client.is_connected():
+                await client.disconnect()
+        except Exception as e:
+            logger.error(f"Gagal memutuskan koneksi client saat clear state: {e}")
+
 
 # ─────────────────────────────────────────
 # Helpers: Load Prices
@@ -207,13 +218,13 @@ async def get_web_app_url(user_id: int) -> str:
 async def start_handler(event):
     if not await check_channel_join(event):
         return
-    login_states.pop(event.sender_id, None)
+    await clear_login_state(event.sender_id)
     await _show_start_menu(event, is_callback=False)
 
 
 @bot.on(events.CallbackQuery(data=b"start"))
 async def callback_start_handler(event):
-    login_states.pop(event.sender_id, None)
+    await clear_login_state(event.sender_id)
     await _show_start_menu(event, is_callback=True)
 
 
@@ -690,7 +701,7 @@ async def user_input_handler(event):
         await event.respond("⏳ Menghubungkan ke Telegram & mengirim OTP...")
         os.makedirs("data/sessions", exist_ok=True)
         session_path = f"data/sessions/user_{event.sender_id}"
-        client = TelegramClient(session_path, API_ID, API_HASH)
+        client = TelegramClient(session_path, API_ID, API_HASH, receive_updates=False)
         try:
             await client.connect()
             send_code_result = await client.send_code_request(phone_number)
@@ -707,10 +718,7 @@ async def user_input_handler(event):
         except Exception as e:
             logger.error(f"Gagal kirim OTP: {e}")
             await event.respond(f"❌ Gagal kirim OTP: {str(e)}")
-            if client.is_connected():
-                await client.disconnect()
-            if event.sender_id in login_states:
-                del login_states[event.sender_id]
+            await clear_login_state(event.sender_id)
 
     # ── State: Menunggu OTP ──
     elif current_state == "waiting_for_otp":
@@ -761,6 +769,13 @@ async def _save_userbot_session(event, client, phone: str):
             (event.sender_id, phone, f"user_{event.sender_id}", "connected")
         )
         await db.commit()
+    
+    # Putuskan koneksi client sementara agar session terlepas dengan bersih
+    try:
+        await client.disconnect()
+    except Exception as e:
+        logger.error(f"Gagal memutuskan koneksi client sementara: {e}")
+
     del login_states[event.sender_id]
     await event.respond(
         "🎉 **Userbot Berhasil Terhubung!**\n\n"
