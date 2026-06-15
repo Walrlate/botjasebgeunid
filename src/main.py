@@ -1869,6 +1869,66 @@ async def handle_checkout_api(request):
         if request_lpm and request_lpm.strip():
             pkg_desc = f"{package_name} (LPM: {request_lpm.strip()})"
 
+        payment_method = data.get("payment_method", "qris")
+        full_name = f"{first_name} {last_name}".strip() or "Client MiniApp"
+
+        if payment_method == "manual":
+            import random, time
+            dummy_trx_id = f"MAN-{int(time.time())}{random.randint(100, 999)}"
+            trx_data = {
+                "transaction_id": dummy_trx_id,
+                "payment_url": "manual",
+                "total_amount": int(amount),
+                "expired_at": "-"
+            }
+            logger.info(f"Memproses checkout MANUAL dari Mini App: User={user_id}, Paket={pkg_desc}, Harga={amount}, OrderID={dummy_trx_id}")
+
+            async with get_db() as db:
+                await db.execute(
+                    "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
+                    (int(user_id), username, full_name)
+                )
+                await db.execute(
+                    "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                    (int(user_id), dummy_trx_id, pkg_desc, int(amount), "manual", "pending")
+                )
+                await db.commit()
+
+            # Kirim notifikasi ke admin
+            try:
+                await notify_admin_new_order(
+                    bot, int(ADMIN_ID), int(user_id), full_name, username, pkg_desc, int(amount), dummy_trx_id
+                )
+            except Exception as e:
+                logger.error(f"Gagal kirim notifikasi order manual baru ke admin: {e}")
+
+            # Kirim info pesanan ke chat bot pribadi user
+            pay_text = (
+                f"✅ **Pesanan Manual Berhasil Dibuat via Mini App!**\n\n"
+                f"📦 Paket: **{pkg_desc}**\n"
+                f"💰 Total Bayar: **Rp {amount:,}**\n"
+                f"🆔 ID Order: `{dummy_trx_id}`\n\n"
+                f"Silakan hubungi admin untuk melakukan pembayaran manual dan mengirimkan bukti transfer."
+            )
+            try:
+                await bot.send_message(
+                    int(user_id),
+                    pay_text
+                )
+            except Exception as e:
+                logger.error(f"Gagal kirim info manual ke chat user {user_id}: {e}")
+
+            return web.json_response({
+                "status": True,
+                "message": "Transaksi manual berhasil didaftarkan.",
+                "data": trx_data
+            }, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            })
+
         logger.info(f"Memproses checkout QRIS dari Mini App: User={user_id}, Paket={pkg_desc}, Harga={amount}")
 
         # Buat QRIS transaksi
@@ -1879,8 +1939,6 @@ async def handle_checkout_api(request):
                 "Access-Control-Allow-Methods": "POST, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type"
             })
-
-        full_name = f"{first_name} {last_name}".strip() or "Client MiniApp"
 
         # Simpan ke DB SQLite
         async with get_db() as db:

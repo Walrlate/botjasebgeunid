@@ -102,6 +102,10 @@ const Dashboard = () => {
     total_amount: number;
     expired_at: string;
   } | null>(null);
+  const [manualTrxData, setManualTrxData] = useState<{
+    transaction_id: string;
+    total_amount: number;
+  } | null>(null);
   const [timeLeft, setTimeLeft] = useState(1800);
 
   const [stats, setStats] = useState({
@@ -211,6 +215,7 @@ const Dashboard = () => {
     setAccountCount(1);
     setIsModalOpen(true);
     setCopied(false);
+    setManualTrxData(null);
   };
 
   const getOrderFormatText = () => {
@@ -225,11 +230,15 @@ const Dashboard = () => {
       ? selectedPackage.price * accountCount
       : selectedPackage.price;
 
+    const trxIdLine = manualTrxData?.transaction_id
+      ? `\n– ID Order: ${manualTrxData.transaction_id}`
+      : '';
+
     if (selectedPackage.type === 'userbot') {
       const uidsSection = accountCount > 1 && userIdsInput.trim()
         ? `\n– List UserID: ${userIdsInput.trim()}`
         : '';
-      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</b>
+      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username: ${getUsername() || '@username'}
 – Durasi userbot: ${selectedPackage.duration}
@@ -239,7 +248,7 @@ const Dashboard = () => {
 – Payment: ${paymentText}
 – Total Harga: Rp ${currentPrice.toLocaleString('id-ID')}`;
     } else {
-      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>
+      return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username akun: ${getUsername() || '@username'}
 – Durasi Jaseb: ${selectedPackage.duration}
@@ -317,60 +326,62 @@ const Dashboard = () => {
 
     triggerHaptic('medium');
 
-    if (selectedPaymentMethod === 'manual') {
-      setCheckoutStep('manual_invoice');
-    } else if (selectedPaymentMethod === 'qris') {
-      if (!user) {
-        alert("Gagal mendeteksi akun Telegram Anda. Pastikan Anda membuka Mini App ini dari dalam bot Telegram.");
-        return;
-      }
-      if (!selectedPackage) return;
+    if (!user) {
+      alert("Gagal mendeteksi akun Telegram Anda. Pastikan Anda membuka Mini App ini dari dalam bot Telegram.");
+      return;
+    }
+    if (!selectedPackage) return;
 
-      setLoadingCheckout(true);
-      const currentPrice = selectedPackage.type === 'userbot'
-        ? selectedPackage.price * accountCount
-        : selectedPackage.price;
+    setLoadingCheckout(true);
+    const currentPrice = selectedPackage.type === 'userbot'
+      ? selectedPackage.price * accountCount
+      : selectedPackage.price;
 
-      const packName = selectedPackage.type === 'userbot'
-        ? `Jaseb Userbot ${selectedPackage.duration}`
-        : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
+    const packName = selectedPackage.type === 'userbot'
+      ? `Jaseb Userbot ${selectedPackage.duration}`
+      : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
 
-      try {
-        const payload = {
-          user_id: user.id,
-          username: user.username || "",
-          first_name: user.first_name || "",
-          last_name: user.last_name || "",
-          package_name: packName,
-          amount: currentPrice,
-          duration: selectedPackage.duration,
-          lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
-          package_type: selectedPackage.type,
-          request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : ""
-        };
+    try {
+      const payload = {
+        user_id: user.id,
+        username: user.username || "",
+        first_name: user.first_name || "",
+        last_name: user.last_name || "",
+        package_name: packName,
+        amount: currentPrice,
+        duration: selectedPackage.duration,
+        lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
+        package_type: selectedPackage.type,
+        request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : "",
+        payment_method: selectedPaymentMethod
+      };
 
-        const response = await fetch('/api/checkout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-        const resData = await response.json();
-        if (resData.status && resData.data) {
+      const resData = await response.json();
+      if (resData.status && resData.data) {
+        if (selectedPaymentMethod === 'manual') {
+          setManualTrxData(resData.data);
+          setCheckoutStep('manual_invoice');
+        } else {
           setQrisData(resData.data);
           setTimeLeft(1800); // Reset countdown timer to 30 minutes
           setCheckoutStep('qris_invoice');
-        } else {
-          alert(`❌ Gagal membuat transaksi: ${resData.error || 'Terjadi kesalahan sistem.'}`);
         }
-      } catch (err) {
-        console.error("Checkout Error:", err);
-        alert("❌ Terjadi kesalahan koneksi. Silakan coba lagi.");
-      } finally {
-        setLoadingCheckout(false);
+      } else {
+        alert(`❌ Gagal membuat transaksi: ${resData.error || 'Terjadi kesalahan sistem.'}`);
       }
+    } catch (err) {
+      console.error("Checkout Error:", err);
+      alert("❌ Terjadi kesalahan koneksi. Silakan coba lagi.");
+    } finally {
+      setLoadingCheckout(false);
     }
   };
 
@@ -1346,6 +1357,7 @@ const Dashboard = () => {
                                 {selectedPackage.type === 'userbot' ? (
                                   <>
                                     <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</p>
+                                    {manualTrxData?.transaction_id && <p className="font-bold text-slate-800">– ID Order: {manualTrxData.transaction_id}</p>}
                                     <p>– ID Telegram: {user?.id || 'Belum terdeteksi'}</p>
                                     <p>– Username: "{getUsername() || '@username'}"</p>
                                     <p>– Durasi: "{selectedPackage.duration}"</p>
@@ -1357,6 +1369,7 @@ const Dashboard = () => {
                                 ) : (
                                   <>
                                     <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</p>
+                                    {manualTrxData?.transaction_id && <p className="font-bold text-slate-800">– ID Order: {manualTrxData.transaction_id}</p>}
                                     <p>– ID Telegram: {user?.id || 'Belum terdeteksi'}</p>
                                     <p>– Username: "{getUsername() || '@username'}"</p>
                                     <p>– Durasi: "{selectedPackage.duration}"</p>

@@ -99,9 +99,9 @@ def _register_admin_handlers(bot):
             cur = await db.execute("SELECT COUNT(*) FROM users")
             total_users = (await cur.fetchone())[0]
 
-            # Active subscriptions
+            # Active or paused subscriptions
             cur = await db.execute(
-                "SELECT COUNT(*) FROM subscriptions WHERE status='active' AND end_date > datetime('now','localtime')"
+                "SELECT COUNT(*) FROM subscriptions WHERE status IN ('active', 'paused') AND end_date > datetime('now','localtime')"
             )
             active_subs = (await cur.fetchone())[0]
 
@@ -193,11 +193,37 @@ def _register_admin_handlers(bot):
         uid = int(event.pattern_match.group(1).decode())
         async with get_db() as db:
             await db.execute(
-                "UPDATE subscriptions SET status='inactive' WHERE user_id=? AND status='active'", (uid,)
+                "UPDATE subscriptions SET status='inactive' WHERE user_id=? AND status IN ('active', 'paused')", (uid,)
             )
             await db.commit()
         await event.answer(f"✅ Langganan user {uid} dinonaktifkan.", alert=True)
-        await _show_billing(event)
+        await _show_client_billing_detail(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=b"admin_pause_(\\d+)"))
+    async def admin_pause_sub(event):
+        if not await _admin_only_check(event):
+            return
+        uid = int(event.pattern_match.group(1).decode())
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE subscriptions SET status='paused' WHERE user_id=? AND status='active'", (uid,)
+            )
+            await db.commit()
+        await event.answer(f"⏸ Langganan user {uid} dijeda.", alert=True)
+        await _show_client_billing_detail(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=b"admin_resume_(\\d+)"))
+    async def admin_resume_sub(event):
+        if not await _admin_only_check(event):
+            return
+        uid = int(event.pattern_match.group(1).decode())
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE subscriptions SET status='active' WHERE user_id=? AND status='paused'", (uid,)
+            )
+            await db.commit()
+        await event.answer(f"▶️ Langganan user {uid} dilanjutkan.", alert=True)
+        await _show_client_billing_detail(event, uid)
 
     @bot.on(events.CallbackQuery(pattern=b"admin_set_interval_(\\d+)"))
     async def admin_set_interval(event):
@@ -411,12 +437,12 @@ def _register_admin_handlers(bot):
             days = int(text)
             async with get_db() as db:
                 cur = await db.execute(
-                    "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active' ORDER BY end_date DESC LIMIT 1",
+                    "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status IN ('active', 'paused') ORDER BY end_date DESC LIMIT 1",
                     (target_uid,)
                 )
                 sub = await cur.fetchone()
                 if not sub:
-                    await event.respond(f"❌ Tidak ada langganan aktif untuk user {target_uid}.")
+                    await event.respond(f"❌ Tidak ada langganan aktif/jeda untuk user {target_uid}.")
                     del _login_states[event.sender_id]
                     return
                 sub_id, end_date_str = sub
@@ -445,7 +471,7 @@ def _register_admin_handlers(bot):
             hours = int(text)
             async with get_db() as db:
                 await db.execute(
-                    "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status='active'",
+                    "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status IN ('active', 'paused')",
                     (hours, target_uid)
                 )
                 await db.commit()
@@ -480,6 +506,7 @@ def _register_admin_handlers(bot):
         duration = "1 Bulan"
         package_name = ""
         amount = 0
+        order_id = None
 
         for line in lines:
             line_clean = line.replace("–", "-").strip()
@@ -487,6 +514,10 @@ def _register_admin_handlers(bot):
                 match = re.search(r"ID Telegram\s*[:\-]?\s*\"?(\d+)\"?", line_clean, re.IGNORECASE)
                 if match:
                     user_id = int(match.group(1))
+            elif "ID Order" in line_clean or "Order ID" in line_clean or "ID Transaksi" in line_clean:
+                match = re.search(r"(?:ID Order|Order ID|ID Transaksi)\s*[:\-]?\s*\"?([A-Z0-9\-]+)\"?", line_clean, re.IGNORECASE)
+                if match:
+                    order_id = match.group(1).strip()
             elif "Username" in line_clean:
                 match = re.search(r"Username(?:\s*akun)?\s*[:\-]?\s*\"?@?([^\"]+)\"?", line_clean, re.IGNORECASE)
                 if match:
@@ -506,11 +537,16 @@ def _register_admin_handlers(bot):
                     if amt_str.isdigit():
                         amount = int(amt_str)
 
+        # Fallback globally
         if not user_id:
-            # Fallback search globally
             match = re.search(r"ID Telegram[^\d]*(\d{7,15})", text_clean, re.IGNORECASE)
             if match:
                 user_id = int(match.group(1))
+
+        if not order_id:
+            match = re.search(r"(?:ID Order|Order ID|ID Transaksi)[^\w\-]*([A-Z0-9\-]+)", text_clean, re.IGNORECASE)
+            if match:
+                order_id = match.group(1).strip()
 
         if not user_id:
             await event.respond("❌ **Format Ditolak:** ID Telegram pembeli tidak ditemukan di dalam format pesanan.")
@@ -525,32 +561,60 @@ def _register_admin_handlers(bot):
         if amount <= 0:
             amount = 39000
 
-        await event.respond(
-            f"⏳ **Format Terdeteksi! Memproses Aktivasi Manual...**\n\n"
-            f"👤 Client ID: `{user_id}`\n"
-            f"📦 Paket: **{package_name}**\n"
-            f"💰 Nominal: Rp {amount:,}\n"
-            f"📅 Durasi: {duration}"
-        )
-
-        import time, random
-        dummy_trx_id = f"MAN-{int(time.time())}{random.randint(100, 999)}"
-
         from src.database import get_db
-        async with get_db() as db:
-            await db.execute(
-                "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
-                "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username",
-                (user_id, username, f"Client Manual {user_id}")
-            )
-            await db.execute(
-                "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, dummy_trx_id, package_name, amount, "manual", "pending")
-            )
-            await db.commit()
-
         from src.main import process_successful_payment
-        success, msg = await process_successful_payment(dummy_trx_id)
+
+        # Cek apakah transaksi dengan order_id tersebut sudah ada di database
+        existing_trx = False
+        trx_status = "pending"
+        
+        if order_id:
+            async with get_db() as db:
+                cur = await db.execute("SELECT trx_id, status FROM transactions WHERE trx_id=?", (order_id,))
+                row = await cur.fetchone()
+                if row:
+                    existing_trx = True
+                    order_id = row[0]
+                    trx_status = row[1]
+
+        if existing_trx:
+            if trx_status != 'pending':
+                await event.respond(f"⚠️ **Transaksi Terdeteksi:** Order `{order_id}` sudah diproses sebelumnya dengan status: `{trx_status}`.")
+                return
+            
+            await event.respond(
+                f"⏳ **Order `{order_id}` Ditemukan! Memproses Aktivasi...**\n\n"
+                f"👤 Client ID: `{user_id}`\n"
+                f"📦 Paket: **{package_name}**\n"
+                f"💰 Nominal: Rp {amount:,}"
+            )
+            success, msg = await process_successful_payment(order_id)
+        else:
+            # Jika tidak ada order_id yang valid/terdaftar, buat dummy transaksi manual baru
+            import time, random
+            dummy_trx_id = f"MAN-{int(time.time())}{random.randint(100, 999)}"
+            
+            await event.respond(
+                f"⏳ **Order ID Baru Terbuat! Memproses Aktivasi Manual...**\n\n"
+                f"👤 Client ID: `{user_id}`\n"
+                f"🆔 Order ID: `{dummy_trx_id}`\n"
+                f"📦 Paket: **{package_name}**\n"
+                f"💰 Nominal: Rp {amount:,}"
+            )
+
+            async with get_db() as db:
+                await db.execute(
+                    "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username",
+                    (user_id, username, f"Client Manual {user_id}")
+                )
+                await db.execute(
+                    "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, dummy_trx_id, package_name, amount, "manual", "pending")
+                )
+                await db.commit()
+
+            success, msg = await process_successful_payment(dummy_trx_id)
 
         if success:
             await event.respond(
@@ -589,22 +653,22 @@ async def _show_admin_panel(event):
 async def _show_billing(event):
     async with get_db() as db:
         cur = await db.execute("""
-            SELECT s.user_id, u.username, u.full_name, s.package_name, s.end_date, s.broadcast_interval_hours
+            SELECT s.user_id, u.username, u.full_name, s.package_name, s.end_date, s.broadcast_interval_hours, s.status
             FROM subscriptions s
             LEFT JOIN users u ON s.user_id = u.user_id
-            WHERE s.status='active' AND s.end_date > datetime('now','localtime')
+            WHERE s.status IN ('active', 'paused') AND s.end_date > datetime('now','localtime')
             ORDER BY s.end_date ASC
             LIMIT 10
         """)
         subs = await cur.fetchall()
 
     if not subs:
-        text = "👥 Tidak ada langganan aktif saat ini."
+        text = "👥 Tidak ada langganan aktif atau jeda saat ini."
         buttons = [[Button.inline("⬅️ Panel Admin", b"admin_main")]]
     else:
-        lines = [f"👥 **BILLING AKTIF ({len(subs)} client)**\n"]
+        lines = [f"👥 **BILLING AKTIF & JEDA ({len(subs)} client)**\n"]
         buttons = []
-        for uid, uname, fname, pkg, end_date, interval in subs:
+        for uid, uname, fname, pkg, end_date, interval, status in subs:
             try:
                 clean_end = end_date.split(".")[0]
                 end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
@@ -613,8 +677,9 @@ async def _show_billing(event):
                 days_left = 0
             name_str = f"@{uname}" if uname else (fname or str(uid))
             interval_str = f"{interval or 2}j"
-            lines.append(f"• {name_str} | {pkg[:20]}... | {days_left}hari | ⏰{interval_str}")
-            buttons.append([Button.inline(f"⚙️ {name_str}", f"admin_billing_detail_{uid}".encode())])
+            status_tag = " [⏸ JEDA]" if status == "paused" else ""
+            lines.append(f"• {name_str}{status_tag} | {pkg[:20]}... | {days_left}hari | ⏰{interval_str}")
+            buttons.append([Button.inline(f"⚙️ {name_str}{status_tag}", f"admin_billing_detail_{uid}".encode())])
 
         buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
         text = "\n".join(lines)
@@ -635,7 +700,7 @@ async def _show_client_billing_detail(event, uid: int):
         )
         user_row = await cur.fetchone()
         cur = await db.execute(
-            "SELECT package_name, capacity_lpm, start_date, end_date, broadcast_interval_hours FROM subscriptions WHERE user_id=? AND status='active' ORDER BY end_date DESC LIMIT 1",
+            "SELECT package_name, capacity_lpm, start_date, end_date, broadcast_interval_hours, status FROM subscriptions WHERE user_id=? AND status IN ('active', 'paused') ORDER BY end_date DESC LIMIT 1",
             (uid,)
         )
         sub = await cur.fetchone()
@@ -646,10 +711,10 @@ async def _show_client_billing_detail(event, uid: int):
     fname = (user_row[1] if user_row else "") or "-"
 
     if not sub:
-        text = f"❌ Tidak ada langganan aktif untuk user `{uid}`."
+        text = f"❌ Tidak ada langganan aktif/jeda untuk user `{uid}`."
         buttons = [[Button.inline("⬅️ Billing", b"admin_billing")]]
     else:
-        pkg, capacity, start_date, end_date, interval = sub
+        pkg, capacity, start_date, end_date, interval, status = sub
         try:
             clean_end = end_date.split(".")[0]
             end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
@@ -657,10 +722,13 @@ async def _show_client_billing_detail(event, uid: int):
         except Exception:
             days_left = 0
 
+        status_str = "⏸ JEDA" if status == "paused" else "✅ AKTIF"
+
         text = (
             f"⚙️ **Detail Billing Client**\n{'━'*24}\n\n"
             f"👤 Nama: **{fname}** ({uname})\n"
-            f"🆔 ID: `{uid}`\n\n"
+            f"🆔 ID: `{uid}`\n"
+            f"⚡ Status: **{status_str}**\n\n"
             f"📦 Paket: `{pkg}`\n"
             f"🎯 LPM: {capacity}\n"
             f"📅 Mulai: {start_date[:10] if start_date else '-'}\n"
@@ -669,10 +737,18 @@ async def _show_client_billing_detail(event, uid: int):
             f"⏰ Interval: {interval or 2} jam\n"
             f"📤 Total Terkirim: {sent_count} pesan"
         )
+        
+        # Sediakan tombol pause/resume dinamis sesuai status saat ini
+        status_button = (
+            Button.inline("▶️ Lanjutkan", f"admin_resume_{uid}".encode()) 
+            if status == "paused" 
+            else Button.inline("⏸ Jeda", f"admin_pause_{uid}".encode())
+        )
+
         buttons = [
             [Button.inline("➕ Perpanjang", f"admin_extend_{uid}".encode()),
              Button.inline("❌ Nonaktifkan", f"admin_deactivate_{uid}".encode())],
-            [Button.inline("⏰ Set Interval", f"admin_set_interval_{uid}".encode())],
+            [status_button, Button.inline("⏰ Set Interval", f"admin_set_interval_{uid}".encode())],
             [Button.inline("⬅️ Kembali", b"admin_billing")]
         ]
 
