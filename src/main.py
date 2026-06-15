@@ -514,8 +514,69 @@ async def user_input_handler(event):
 
     text = (event.text or "").strip()
 
+    # ── State: Menunggu bukti transfer manual ──
+    if current_state == "waiting_for_proof":
+        if not event.message.photo and not event.message.document:
+            await event.respond("❌ Harap kirimkan bukti transfer berupa foto atau screenshot bukti pembayaran Anda.")
+            return
+
+        await event.respond("⏳ Mengunduh dan mengirimkan bukti transfer ke Owner untuk verifikasi...")
+        media_path = ""
+        try:
+            os.makedirs("data/proofs", exist_ok=True)
+            media_path = await event.message.download_media(file="data/proofs/")
+        except Exception as e:
+            logger.error(f"Gagal unduh bukti transfer: {e}")
+            await event.respond("❌ Gagal memproses gambar bukti transfer. Silakan coba kirim ulang.")
+            return
+
+        trx_id = state_data.get("trx_id")
+        amount = state_data.get("amount")
+        package_name = state_data.get("package_name")
+
+        async with await get_db() as db:
+            await db.execute(
+                "UPDATE transactions SET status='waiting_approval', payment_url=? WHERE trx_id=?",
+                (media_path, trx_id)
+            )
+            await db.commit()
+
+        sender = await event.get_sender()
+        full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+        uname_str = f"@{sender.username}" if sender.username else f"ID: {event.sender_id}"
+
+        admin_msg = (
+            f"🔔 **PERMINTAAN PERSETUJUAN TRANSFER MANUAL**\n\n"
+            f"👤 Client: **{full_name}** ({uname_str})\n"
+            f"📦 Paket: `{package_name}`\n"
+            f"💰 Nominal: Rp {amount:,}\n"
+            f"🔖 Invoice: `{trx_id}`\n\n"
+            f"Silakan periksa bukti transfer di atas lalu tekan tombol di bawah:"
+        )
+
+        buttons = [
+            [
+                Button.inline("Approve ✅", f"approve_man_{trx_id}".encode()),
+                Button.inline("Reject ❌", f"reject_man_{trx_id}".encode())
+            ]
+        ]
+
+        try:
+            await bot.send_file(ADMIN_ID, file=media_path, caption=admin_msg, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Gagal kirim bukti ke admin: {e}")
+            await bot.send_message(ADMIN_ID, admin_msg, buttons=buttons)
+
+        del login_states[event.sender_id]
+        await event.respond(
+            "⏳ **Bukti transfer Anda telah dikirim ke Owner.**\n\n"
+            "Mohon tunggu beberapa saat selagi Owner melakukan verifikasi. "
+            "Anda akan menerima notifikasi otomatis begitu pembayaran Anda disetujui."
+        )
+        return
+
     # ── State: Menunggu materi jaseb dari client ──
-    if current_state == "waiting_for_ad":
+    elif current_state == "waiting_for_ad":
         content_text = event.message.message or ""
         media_path = ""
 
@@ -674,7 +735,7 @@ async def _save_userbot_session(event, client, phone: str):
 # ─────────────────────────────────────────
 @bot.on(events.NewMessage(incoming=True))
 async def order_format_parser(event):
-    """Parse format order teks dan buat invoice QRIS otomatis."""
+    """Parse format order teks dan buat invoice QRIS otomatis atau transfer manual."""
     if event.sender_id in login_states:
         return  # Jangan proses jika sedang di state machine
 
@@ -687,8 +748,6 @@ async def order_format_parser(event):
 
     if not await check_channel_join(event):
         return
-
-    await event.respond("⏳ Memproses pesanan & membuat QRIS...")
 
     lines = text.split("\n")
     data = {}
@@ -712,10 +771,17 @@ async def order_format_parser(event):
         await event.respond("❌ Gagal baca nominal harga. Periksa format pesanan Anda.")
         return
 
-    trx_data = await create_qris_transaction(amount, f"Jaseb - {paket}")
-    if trx_data:
-        sender = await event.get_sender()
-        full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+    payment_method = data.get("payment", "Belum Memilih").strip()
+    is_manual = "manual" in payment_method.lower() or "transfer" in payment_method.lower()
+
+    sender = await event.get_sender()
+    full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+
+    if is_manual:
+        import time
+        import random
+        trx_id = f"TRX-MAN-{int(time.time())}{random.randint(100, 999)}"
+        
         async with await get_db() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
@@ -723,28 +789,61 @@ async def order_format_parser(event):
             )
             await db.execute(
                 "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (event.sender_id, trx_data['transaction_id'], paket, amount, trx_data['payment_url'], 'pending')
+                (event.sender_id, trx_id, paket, amount, "manual", "pending_proof")
             )
             await db.commit()
 
+        login_states[event.sender_id] = {
+            "state": "waiting_for_proof",
+            "trx_id": trx_id,
+            "amount": amount,
+            "package_name": paket
+        }
+
         pay_text = (
-            f"✅ **Invoice QRIS Berhasil Dibuat!**\n\n"
+            f"📥 **INSTRUKSI TRANSFER MANUAL**\n\n"
             f"📦 **Paket:** {paket}\n"
-            f"💰 **Total Bayar:** Rp {trx_data['total_amount']:,}\n"
-            f"⏰ **Expired:** {trx_data['expired_at']}\n\n"
-            "Scan QRIS di atas dan klik **🔄 Cek Status Bayar** setelah transfer."
+            f"💰 **Total Bayar:** Rp {amount:,}\n\n"
+            f"Silakan transfer tepat sejumlah nominal di atas ke salah satu rekening berikut:\n\n"
+            f"💳 **BCA:** `0512586056` (an. Gunami)\n"
+            f"📱 **DANA:** `0895365540011` (an. geungaa)\n"
+            f"📲 **Gopay:** `0859741784399` (an. Walked)\n\n"
+            f"⚠️ **PENTING:** Setelah melakukan transfer, silakan **kirimkan foto/screenshot bukti transfer** ke chat bot ini."
         )
-        await bot.send_file(
-            event.chat_id,
-            file=trx_data['qris_url'],
-            caption=pay_text,
-            buttons=[
-                [Button.url("🔗 Bayar via Browser", trx_data['payment_url'])],
-                [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-            ]
-        )
+        await event.respond(pay_text)
     else:
-        await event.respond(f"❌ Gagal buat QRIS. Hubungi admin: {ADMIN_USERNAME}")
+        await event.respond("⏳ Memproses pesanan & membuat QRIS...")
+        trx_data = await create_qris_transaction(amount, f"Jaseb - {paket}")
+        if trx_data:
+            async with await get_db() as db:
+                await db.execute(
+                    "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
+                    (event.sender_id, sender.username or "", full_name)
+                )
+                await db.execute(
+                    "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                    (event.sender_id, trx_data['transaction_id'], paket, amount, trx_data['payment_url'], 'pending')
+                )
+                await db.commit()
+
+            pay_text = (
+                f"✅ **Invoice QRIS Berhasil Dibuat!**\n\n"
+                f"📦 **Paket:** {paket}\n"
+                f"💰 **Total Bayar:** Rp {trx_data['total_amount']:,}\n"
+                f"⏰ **Expired:** {trx_data['expired_at']}\n\n"
+                "Scan QRIS di atas dan klik **🔄 Cek Status Bayar** setelah transfer."
+            )
+            await bot.send_file(
+                event.chat_id,
+                file=trx_data['qris_url'],
+                caption=pay_text,
+                buttons=[
+                    [Button.url("🔗 Bayar via Browser", trx_data['payment_url'])],
+                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
+                ]
+            )
+        else:
+            await event.respond(f"❌ Gagal buat QRIS. Hubungi admin: {ADMIN_USERNAME}")
 
 
 # ─────────────────────────────────────────
@@ -812,22 +911,36 @@ async def check_payment_status_handler(event):
                 )
             await db.commit()
 
-        # Set state untuk minta teks jaseb
-        login_states[u_id] = {
-            "state": "waiting_for_ad",
-            "package_name": package_name,
-            "capacity": capacity
-        }
-
-        await event.answer("✅ Pembayaran berhasil!", alert=True)
-        await event.edit(
-            f"🎉 **Pembayaran Sukses!**\n\n"
-            f"📦 Paket: **{package_name}**\n"
-            f"💰 Total: Rp {amount:,}\n"
-            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
-            f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
-            f"Bisa berupa teks, foto/video, atau pesan forward."
-        )
+        # Set state sesuai paket
+        is_userbot = "userbot" in package_name.lower()
+        if is_userbot:
+            login_states[u_id] = {
+                "state": "waiting_for_phone"
+            }
+            await event.answer("✅ Pembayaran berhasil!", alert=True)
+            await event.edit(
+                f"🎉 **Pembayaran Sukses!**\n\n"
+                f"📦 Paket: **{package_name}**\n"
+                f"💰 Total: Rp {amount:,}\n"
+                f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+                f"🤖 **Sekarang kirimkan nomor HP akun Telegram Anda** (format internasional) yang ingin dijadikan Userbot.\n"
+                f"Contoh: `+628123456789`"
+            )
+        else:
+            login_states[u_id] = {
+                "state": "waiting_for_ad",
+                "package_name": package_name,
+                "capacity": capacity
+            }
+            await event.answer("✅ Pembayaran berhasil!", alert=True)
+            await event.edit(
+                f"🎉 **Pembayaran Sukses!**\n\n"
+                f"📦 Paket: **{package_name}**\n"
+                f"💰 Total: Rp {amount:,}\n"
+                f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+                f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
+                f"Bisa berupa teks, foto/video, atau pesan forward."
+            )
 
         # Notif admin
         sender = await event.get_sender()
@@ -841,6 +954,134 @@ async def check_payment_status_handler(event):
         await event.answer("⏳ Pembayaran belum terdeteksi. Silakan transfer terlebih dahulu.", alert=True)
     else:
         await event.answer("❌ Transaksi dibatalkan atau kedaluwarsa.", alert=True)
+
+
+# ─────────────────────────────────────────
+# Manual Approval Handler (Untuk Admin/Owner)
+# ─────────────────────────────────────────
+@bot.on(events.CallbackQuery(pattern=b"approve_man_(.+)"))
+async def approve_manual_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.answer("⛔ Akses ditolak.", alert=True)
+        return
+    
+    trx_id = event.pattern_match.group(1).decode('utf-8')
+    
+    async with await get_db() as db:
+        cur = await db.execute(
+            "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
+        )
+        trx_row = await cur.fetchone()
+    
+    if not trx_row:
+        await event.answer("❌ Transaksi tidak ditemukan.", alert=True)
+        return
+    
+    u_id, amount, package_name, current_status = trx_row
+    
+    if current_status == 'success':
+        await event.answer("⚠️ Transaksi ini sudah disetujui sebelumnya.", alert=True)
+        return
+    
+    package_name = str(package_name or "Paket Jaseb")
+    capacity = get_capacity_from_package(package_name)
+    days = get_package_duration_days(package_name, amount)
+    now = datetime.now()
+    
+    async with await get_db() as db:
+        await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
+        
+        cur = await db.execute(
+            "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active'", (u_id,)
+        )
+        sub_row = await cur.fetchone()
+        
+        if sub_row:
+            sub_id, current_end_str = sub_row
+            try:
+                current_end = datetime.strptime(current_end_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                current_end = now
+            new_end = (current_end if current_end > now else now) + timedelta(days=days)
+            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute(
+                "UPDATE subscriptions SET package_name=?, capacity_lpm=?, end_date=? WHERE id=?",
+                (package_name, capacity, new_end_str, sub_id)
+            )
+        else:
+            new_end = now + timedelta(days=days)
+            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute(
+                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+            )
+        await db.commit()
+    
+    await event.edit(f"✅ **Transaksi `{trx_id}` Berhasil Disetujui!**\nPaket {package_name} diaktifkan untuk user ID {u_id}.")
+    
+    is_userbot = "userbot" in package_name.lower()
+    if is_userbot:
+        login_states[u_id] = {"state": "waiting_for_phone"}
+        await bot.send_message(
+            u_id,
+            f"🎉 **Pembayaran Manual Anda Telah Disetujui oleh Owner!**\n\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Total: Rp {amount:,}\n"
+            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+            f"🤖 **Sekarang silakan kirimkan nomor HP akun Telegram Anda** (format internasional) yang ingin dijadikan Userbot.\n"
+            f"Contoh: `+628123456789`"
+        )
+    else:
+        login_states[u_id] = {
+            "state": "waiting_for_ad",
+            "package_name": package_name,
+            "capacity": capacity
+        }
+        await bot.send_message(
+            u_id,
+            f"🎉 **Pembayaran Manual Anda Telah Disetujui oleh Owner!**\n\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Total: Rp {amount:,}\n"
+            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+            f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
+            f"Bisa berupa teks, foto/video, atau pesan forward."
+        )
+
+@bot.on(events.CallbackQuery(pattern=b"reject_man_(.+)"))
+async def reject_manual_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.answer("⛔ Akses ditolak.", alert=True)
+        return
+    
+    trx_id = event.pattern_match.group(1).decode('utf-8')
+    
+    async with await get_db() as db:
+        cur = await db.execute(
+            "SELECT user_id, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
+        )
+        trx_row = await cur.fetchone()
+    
+    if not trx_row:
+        await event.answer("❌ Transaksi tidak ditemukan.", alert=True)
+        return
+    
+    u_id, package_name, current_status = trx_row
+    
+    if current_status != 'waiting_approval':
+        await event.answer("⚠️ Transaksi ini tidak dalam status menunggu persetujuan.", alert=True)
+        return
+    
+    async with await get_db() as db:
+        await db.execute("UPDATE transactions SET status='rejected' WHERE trx_id=?", (trx_id,))
+        await db.commit()
+    
+    await event.edit(f"❌ **Transaksi `{trx_id}` Telah Ditolak!**")
+    
+    await bot.send_message(
+        u_id,
+        f"❌ **Bukti pembayaran transfer manual Anda ditolak oleh Owner.**\n\n"
+        f"Pastikan bukti transfer Anda valid dan jumlah transfer sesuai. Silakan hubungi Owner jika ada kendala."
+    )
 
 
 # ─────────────────────────────────────────
