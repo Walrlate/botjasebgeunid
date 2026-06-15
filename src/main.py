@@ -205,10 +205,13 @@ async def get_web_app_url(user_id: int) -> str:
                     user_days = 0
     except Exception as e:
         logger.error(f"Error build WebApp URL: {e}")
+    import urllib.parse
+    pkg_encoded = urllib.parse.quote(str(user_package))
+    ub_status_encoded = urllib.parse.quote(str(user_bot_status))
     return (
         f"https://geunid-jaseb.vercel.app/?"
         f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
-        f"&ub={user_bot_status}&pkg={user_package}&ulpm={user_lpm}&days={user_days}"
+        f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}"
     )
 
 
