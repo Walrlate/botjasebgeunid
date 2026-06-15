@@ -1171,27 +1171,62 @@ async def scan_lpm_handler(event):
         await event.respond("❌ Format salah! Kirim username atau link grup yang valid.")
         return
 
-    await event.respond(f"⌛ Memindai **{len(links)} grup**...")
+    # Ambil sesi ubot admin untuk memproses scan
+    async with get_db() as db:
+        cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (ADMIN_ID,))
+        ub_row = await cur.fetchone()
+
+    if not ub_row or ub_row[1] != 'connected':
+        await event.respond("❌ Ubot Admin terputus! Sambungkan kembali terlebih dahulu via perintah `/install` agar bisa memindai LPM.")
+        return
+
+    session_name = f"data/sessions/{ub_row[0]}"
+    engine = JasebEngine(session_name, API_ID, API_HASH)
+    
+    try:
+        await engine.start()
+        if not await engine.client.is_user_authorized():
+            await event.respond("❌ Ubot Admin tidak terotorisasi! Jalankan `/install` ulang.")
+            await engine.stop()
+            return
+    except Exception as e:
+        await event.respond(f"❌ Gagal menghubungkan Ubot Admin untuk pemindaian: {e}")
+        return
+
+    await event.respond(f"⌛ Memindai **{len(links)} grup** menggunakan Ubot Admin...")
 
     success_scanned = []
     failed_scanned = []
 
     for link in links:
         full_link = f"@{link}" if not ("t.me" in link or "joinchat" in link) else link
-        res = await JasebEngine.verify_lpm_group(bot, full_link)
-        if res.get("success"):
-            success_scanned.append(res)
-            try:
+        try:
+            # Gunakan engine.client (Ubot Admin)
+            res = await JasebEngine.verify_lpm_group(engine.client, full_link)
+            if res.get("success"):
+                success_scanned.append(res)
                 async with get_db() as db:
                     await db.execute(
                         "INSERT OR IGNORE INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, ?)",
                         (full_link, res["group_id"], res["group_name"], res["member_count"], 1)
                     )
+                    # Jika grup sudah ada tapi tidak aktif, aktifkan kembali
+                    await db.execute(
+                        "UPDATE lpm_lists SET is_active=1 WHERE group_link=?",
+                        (full_link,)
+                    )
                     await db.commit()
-            except Exception as db_err:
-                logger.error(f"Error save scanned group: {db_err}")
-        else:
-            failed_scanned.append({"link": full_link, "error": res.get("error")})
+            else:
+                failed_scanned.append({"link": full_link, "error": res.get("error")})
+        except Exception as e:
+            logger.error(f"Error scanning link {full_link}: {e}")
+            failed_scanned.append({"link": full_link, "error": str(e)})
+
+    # Matikan client setelah pemindaian selesai
+    try:
+        await engine.stop()
+    except Exception:
+        pass
 
     content = ""
     if success_scanned:
