@@ -25,7 +25,7 @@ from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, KeyboardButtonUrl
 
-from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME
+from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME, MINI_APP_URL
 from src.database import init_db, get_db
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction, check_transaction_status
@@ -209,7 +209,7 @@ async def get_web_app_url(user_id: int) -> str:
     pkg_encoded = urllib.parse.quote(str(user_package))
     ub_status_encoded = urllib.parse.quote(str(user_bot_status))
     return (
-        f"https://geunid-jaseb.vercel.app/?"
+        f"{MINI_APP_URL.rstrip('/')}/?"
         f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
         f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}"
     )

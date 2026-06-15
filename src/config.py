@@ -28,5 +28,6 @@ WEBHOOK_URL = os.getenv('WEBHOOK_URL', '') # URL untuk menerima notifikasi pemba
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', '@geunidk')
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', '@Geun_ID')
 BOT_USERNAME = "GeunID_bot"
+MINI_APP_URL = os.getenv('MINI_APP_URL', 'https://geunidjaseb.vercel.app')
 
 
