@@ -1357,6 +1357,137 @@ async def run_lpm_validation_task(admin_id: int, links: list):
         logger.error(f"Error sending final validation report: {e}")
 
 
+# Scrape LPM from Channel (Admin Only)
+# ─────────────────────────────────────────
+@bot.on(events.NewMessage(pattern=r'/scrape_lpm(?:\s+(.+))?'))
+async def scrape_lpm_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.respond("⚠️ Perintah ini hanya untuk Admin.")
+        return
+
+    raw_args = event.pattern_match.group(1)
+    if not raw_args:
+        await event.respond(
+            "📋 **Cara Pakai Scraper LPM:**\n"
+            "Kirim perintah: `/scrape_lpm @channel_target`\n\n"
+            "Contoh: `/scrape_lpm @RUMAHLPM`\n"
+            "Bot akan men-scrape pesan terakhir di channel tersebut dan mengekstrak grup LPM baru secara otomatis."
+        )
+        return
+
+    channel_username = raw_args.strip()
+    await event.respond(f"⏳ Mengakses channel **{channel_username}** menggunakan Ubot Admin...")
+
+    # Ambil sesi ubot admin
+    async with get_db() as db:
+        cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (ADMIN_ID,))
+        ub_row = await cur.fetchone()
+
+    if not ub_row or ub_row[1] != 'connected':
+        await event.respond("❌ Ubot Admin terputus! Sambungkan kembali terlebih dahulu via perintah `/install`.")
+        return
+
+    session_name = f"data/sessions/{ub_row[0]}"
+    engine = JasebEngine(session_name, API_ID, API_HASH)
+    
+    try:
+        await engine.start()
+        if not await engine.client.is_user_authorized():
+            await event.respond("❌ Ubot Admin tidak terotorisasi! Jalankan `/install` ulang.")
+            await engine.stop()
+            return
+    except Exception as e:
+        await event.respond(f"❌ Gagal menghubungkan Ubot Admin: {e}")
+        return
+
+    await event.respond("🔍 Membaca riwayat pesan dan mencari username LPM...")
+
+    found_usernames = set()
+    try:
+        async for msg in engine.client.iter_messages(channel_username, limit=100):
+            if msg.text:
+                # Cari pola @username
+                matches = re.findall(r'@([a-zA-Z0-9_]{5,32})', msg.text)
+                for m in matches:
+                    username = f"@{m}"
+                    # Filter: hanya yang mengandung kata lpm
+                    if "lpm" in username.lower():
+                        found_usernames.add(username)
+    except Exception as e:
+        await event.respond(f"❌ Gagal membaca pesan dari {channel_username}: {e}")
+        await engine.stop()
+        return
+
+    if not found_usernames:
+        await event.respond(f"❌ Tidak ditemukan username bertema LPM di 100 pesan terakhir channel **{channel_username}**.")
+        await engine.stop()
+        return
+
+    await event.respond(f"📊 Ditemukan **{len(found_usernames)} username LPM unik**. Mulai memvalidasi dan memasukkan ke database...")
+
+    # Jalankan validasi di latar belakang (background task) agar tidak memblock bot
+    asyncio.create_task(run_lpm_scrape_validation_task(event.sender_id, list(found_usernames), engine))
+
+
+async def run_lpm_scrape_validation_task(admin_id: int, usernames: list, engine):
+    success_count = 0
+    failed_count = 0
+    total = len(usernames)
+    
+    for idx, username in enumerate(usernames, 1):
+        try:
+            # Validasi LPM
+            res = await JasebEngine.verify_lpm_group(bot, username)
+            async with get_db() as db:
+                if res.get("success"):
+                    # Cek apakah sudah ada di DB
+                    cur = await db.execute("SELECT id FROM lpm_lists WHERE group_link=?", (username,))
+                    exists = await cur.fetchone()
+                    if not exists:
+                        await db.execute(
+                            "INSERT INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, ?)",
+                            (username, res["group_id"], res["group_name"], res["member_count"], 1)
+                        )
+                        success_count += 1
+                    await db.commit()
+                else:
+                    failed_count += 1
+        except Exception as e:
+            logger.error(f"Error scraping validation for {username}: {e}")
+            failed_count += 1
+            
+        if idx % 10 == 0 or idx == total:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"⏳ **Progres Scrape & Validasi:** `{idx}/{total}` grup diperiksa.\n"
+                    f"• Baru ditambahkan: **{success_count}**\n"
+                    f"• Gagal/Duplikat: **{failed_count}**"
+                )
+            except Exception:
+                pass
+        
+        await asyncio.sleep(1)
+
+    # Stop engine
+    try:
+        await engine.stop()
+    except Exception:
+        pass
+
+    try:
+        await bot.send_message(
+            admin_id,
+            f"✅ **Proses Scrape Selesai!**\n\n"
+            f"📊 **Statistik Scrape ({total} ditemukan):**\n"
+            f"• Berhasil Ditambahkan: **{success_count}** grup baru\n"
+            f"• Gagal / Sudah Ada di DB: **{failed_count}** grup\n\n"
+            f"⚡ _Database LPM Anda sekarang semakin kaya!_"
+        )
+    except Exception as e:
+        logger.error(f"Error sending scrape report: {e}")
+
+
 # ─────────────────────────────────────────
 # Broadcast Engine
 # ─────────────────────────────────────────
