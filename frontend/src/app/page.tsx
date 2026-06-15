@@ -163,8 +163,25 @@ const Dashboard = () => {
 
 
 
-  // Pricing Data with Cheaper/Discounted Prices loaded from prices.json
-  const pricingData: Record<'regular' | 'forward' | 'userbot', PackageItem[]> = pricesData as any;
+  // Pricing Data with Cheaper/Discounted Prices loaded dynamically
+  const [pricingData, setPricingData] = useState<Record<'regular' | 'forward' | 'userbot', PackageItem[]>>(pricesData as any);
+
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/prices');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.regular || data.forward || data.userbot)) {
+            setPricingData(data);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal mengambil data harga dinamis:", err);
+      }
+    };
+    fetchPrices();
+  }, []);
 
   const activePackages = pricingData[selectedType] || [];
   const filteredPackages = selectedType === 'userbot'
