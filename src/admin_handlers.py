@@ -494,25 +494,33 @@ async def _show_billing(event):
         subs = await cur.fetchall()
 
     if not subs:
-        await event.edit("👥 Tidak ada langganan aktif saat ini.", buttons=[[Button.inline("⬅️ Panel Admin", b"admin_main")]])
-        return
+        text = "👥 Tidak ada langganan aktif saat ini."
+        buttons = [[Button.inline("⬅️ Panel Admin", b"admin_main")]]
+    else:
+        lines = [f"👥 **BILLING AKTIF ({len(subs)} client)**\n"]
+        buttons = []
+        for uid, uname, fname, pkg, end_date, interval in subs:
+            try:
+                clean_end = end_date.split(".")[0]
+                end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
+                days_left = max(0, (end_dt - datetime.now()).days)
+            except Exception:
+                days_left = 0
+            name_str = f"@{uname}" if uname else (fname or str(uid))
+            interval_str = f"{interval or 2}j"
+            lines.append(f"• {name_str} | {pkg[:20]}... | {days_left}hari | ⏰{interval_str}")
+            buttons.append([Button.inline(f"⚙️ {name_str}", f"admin_billing_detail_{uid}".encode())])
 
-    lines = [f"👥 **BILLING AKTIF ({len(subs)} client)**\n"]
-    buttons = []
-    for uid, uname, fname, pkg, end_date, interval in subs:
+        buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
+        text = "\n".join(lines)
+
+    if hasattr(event, "edit") and isinstance(event, events.CallbackQuery.Event):
         try:
-            clean_end = end_date.split(".")[0]
-            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
-            days_left = max(0, (end_dt - datetime.now()).days)
+            await event.edit(text, buttons=buttons)
+            return
         except Exception:
-            days_left = 0
-        name_str = f"@{uname}" if uname else (fname or str(uid))
-        interval_str = f"{interval or 2}j"
-        lines.append(f"• {name_str} | {pkg[:20]}... | {days_left}hari | ⏰{interval_str}")
-        buttons.append([Button.inline(f"⚙️ {name_str}", f"admin_billing_detail_{uid}".encode())])
-
-    buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
-    await event.edit("\n".join(lines), buttons=buttons)
+            pass
+    await event.respond(text, buttons=buttons)
 
 
 async def _show_client_billing_detail(event, uid: int):
@@ -533,36 +541,43 @@ async def _show_client_billing_detail(event, uid: int):
     fname = (user_row[1] if user_row else "") or "-"
 
     if not sub:
-        await event.edit(f"❌ Tidak ada langganan aktif untuk user `{uid}`.", buttons=[[Button.inline("⬅️ Billing", b"admin_billing")]])
-        return
+        text = f"❌ Tidak ada langganan aktif untuk user `{uid}`."
+        buttons = [[Button.inline("⬅️ Billing", b"admin_billing")]]
+    else:
+        pkg, capacity, start_date, end_date, interval = sub
+        try:
+            clean_end = end_date.split(".")[0]
+            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
+            days_left = max(0, (end_dt - datetime.now()).days)
+        except Exception:
+            days_left = 0
 
-    pkg, capacity, start_date, end_date, interval = sub
-    try:
-        clean_end = end_date.split(".")[0]
-        end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
-        days_left = max(0, (end_dt - datetime.now()).days)
-    except Exception:
-        days_left = 0
+        text = (
+            f"⚙️ **Detail Billing Client**\n{'━'*24}\n\n"
+            f"👤 Nama: **{fname}** ({uname})\n"
+            f"🆔 ID: `{uid}`\n\n"
+            f"📦 Paket: `{pkg}`\n"
+            f"🎯 LPM: {capacity}\n"
+            f"📅 Mulai: {start_date[:10] if start_date else '-'}\n"
+            f"📅 Habis: {end_date[:10]}\n"
+            f"⏳ Sisa: **{days_left} hari**\n"
+            f"⏰ Interval: {interval or 2} jam\n"
+            f"📤 Total Terkirim: {sent_count} pesan"
+        )
+        buttons = [
+            [Button.inline("➕ Perpanjang", f"admin_extend_{uid}".encode()),
+             Button.inline("❌ Nonaktifkan", f"admin_deactivate_{uid}".encode())],
+            [Button.inline("⏰ Set Interval", f"admin_set_interval_{uid}".encode())],
+            [Button.inline("⬅️ Kembali", b"admin_billing")]
+        ]
 
-    text = (
-        f"⚙️ **Detail Billing Client**\n{'━'*24}\n\n"
-        f"👤 Nama: **{fname}** ({uname})\n"
-        f"🆔 ID: `{uid}`\n\n"
-        f"📦 Paket: `{pkg}`\n"
-        f"🎯 LPM: {capacity}\n"
-        f"📅 Mulai: {start_date[:10] if start_date else '-'}\n"
-        f"📅 Habis: {end_date[:10]}\n"
-        f"⏳ Sisa: **{days_left} hari**\n"
-        f"⏰ Interval: {interval or 2} jam\n"
-        f"📤 Total Terkirim: {sent_count} pesan"
-    )
-    buttons = [
-        [Button.inline("➕ Perpanjang", f"admin_extend_{uid}".encode()),
-         Button.inline("❌ Nonaktifkan", f"admin_deactivate_{uid}".encode())],
-        [Button.inline("⏰ Set Interval", f"admin_set_interval_{uid}".encode())],
-        [Button.inline("⬅️ Kembali", b"admin_billing")]
-    ]
-    await event.edit(text, buttons=buttons)
+    if hasattr(event, "edit") and isinstance(event, events.CallbackQuery.Event):
+        try:
+            await event.edit(text, buttons=buttons)
+            return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
 
 
 async def _show_ubots(event):
@@ -576,20 +591,28 @@ async def _show_ubots(event):
         ubots = await cur.fetchall()
 
     if not ubots:
-        await event.edit("🤖 Belum ada userbot yang terdaftar.", buttons=[[Button.inline("⬅️ Panel Admin", b"admin_main")]])
-        return
+        text = "🤖 Belum ada userbot yang terdaftar."
+        buttons = [[Button.inline("⬅️ Panel Admin", b"admin_main")]]
+    else:
+        lines = [f"🤖 **DAFTAR USERBOT ({len(ubots)} terdaftar)**\n"]
+        buttons = []
+        for uid, uname, fname, phone, status in ubots:
+            icon = "🟢" if status == "connected" else "🔴"
+            name_str = f"@{uname}" if uname else (fname or str(uid))
+            lines.append(f"{icon} {name_str} | {phone or '-'} | {status}")
+            if status == "connected":
+                buttons.append([Button.inline(f"🔌 Putuskan {name_str}", f"admin_dc_ubot_{uid}".encode())])
 
-    lines = [f"🤖 **DAFTAR USERBOT ({len(ubots)} terdaftar)**\n"]
-    buttons = []
-    for uid, uname, fname, phone, status in ubots:
-        icon = "🟢" if status == "connected" else "🔴"
-        name_str = f"@{uname}" if uname else (fname or str(uid))
-        lines.append(f"{icon} {name_str} | {phone or '-'} | {status}")
-        if status == "connected":
-            buttons.append([Button.inline(f"🔌 Putuskan {name_str}", f"admin_dc_ubot_{uid}".encode())])
+        buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
+        text = "\n".join(lines)
 
-    buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
-    await event.edit("\n".join(lines), buttons=buttons)
+    if hasattr(event, "edit") and isinstance(event, events.CallbackQuery.Event):
+        try:
+            await event.edit(text, buttons=buttons)
+            return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
 
 
 async def _show_price_categories(event):
