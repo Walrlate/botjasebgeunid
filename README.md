@@ -1,41 +1,65 @@
 # 🤖 GEUNID-JASEB: Bot Jasa Sebar Telegram & Userbot Autopilot 
 
-Selamat datang di **GEUNID-JASEB**, ekosistem jasa sebar (Jaseb) iklan Telegram otomatis tercanggih dan teraman. Proyek ini menggabungkan kekuatan **Backend Python (Telethon)** yang tangguh dengan **Frontend Telegram Mini App (Next.js)** yang interaktif dan modern.
+Selamat datang di **GEUNID-JASEB**! Jika Anda adalah pencipta atau pengembang yang ingin memahami bagaimana sistem ini bekerja, apa saja fiturnya, serta cara menggunakan dan menjalankannya, dokumen ini dirancang khusus untuk Anda.
 
-Proyek ini dirancang agar sangat ramah bagi pemula, ringan untuk handphone spesifikasi rendah (*low-tier device*), aman dari banned, dan terintegrasi otomatis dengan sistem pembayaran QRIS.
-
----
-
-## 🌟 FITUR UTAMA & CARA KERJANYA
-
-Sistem GEUNID-JASEB terbagi menjadi dua bagian utama yang bekerja bersamaan secara real-time:
-
-### 1. 📱 Telegram Mini App (Frontend - Next.js)
-Aplikasi web yang terbuka langsung secara melayang di dalam aplikasi Telegram Anda saat mengeklik tombol **"GEUNID JASEB"**.
-*   **Visual Mewah & Ringan:** Didesain dengan nuansa premium biru-putih, menggunakan animasi super mulus yang tidak membebani baterai dan RAM HP.
-*   **Checkout & Manajemen Paket:** Pengguna dapat memilih durasi paket (3, 5, 7, 10, 14, 30 hari) dan kapasitas target grup (20 atau 30 LPM).
-*   **Alur Multi-Akun (Ubot):** Memungkinkan pembelian ubot untuk banyak akun sekaligus secara praktis dengan memasukkan daftar UserID tujuan.
-*   **⚡ Fitur Gratis (Tanpa Login):**
-    *   **AI Wording Beautifier:** Pengubah teks iklan biasa menjadi teks promosi yang menarik dengan template instan (*Premium, Minimalist, Flash Style*).
-    *   **LPM Scanner Helper:** Membantu memformat perintah `/scan` untuk dikirim ke bot Telegram.
-
-### 2. 🤖 Telegram Bot & Jaseb Engine (Backend - Python Telethon)
-Mesin utama yang memproses seluruh perintah, mengelola database SQLite, dan mengeksekusi pengiriman iklan.
-*   **🛡️ Stealth Mode Humanoid AI:** Bot meniru perilaku asli manusia saat mengirim iklan ke grup LPM:
-    1.  Otomatis masuk ke grup target (*Auto-Join*).
-    2.  Mengirimkan status **"sedang mengetik..."** (*typing action*) selama 3-7 detik.
-    3.  Mengirimkan teks iklan beserta gambar/video.
-    4.  Otomatis keluar dari grup target (*Auto-Leave*) agar daftar obrolan Telegram pengguna tetap bersih.
-*   **⏳ Jeda Pengiriman Fleksibel:**
-    *   `Slowly Mode`: Memberikan jeda aman 30-60 detik tiap grup untuk meminimalkan deteksi bot anti-spam.
-    *   `Instant Mode`: Mengirim cepat antar grup (3-5 detik), lalu melakukan jeda panjang (15-30 menit) di setiap akhir putaran.
-*   **🛡️ Anti-Flood & Rate Limit (FloodWait):** Jika Telegram memberikan pembatasan frekuensi (Error 429), bot secara otomatis tidur (sleep) sesuai durasi limit dan menyimpan log status kegagalannya.
-*   **💳 KlikQRIS Payment Gateway:** Menghasilkan barcode QRIS dinamis di dalam chat Telegram secara instan. Pengguna cukup memindai, membayar, lalu mengeklik tombol **"🔄 Cek Status Bayar"** untuk mengaktifkan paket secara otomatis 24 jam non-stop.
-*   **🔍 Crowdsourced LPM Scanner:** Memungkinkan admin memindai ribuan grup LPM melalui perintah `/scan @username_grup`. Grup yang aktif dan valid akan langsung disimpan ke database cluster global Anda untuk memperkaya daftar LPM secara otomatis!
+Sistem ini adalah ekosistem jasa sebar (Jaseb) iklan Telegram otomatis tercanggih yang menggabungkan **Backend Python (Telethon)** untuk otomasi Telegram tingkat tinggi dengan **Frontend Telegram Mini App (Next.js)** yang responsif dan berpenampilan premium.
 
 ---
 
-## 🛠️ CARA KERJA SISTEM (UNDER THE HOOD)
+## 📖 DAFTAR ISI
+1. [Konsep Dasar: Apa itu Jaseb & Userbot?](#-konsep-dasar-apa-itu-jaseb--userbot)
+2. [Fitur-Fitur Utama](#-fitur-fitur-utama)
+3. [Alur & Cara Kerja Sistem (Di Balik Layar)](#-alur--cara-kerja-sistem-di-balik-layar)
+4. [Struktur Basis Data (Database SQLite)](#-struktur-basis-data-database-sqlite)
+5. [Konfigurasi Variabel Lingkungan (`.env`)](#-konfigurasi-variabel-lingkungan-env)
+6. [Panduan Menjalankan Secara Lokal (Lokal PC)](#-panduan-menjalankan-secara-lokal-lokal-pc)
+7. [Panduan Deployment (Online Cloud)](#-panduan-deployment-online-cloud)
+8. [Panduan Penggunaan Perintah (Bot Commands)](#-panduan-penggunaan-perintah-bot-commands)
+
+---
+
+## 💡 KONSEP DASAR: APA ITU JASEB & USERBOT?
+
+Sebelum masuk ke teknis, mari pahami tiga pilar layanan yang ditawarkan oleh sistem ini:
+
+*   **Jasa Sebar (Jaseb) Regular:** Layanan sebar iklan otomatis ke grup LPM menggunakan akun bot/admin. Memiliki watermark toko, tidak mendukung pengiriman media (foto/video), dan tidak mendukung emoji premium. Cocok untuk promosi teks sederhana dengan biaya sangat murah.
+*   **Jasa Sebar (Jaseb) Forward:** Layanan sebar iklan tanpa watermark (murni nama toko Anda) yang mendukung file media (foto/video), emoji premium, serta membantu meningkatkan jumlah tayangan pesan (*view booster*) karena dikirim melalui metode forward pesan dari channel resmi Anda.
+*   **Userbot Autopilot:** Sistem yang mengaitkan akun Telegram pribadi pembeli (via OTP/2FA aman) ke engine autopilot. Akun pembeli akan menyebarkan iklannya sendiri ke grup-grup LPM secara otomatis di latar belakang tanpa perlu membuka aplikasi Telegram atau menggunakan HP.
+
+---
+
+## 🌟 FITUR-FITUR UTAMA
+
+Ekosistem **GEUNID-JASEB** dibagi menjadi dua bagian yang bekerja secara terintegrasi dan real-time:
+
+### 1. Telegram Mini App (Frontend Next.js)
+Mini App berjalan langsung secara melayang di dalam aplikasi Telegram saat user mengeklik tombol **"Buka Mini App"**. Fitur-fiturnya meliputi:
+*   **Desain Premium & Ringan:** Antarmuka bergaya kaca modern (*glassmorphism*) dengan animasi transisi yang sangat mulus tanpa membebani memori HP.
+*   **Konfigurator Paket & Harga Dinamis:** Pengguna dapat memfilter paket berdasarkan durasi (3, 5, 7, 10, 14, atau 30 hari) dan kapasitas LPM (20 atau 30 LPM).
+*   **Otomasi Checkout Multi-Akun:** Untuk paket Userbot, pengguna dapat membeli lisensi untuk banyak akun sekaligus secara instan dengan memasukkan daftar UserID tujuan.
+*   **Fitur Gratis Tanpa Login (Tools Tab):**
+    *   **AI Wording Beautifier:** Mengubah teks promosi biasa menjadi teks iklan yang indah dan menarik menggunakan template siap pakai (*Premium, Minimalist, Flash Sale*).
+    *   **LPM Auto-Scanner Helper:** Membantu memformat perintah `/scan` grup LPM secara massal sehingga pengguna tinggal menyalin perintah tersebut ke bot Telegram.
+
+### 2. Telegram Bot & Jaseb Engine (Backend Python Telethon)
+Mesin backend yang bertugas menangani interaksi chat, pemrosesan transaksi, serta eksekusi pengiriman iklan:
+*   **Stealth Mode Humanoid AI:** Saat menyebarkan iklan ke grup LPM, bot meniru perilaku asli manusia untuk meminimalkan risiko banned:
+    1.  **Auto-Join:** Bot bergabung ke grup LPM tujuan secara otomatis.
+    2.  **Typing Simulation:** Bot mengirimkan status *"sedang mengetik..."* selama 3 hingga 7 detik sebelum mengirim iklan.
+    3.  **Send Ad:** Mengirimkan pesan iklan (teks, foto, atau video).
+    4.  **Auto-Leave:** Bot keluar dari grup tersebut secara otomatis agar daftar chat Telegram pengguna tetap bersih dari grup LPM yang menumpuk.
+*   **Pilihan Ritme Pengiriman (Delay Mode):**
+    *   `Slowly Mode`: Memberikan jeda aman selama 30-60 detik antar grup. Sangat direkomendasikan untuk keamanan akun.
+    *   `Instant Mode`: Mengirim cepat ke setiap grup (jeda 3-5 detik), lalu melakukan jeda istirahat panjang (15-30 menit) di setiap akhir putaran grup.
+*   **Anti-Flood & Rate Limit Resilience:** Jika bot terkena pembatasan frekuensi pesan dari Telegram (Error 429 - `FloodWaitError`), backend akan secara otomatis menidurkan proses pengiriman selama durasi detil yang diminta Telegram, lalu melanjutkan pengiriman setelah limit selesai.
+*   **Integrasi KlikQRIS Gateway:** Memungkinkan pembuatan barcode pembayaran QRIS dinamis secara instan di chat Telegram. Pengguna tinggal memindai QRIS, membayar melalui E-Wallet/m-Banking apa pun, lalu menekan tombol **"🔄 Cek Status Bayar"** untuk mengaktifkan paket secara otomatis 24 jam non-stop.
+*   **Crowdsourced LPM Scanner:** Fitur bagi admin untuk memeriksa keaktifan grup LPM secara massal via `/scan`. Grup LPM yang aktif dan valid akan langsung disimpan ke database cluster global Anda untuk memperkaya daftar LPM secara otomatis!
+
+---
+
+## 🛠️ ALUR & CARA KERJA SISTEM (DI BALIK LAYAR)
+
+Berikut adalah diagram alur bagaimana pengguna membeli paket hingga iklan disebarkan oleh engine:
 
 ```mermaid
 sequenceDiagram
@@ -45,94 +69,138 @@ sequenceDiagram
     participant API as KlikQRIS Gateway
     participant G as Grup LPM Telegram
 
-    U->>B: Kirim /start / Format Order Otomatis
-    B->>API: Buat Invoice (POST /qris/create)
-    API-->>B: Barcode QRIS & detail invoice
-    B->>U: Kirim Gambar QRIS + Tombol "Cek Status"
-    Note over U: Pengguna membayar via OVO/Dana/M-Banking
+    U->>B: Kirim format order (Jaseb/Userbot) / Pilih di Mini App
+    B->>API: Request QRIS (POST /qris/create dengan Header API Key)
+    API-->>B: Return redirect_url & barcode qris_url
+    B->>U: Kirim Gambar QRIS + Tombol "🔄 Cek Status Bayar"
+    Note over U: Pengguna scan QRIS dan membayar via E-Wallet/m-Banking
     U->>B: Klik tombol "🔄 Cek Status Bayar"
-    B->>API: Cek status transaksi (GET /qris/status/{order_id})
+    B->>API: Verifikasi status bayar (GET /qris/status/{order_id})
     API-->>B: Status transaksi: SUCCESS
-    B->>DB: Aktifkan status subscription user di database
+    B->>DB: Aktifkan subscription & tentukan masa aktif di DB
     B->>U: Kirim notifikasi "Pembayaran Sukses"
-    Note over B: Jaseb Engine aktif di background
-    B->>G: Kirim iklan ke grup target (Auto-Join -> Typing -> Send -> Leave)
+    Note over B: Jaseb Engine aktif menyebarkan iklan di latar belakang
+    B->>G: Proses kirim iklan (Auto-Join -> Typing Action -> Send Ad -> Auto-Leave)
+    B->>DB: Simpan bukti pengiriman ke tabel forward_logs (Proof Hub)
 ```
 
 ---
 
-## ⚙️ PANDUAN KONFIGURASI (FILE `.env`)
+## 🗄️ STRUKTUR BASIS DATA (DATABASE SQLite)
 
-Sebelum menjalankan proyek, Anda wajib membuat berkas bernama `.env` di root folder dan mengisi variabel berikut:
+Semua data disimpan di dalam database SQLite lokal (secara default di `data/jaseb.db`). Berikut adalah tabel-tabel utama beserta fungsinya:
+
+1.  **`users`**: Menyimpan profil dasar setiap pengguna yang berinteraksi dengan bot.
+    *   *Kolom:* `user_id` (PK), `username`, `full_name`, `joined_at`
+2.  **`subscriptions`**: Mencatat paket langganan jaseb atau userbot yang sedang aktif.
+    *   *Kolom:* `id` (PK), `user_id` (FK), `package_name`, `capacity_lpm`, `start_date`, `end_date`, `status`
+3.  **`user_ads`**: Menyimpan materi iklan (teks, caption, dan path gambar/video) milik pengguna.
+    *   *Kolom:* `id` (PK), `user_id` (FK), `title`, `content`, `media_path`, `created_at`
+4.  **`lpm_lists`**: Cluster global daftar grup LPM aktif hasil scan.
+    *   *Kolom:* `id` (PK), `group_link` (Unique), `group_id`, `group_name`, `member_count`, `last_active`, `is_active`
+5.  **`transactions`**: Log pembayaran yang dibuat melalui sistem KlikQRIS.
+    *   *Kolom:* `id` (PK), `user_id` (FK), `trx_id` (Unique), `package_id`, `amount`, `status`, `payment_url`, `created_at`
+6.  **`forward_logs`**: Bukti pengiriman iklan (*Proof Hub*) ke setiap grup LPM secara detail.
+    *   *Kolom:* `id` (PK), `user_id` (FK), `ad_id` (FK), `group_id`, `msg_link`, `status` (`success`/`failed`), `error_msg`, `sent_at`
+7.  **`userbots`**: Menyimpan status koneksi sesi userbot pembeli.
+    *   *Kolom:* `user_id` (PK), `phone_number`, `session_name`, `status` (`connected`/`disconnected`), `created_at`
+
+---
+
+## ⚙️ KONFIGURASI VARIABEL LINGKUNGAN (`.env`)
+
+Buat berkas bernama `.env` di direktori utama (root) proyek dan isi dengan variabel berikut:
 
 ```env
-API_ID=33241986                         # Dapatkan dari my.telegram.org
-API_HASH=3ac3dfb73b9b34f471a22b...       # Dapatkan dari my.telegram.org
-BOT_TOKEN=8901501719:AAG6kyPNUl...      # Dapatkan dari @BotFather
-ADMIN_ID=8844645901                     # User ID Telegram Anda (sebagai Admin)
-DB_PATH=data/jaseb.db                   # Lokasi penyimpanan database SQLite
-KLIKQRIS_API_KEY=MSkw9B8L40L9yw...       # API Key merchant dari KlikQRIS
-KLIKQRIS_MERCHANT_ID=178075934651       # Merchant ID dari KlikQRIS
-CHANNEL_USERNAME=@geunidk               # Username channel resmi Anda (wajib join)
-ADMIN_USERNAME=@Geun_ID                 # Username bantuan admin Anda
+# Telegram API Credentials (Dapatkan dari https://my.telegram.org)
+API_ID=33241986
+API_HASH=3ac3dfb73b9b34f471a22b...
+
+# Bot Token (Dapatkan dari Telegram @BotFather)
+BOT_TOKEN=8901501719:AAG6kyPNUl...
+
+# Konfigurasi Admin (ID Telegram Anda)
+ADMIN_ID=8844645901
+ADMIN_USERNAME=@Geun_ID
+
+# Database Path
+DB_PATH=data/jaseb.db
+
+# KlikQRIS Payment Gateway Credentials
+KLIKQRIS_API_KEY=MSkw9B8L40L9yw...
+KLIKQRIS_MERCHANT_ID=178075934651
+
+# Channel Informasi Toko (User wajib bergabung sebelum menggunakan bot)
+CHANNEL_USERNAME=@geunidk
 ```
 
 ---
 
-## 🚀 CARA MENJALANKAN SECARA LOKAL (PENGEMBANGAN)
+## 🚀 PANDUAN MENJALANKAN SECARA LOKAL (LOKAL PC)
 
-### 1. Jalankan Backend (Python Bot)
-Pastikan Python 3.10 ke atas sudah terinstal di komputer Anda.
+### 1. Prasyarat Sistem
+*   **Python:** Versi 3.10 atau lebih baru.
+*   **Node.js:** Versi 18 atau lebih baru.
+*   **Git:** Untuk kloning repositori.
 
-```bash
-# 1. Masuk ke root directory
-cd botjasebgeunid
+### 2. Langkah Menjalankan Backend (Python Bot)
+Buka terminal/command prompt baru, lalu jalankan perintah berikut:
+```powershell
+# Masuk ke direktori proyek
+cd "d:\Bot Jaseb"
 
-# 2. Install library yang dibutuhkan
+# Install seluruh dependensi pustaka Python
 pip install -r requirements.txt
 
-# 3. Jalankan bot Python
+# Jalankan bot Python
 python -m src.main
 ```
 
-### 2. Jalankan Frontend (Next.js)
-Pastikan Node.js sudah terinstal di komputer Anda.
+### 3. Langkah Menjalankan Frontend (Next.js Mini App)
+Buka terminal baru yang terpisah, lalu jalankan perintah berikut:
+```powershell
+# Masuk ke direktori frontend Next.js
+cd "d:\Bot Jaseb\frontend"
 
-```bash
-# 1. Masuk ke folder frontend
-cd frontend
-
-# 2. Install dependensi NPM
+# Install dependensi modul NPM
 npm install
 
-# 3. Jalankan development server
+# Jalankan dev server Next.js secara lokal
 npm run dev
 ```
-Aplikasi web Next.js akan berjalan secara lokal di alamat `http://localhost:3000`.
+Aplikasi web Next.js kini berjalan di alamat lokal: `http://localhost:3000`.
 
 ---
 
-## 📦 PANDUAN DEPLOYMENT (ONLINE)
+## 📦 PANDUAN DEPLOYMENT (ONLINE CLOUD)
+
+Agar sistem dapat diakses secara online 24 jam oleh pengguna lain di Telegram:
 
 ### 1. Frontend ke Vercel (Gratis)
-*   Hubungkan akun Vercel ke repositori GitHub Anda.
-*   **PENTING:** Atur **Root Directory** ke **`frontend`** pada pengaturan project di Vercel.
-*   Biarkan kolom Environment Variables kosong (tidak membutuhkan `.env`).
-*   Klik **Deploy**.
+1.  Unggah kode Anda ke GitHub.
+2.  Masuk ke dashboard **Vercel** Anda dan impor repositori GitHub tersebut.
+3.  Di menu konfigurasi project, set **Root Directory** ke **`frontend`**.
+4.  Kosongkan kolom Environment Variables (karena Mini App memperoleh data dinamis langsung dari URL query parameter Telegram Bot).
+5.  Klik **Deploy**. Setelah selesai, salin URL domain yang diberikan oleh Vercel (misal: `https://geunid-jaseb.vercel.app`).
 
 ### 2. Backend ke Railway
-*   Hubungkan repositori GitHub Anda ke Railway.
-*   Railway akan mendeteksi `Dockerfile` secara otomatis untuk mem-build server.
-*   **PENTING:** Masukkan seluruh variabel lingkungan `.env` Anda ke tab **Variables** di Railway.
-*   **PENTING (SQLite Volume):** Karena database menggunakan SQLite, buatlah **Volume** baru di tab settings Railway Anda dengan ukuran minimum 1 GB, dan arahkan **Mount Path** ke **`/app/data`** agar data langganan user Anda tidak hilang setiap kali bot melakukan restart.
+1.  Buat project baru di **Railway** dan hubungkan ke repositori GitHub Anda.
+2.  Railway akan mendeteksi `Dockerfile` secara otomatis untuk merakit server Python.
+3.  Masukkan seluruh isi variabel dari file `.env` lokal Anda ke tab **Variables** di panel Railway.
+4.  **SANGAT PENTING (Persistent SQLite Volume):**
+    *   Karena database menggunakan SQLite (`data/jaseb.db`), datanya akan terhapus setiap kali bot melakukan restart atau pembaruan kode jika Anda tidak menggunakan Volume.
+    *   Di dashboard Railway Anda, tambahkan **Volume** baru (misal ukuran 1 GB).
+    *   Atur **Mount Path** volume tersebut ke **`/app/data`**. Hal ini memastikan database langganan pengguna Anda tetap aman dan tidak pernah terhapus.
 
 ---
 
-## 💬 DAFTAR PERINTAH BOT TELEGRAM (COMMANDS)
+## 💬 PANDUAN PENGGUNAAN PERINTAH (BOT COMMANDS)
 
-*   `/start` - Membuka menu utama. (Untuk pengguna biasa, bot hanya akan menampilkan Mini App, profil, SNK, dan tombol hubungi bantuan. Bagi Admin, menu transaksi, paket, dan login userbot akan terbuka secara penuh).
-*   `/install` - Menghubungkan akun ubot Telegram baru via OTP secara instan (Khusus Admin).
-*   `/scan` - Memindai daftar grup LPM secara asinkron (Khusus Admin).
+*   `/start` - Membuka menu utama bot.
+    *   *Pengguna Biasa:* Hanya akan melihat opsi Mini App, profil, SNK, dan tombol hubungi admin `@Geun_ID`.
+    *   *Admin:* Dapat melihat opsi menu pembayaran, menu paket, dan tombol integrasi login userbot.
+*   `/install` *(Khusus Admin)* - Perintah cepat untuk menyambungkan akun userbot baru menggunakan alur interaktif (Nomor HP -> Kode OTP -> Password 2FA).
+*   `/scan` *(Khusus Admin)* - Melakukan pemindaian grup LPM secara massal. Contoh: `/scan @lpm_grup1 @lpm_grup2`. Hasil grup yang aktif akan langsung terverifikasi secara otomatis dan masuk ke database cluster LPM global Anda.
 
 ---
-*Dibuat secara orisinal dengan performa tinggi & standar keamanan terbaik.*
+*GEUNID-JASEB dikembangkan dengan efisiensi tinggi, arsitektur kokoh, dan kenyamanan pengguna maksimal.*
