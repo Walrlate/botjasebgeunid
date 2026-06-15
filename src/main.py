@@ -905,7 +905,113 @@ async def order_format_parser(event):
 
 
 # ─────────────────────────────────────────
-# Cek Status Pembayaran
+# Proses Pembayaran Sukses (Aktivasi Subskripsi)
+# ─────────────────────────────────────────
+async def process_successful_payment(trx_id: str):
+    from src.database import get_db
+    from src.notifications import notify_admin_payment_success
+
+    # Ambil detail transaksi
+    async with get_db() as db:
+        cur = await db.execute(
+            "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
+        )
+        trx_row = await cur.fetchone()
+
+    if not trx_row:
+        return False, "Transaksi tidak ditemukan."
+
+    u_id, amount, package_name, old_status = trx_row
+
+    if old_status != 'pending':
+        return True, "Transaksi sudah diproses sebelumnya."
+
+    # Update transaksi ke sukses
+    async with get_db() as db:
+        await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
+        package_name = str(package_name or "Paket Jaseb")
+        capacity = get_capacity_from_package(package_name)
+        days = get_package_duration_days(package_name, amount)
+        now = datetime.now()
+
+        cur = await db.execute(
+            "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active'", (u_id,)
+        )
+        sub_row = await cur.fetchone()
+
+        if sub_row:
+            sub_id, current_end_str = sub_row
+            try:
+                current_end = datetime.strptime(current_end_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                current_end = now
+            new_end = (current_end if current_end > now else now) + timedelta(days=days)
+            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute(
+                "UPDATE subscriptions SET package_name=?, capacity_lpm=?, end_date=? WHERE id=?",
+                (package_name, capacity, new_end_str, sub_id)
+            )
+        else:
+            new_end = now + timedelta(days=days)
+            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute(
+                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+            )
+        await db.commit()
+
+    # Set login state sesuai paket
+    is_userbot = "userbot" in package_name.lower()
+    if is_userbot:
+        login_states[u_id] = {
+            "state": "waiting_for_phone"
+        }
+        success_msg = (
+            f"🎉 **Pembayaran Sukses via QRIS!**\n\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Total: Rp {amount:,}\n"
+            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+            f"🤖 **Sekarang kirimkan nomor HP akun Telegram Anda** (format internasional) yang ingin dijadikan Userbot.\n"
+            f"Contoh: `+628123456789`"
+        )
+    else:
+        login_states[u_id] = {
+            "state": "waiting_for_ad",
+            "package_name": package_name,
+            "capacity": capacity
+        }
+        success_msg = (
+            f"🎉 **Pembayaran Sukses via QRIS!**\n\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Total: Rp {amount:,}\n"
+            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+            f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
+            f"Bisa berupa teks, foto/video, atau pesan forward."
+        )
+
+    # Kirim notifikasi chat ke user via bot
+    try:
+        await bot.send_message(u_id, success_msg)
+    except Exception as e:
+        logger.error(f"Gagal kirim notifikasi aktivasi sukses ke user {u_id}: {e}")
+
+    # Kirim notifikasi sukses ke admin
+    try:
+        user_entity = await bot.get_entity(u_id)
+        full_name = f"{user_entity.first_name or ''} {user_entity.last_name or ''}".strip() or "Client MiniApp"
+        username = user_entity.username or ""
+        await notify_admin_payment_success(
+            bot, int(ADMIN_ID), u_id, full_name, username,
+            package_name, amount, new_end_str[:10]
+        )
+    except Exception as e:
+        logger.error(f"Gagal kirim notifikasi aktivasi sukses ke admin: {e}")
+
+    return True, "Sukses"
+
+
+# ─────────────────────────────────────────
+# Cek Status Pembayaran (Telethon Callback)
 # ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
 async def check_payment_status_handler(event):
@@ -919,97 +1025,56 @@ async def check_payment_status_handler(event):
     status = status_response.get("data", {}).get("status", "")
 
     if status == "success":
+        # Dapatkan info package_id untuk edit pesan
         async with get_db() as db:
-            cur = await db.execute(
-                "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
-            )
-            trx_row = await cur.fetchone()
-
-        if not trx_row:
+            cur = await db.execute("SELECT package_id, amount, status FROM transactions WHERE trx_id=?", (trx_id,))
+            row = await cur.fetchone()
+        
+        if not row:
             await event.answer("✅ Pembayaran sukses!", alert=True)
             return
-
-        u_id, amount, package_name, old_status = trx_row
-
+            
+        package_name, amount, old_status = row
+        
         if old_status != 'pending':
             await event.answer("⚠️ Transaksi ini sudah diproses sebelumnya.", alert=True)
             return
 
-        # Update transaksi
-        async with get_db() as db:
-            await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
-            package_name = str(package_name or "Paket Jaseb")
-            capacity = get_capacity_from_package(package_name)
-            days = get_package_duration_days(package_name, amount)
-            now = datetime.now()
-
-            cur = await db.execute(
-                "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active'", (u_id,)
-            )
-            sub_row = await cur.fetchone()
-
-            if sub_row:
-                sub_id, current_end_str = sub_row
-                try:
-                    current_end = datetime.strptime(current_end_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    current_end = now
-                new_end = (current_end if current_end > now else now) + timedelta(days=days)
-                new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-                await db.execute(
-                    "UPDATE subscriptions SET package_name=?, capacity_lpm=?, end_date=? WHERE id=?",
-                    (package_name, capacity, new_end_str, sub_id)
+        success, msg = await process_successful_payment(trx_id)
+        if success:
+            await event.answer("✅ Pembayaran sukses!", alert=True)
+            
+            # Ambil end_date terbaru
+            async with get_db() as db:
+                cur = await db.execute("SELECT end_date FROM subscriptions WHERE user_id=(SELECT user_id FROM transactions WHERE trx_id=?) AND status='active'", (trx_id,))
+                sub_row = await cur.fetchone()
+            
+            new_end_str = sub_row[0] if sub_row else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            is_userbot = "userbot" in str(package_name).lower()
+            
+            if is_userbot:
+                await event.edit(
+                    f"🎉 **Pembayaran Sukses!**\n\n"
+                    f"📦 Paket: **{package_name}**\n"
+                    f"💰 Total: Rp {amount:,}\n"
+                    f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+                    f"🤖 **Sekarang kirimkan nomor HP akun Telegram Anda** (format internasional) yang ingin dijadikan Userbot.\n"
+                    f"Contoh: `+628123456789`"
                 )
             else:
-                new_end = now + timedelta(days=days)
-                new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-                await db.execute(
-                    "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
-                    (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+                await event.edit(
+                    f"🎉 **Pembayaran Sukses!**\n\n"
+                    f"📦 Paket: **{package_name}**\n"
+                    f"💰 Total: Rp {amount:,}\n"
+                    f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+                    f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
+                    f"Bisa berupa teks, foto/video, atau pesan forward."
                 )
-            await db.commit()
-
-        # Set state sesuai paket
-        is_userbot = "userbot" in package_name.lower()
-        if is_userbot:
-            login_states[u_id] = {
-                "state": "waiting_for_phone"
-            }
-            await event.answer("✅ Pembayaran berhasil!", alert=True)
-            await event.edit(
-                f"🎉 **Pembayaran Sukses!**\n\n"
-                f"📦 Paket: **{package_name}**\n"
-                f"💰 Total: Rp {amount:,}\n"
-                f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
-                f"🤖 **Sekarang kirimkan nomor HP akun Telegram Anda** (format internasional) yang ingin dijadikan Userbot.\n"
-                f"Contoh: `+628123456789`"
-            )
         else:
-            login_states[u_id] = {
-                "state": "waiting_for_ad",
-                "package_name": package_name,
-                "capacity": capacity
-            }
-            await event.answer("✅ Pembayaran berhasil!", alert=True)
-            await event.edit(
-                f"🎉 **Pembayaran Sukses!**\n\n"
-                f"📦 Paket: **{package_name}**\n"
-                f"💰 Total: Rp {amount:,}\n"
-                f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
-                f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
-                f"Bisa berupa teks, foto/video, atau pesan forward."
-            )
-
-        # Notif admin
-        sender = await event.get_sender()
-        full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
-        await notify_admin_payment_success(
-            bot, ADMIN_ID, u_id, full_name, sender.username or "",
-            package_name, amount, new_end_str[:10]
-        )
+            await event.answer(f"❌ Error: {msg}", alert=True)
 
     elif status == "pending":
-        await event.answer("⏳ Pembayaran belum terdeteksi. Silakan transfer terlebih dahulu.", alert=True)
+        await event.answer("⏳ Pembayaran belum terdeteksi. Silakan bayar terlebih dahulu.", alert=True)
     else:
         await event.answer("❌ Transaksi dibatalkan atau kedaluwarsa.", alert=True)
 
@@ -1894,6 +1959,56 @@ async def handle_checkout_api(request):
             "Access-Control-Allow-Headers": "Content-Type"
         })
 
+async def handle_check_status_api(request):
+    try:
+        trx_id = request.match_info['trx_id']
+        if request.method == "OPTIONS":
+            return web.Response(headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            })
+
+        from src.payments import check_transaction_status
+        status_response = await check_transaction_status(trx_id)
+
+        if not status_response or not status_response.get("success"):
+            return web.json_response({"status": False, "error": "Gagal cek status ke gateway"}, status=500, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            })
+
+        api_status = status_response.get("data", {}).get("status", "pending")
+
+        if api_status == "success":
+            from src.database import get_db
+            async with get_db() as db:
+                cur = await db.execute("SELECT status FROM transactions WHERE trx_id=?", (trx_id,))
+                row = await cur.fetchone()
+
+            if row and row[0] == 'pending':
+                success, msg = await process_successful_payment(trx_id)
+                if not success:
+                    logger.error(f"Gagal memproses aktivasi subskripsi dari API: {msg}")
+
+        return web.json_response({
+            "status": True,
+            "payment_status": api_status
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
+    except Exception as e:
+        logger.error(f"Error handle_check_status_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
@@ -1906,6 +2021,12 @@ async def run_web_server():
     app.router.add_options('/api/checkout', lambda r: web.Response(headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }))
+    app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
+    app.router.add_options('/api/check-status/{trx_id}', lambda r: web.Response(headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
     }))
     port = int(os.environ.get("PORT", 8080))

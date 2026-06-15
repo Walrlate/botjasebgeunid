@@ -91,10 +91,18 @@ const Dashboard = () => {
     price: number;
   } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [checkoutStep, setCheckoutStep] = useState<'select_payment' | 'invoice'>('select_payment');
+  const [checkoutStep, setCheckoutStep] = useState<'select_payment' | 'qris_invoice' | 'manual_invoice' | 'success_screen'>('select_payment');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'qris' | 'manual' | null>(null);
   const [accountCount, setAccountCount] = useState(1);
   const [loadingCheckout, setLoadingCheckout] = useState(false);
+  const [qrisData, setQrisData] = useState<{
+    transaction_id: string;
+    payment_url: string;
+    qris_url: string;
+    total_amount: number;
+    expired_at: string;
+  } | null>(null);
+  const [timeLeft, setTimeLeft] = useState(1800);
 
   const [stats, setStats] = useState({
     broadcasts: 0,
@@ -250,66 +258,141 @@ const Dashboard = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCheckoutQRIS = async () => {
-    if (!user) {
-      alert("Gagal mendeteksi akun Telegram Anda. Pastikan Anda membuka Mini App ini dari dalam bot Telegram.");
+  // Countdown timer effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (checkoutStep === 'qris_invoice' && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [checkoutStep, timeLeft]);
+
+  // Format countdown time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Automatic check status polling function
+  const checkStatusAutomatic = async (trxId: string) => {
+    try {
+      const res = await fetch(`/api/check-status/${trxId}`);
+      const data = await res.json();
+      if (data.status && data.payment_status === 'success') {
+        triggerHaptic('heavy');
+        setCheckoutStep('success_screen');
+        return true;
+      }
+    } catch (err) {
+      console.error("Auto polling error:", err);
+    }
+    return false;
+  };
+
+  // Polling effect when QRIS page is active
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout;
+    if (checkoutStep === 'qris_invoice' && qrisData?.transaction_id) {
+      pollInterval = setInterval(async () => {
+        const isPaid = await checkStatusAutomatic(qrisData.transaction_id);
+        if (isPaid) {
+          clearInterval(pollInterval);
+        }
+      }, 6000);
+    }
+    return () => clearInterval(pollInterval);
+  }, [checkoutStep, qrisData]);
+
+  // Handler Lanjutkan Pembayaran (Continue)
+  const handleContinueCheckout = async () => {
+    if (!selectedPaymentMethod) {
+      alert("Silakan pilih metode pembayaran terlebih dahulu.");
       return;
     }
-    if (!selectedPackage) return;
 
+    triggerHaptic('medium');
+
+    if (selectedPaymentMethod === 'manual') {
+      setCheckoutStep('manual_invoice');
+    } else if (selectedPaymentMethod === 'qris') {
+      if (!user) {
+        alert("Gagal mendeteksi akun Telegram Anda. Pastikan Anda membuka Mini App ini dari dalam bot Telegram.");
+        return;
+      }
+      if (!selectedPackage) return;
+
+      setLoadingCheckout(true);
+      const currentPrice = selectedPackage.type === 'userbot'
+        ? selectedPackage.price * accountCount
+        : selectedPackage.price;
+
+      const packName = selectedPackage.type === 'userbot'
+        ? `Jaseb Userbot ${selectedPackage.duration}`
+        : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
+
+      try {
+        const payload = {
+          user_id: user.id,
+          username: user.username || "",
+          first_name: user.first_name || "",
+          last_name: user.last_name || "",
+          package_name: packName,
+          amount: currentPrice,
+          duration: selectedPackage.duration,
+          lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
+          package_type: selectedPackage.type,
+          request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : ""
+        };
+
+        const response = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const resData = await response.json();
+        if (resData.status && resData.data) {
+          setQrisData(resData.data);
+          setTimeLeft(1800); // Reset countdown timer to 30 minutes
+          setCheckoutStep('qris_invoice');
+        } else {
+          alert(`❌ Gagal membuat transaksi: ${resData.error || 'Terjadi kesalahan sistem.'}`);
+        }
+      } catch (err) {
+        console.error("Checkout Error:", err);
+        alert("❌ Terjadi kesalahan koneksi. Silakan coba lagi.");
+      } finally {
+        setLoadingCheckout(false);
+      }
+    }
+  };
+
+  // Manual payment status check button click handler
+  const handleCheckQRISStatusManual = async () => {
+    if (!qrisData) return;
     triggerHaptic('heavy');
     setLoadingCheckout(true);
-
-    const currentPrice = selectedPackage.type === 'userbot'
-      ? selectedPackage.price * accountCount
-      : selectedPackage.price;
-
-    const packName = selectedPackage.type === 'userbot'
-      ? `Jaseb Userbot ${selectedPackage.duration}`
-      : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
-
     try {
-      const payload = {
-        user_id: user.id,
-        username: user.username || "",
-        first_name: user.first_name || "",
-        last_name: user.last_name || "",
-        package_name: packName,
-        amount: currentPrice,
-        duration: selectedPackage.duration,
-        lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
-        package_type: selectedPackage.type,
-        request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : ""
-      };
-
-      const response = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const resData = await response.json();
-      if (resData.status) {
-        const webapp = (window as any).Telegram?.WebApp;
-        if (webapp) {
-          webapp.showPopup({
-            title: '🎉 QRIS Berhasil Dibuat!',
-            message: 'Silakan cek obrolan bot Telegram Anda. Barcode QRIS pembayaran telah dikirimkan ke sana untuk verifikasi otomatis.',
-            buttons: [{ type: 'ok', text: 'Buka Bot' }]
-          }, () => {
-            webapp.close();
-          });
+      const res = await fetch(`/api/check-status/${qrisData.transaction_id}`);
+      const data = await res.json();
+      if (data.status) {
+        if (data.payment_status === 'success') {
+          triggerHaptic('heavy');
+          setCheckoutStep('success_screen');
         } else {
-          alert("🎉 QRIS Berhasil Dibuat!\nSilakan cek obrolan bot Telegram Anda untuk menyelesaikan pembayaran.");
+          alert("⏳ Pembayaran belum terdeteksi. Silakan bayar terlebih dahulu.");
         }
       } else {
-        alert(`❌ Gagal membuat transaksi: ${resData.error || 'Terjadi kesalahan sistem.'}`);
+        alert(`❌ Gagal cek status: ${data.error || 'Terjadi kesalahan sistem.'}`);
       }
-    } catch (err: any) {
-      console.error("Checkout Error:", err);
-      alert("❌ Terjadi kesalahan koneksi. Silakan coba lagi.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Terjadi kesalahan koneksi.");
     } finally {
       setLoadingCheckout(false);
     }
@@ -939,340 +1022,363 @@ const Dashboard = () => {
                 {/* Bottom Sheet Pull Indicator Bar */}
                 <div className="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-1"></div>
 
-                {checkoutStep === 'select_payment' ? (
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="text-sm font-black text-geun-dark uppercase tracking-wider">Metode Pembayaran</h3>
-                        <p className="text-[9px] text-geun-muted font-bold mt-0.5">Pilih opsi pembayaran Anda</p>
-                      </div>
-                      <button
-                        onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
-                        className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                {(() => {
+                  const currentPrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
+                  return (
+                    <>
+                      <style dangerouslySetInnerHTML={{__html: `
+                        @keyframes scan-laser {
+                          0% { top: 0%; }
+                          50% { top: 100%; }
+                          100% { top: 0%; }
+                        }
+                        .animate-scan {
+                          animation: scan-laser 2.5s linear infinite;
+                        }
+                      `}} />
 
-                    <div className="space-y-3 pt-2">
-                      {/* Option 1: QRIS */}
-                      <div
-                        onClick={() => { triggerHaptic('light'); setSelectedPaymentMethod('qris'); }}
-                        className={`glass-panel rounded-2xl p-4 flex items-center justify-between border cursor-pointer transition-all duration-300 relative overflow-hidden ${
-                          selectedPaymentMethod === 'qris'
-                            ? 'border-geun-blue bg-geun-blue/5 shadow-active-glow ring-1 ring-geun-blue'
-                            : 'border-slate-200/60 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3.5">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
-                            selectedPaymentMethod === 'qris' ? 'bg-white border-geun-blue/20' : 'bg-slate-100 border-slate-200'
-                          }`}>
-                            <svg className={`w-7 h-7 ${selectedPaymentMethod === 'qris' ? 'text-geun-blue' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 15h.008v.008H15V15zm0 2.25h.008v.008H15v-.008zm-.75-.75h.008v.008h-.008v-.008zm2.25-.75h.008v.008H16.5V15zm0 2.25h.008v.008H16.5v-.008zm-.75-.75h.008v.008h-.008v-.008zm2.25-.75h.008v.008H18V15zm0 2.25h.008v.008H18v-.008zm-.75-.75h.008v.008h-.008v-.008zm-2.25-2.25h.008v.008H15v-.008zm0 4.5h.008v.008H15v-.008z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs font-black text-slate-800 leading-none tracking-wide">QRIS Otomatis (KlikQRIS)</p>
-                              <span className="text-[7px] text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider shimmer-badge">
-                                Otomatis
-                              </span>
+                      {/* STEP 1: SELECT PAYMENT */}
+                      {checkoutStep === 'select_payment' && (
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="text-sm font-black text-geun-dark uppercase tracking-wider">Metode Pembayaran</h3>
+                              <p className="text-[9px] text-geun-muted font-bold mt-0.5">Pilih opsi pembayaran Anda</p>
                             </div>
-                            <p className="text-[9px] text-slate-400 font-semibold mt-1">Verifikasi instan & otomatis 24/7.</p>
-                          </div>
-                        </div>
-                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          selectedPaymentMethod === 'qris' ? 'border-geun-blue bg-geun-blue' : 'border-slate-300'
-                        }`}>
-                          {selectedPaymentMethod === 'qris' && (
-                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Option 2: Transfer Manual */}
-                      <div
-                        onClick={() => { triggerHaptic('light'); setSelectedPaymentMethod('manual'); }}
-                        className={`glass-panel rounded-2xl p-4 flex items-center justify-between border cursor-pointer transition-all duration-300 relative overflow-hidden ${
-                          selectedPaymentMethod === 'manual'
-                            ? 'border-geun-blue bg-geun-blue/5 shadow-active-glow ring-1 ring-geun-blue'
-                            : 'border-slate-200/60 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3.5">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
-                            selectedPaymentMethod === 'manual' ? 'bg-white border-geun-blue/20' : 'bg-slate-100 border-slate-200'
-                          }`}>
-                            <svg className={`w-7 h-7 ${selectedPaymentMethod === 'manual' ? 'text-geun-blue' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs font-black text-slate-800 leading-none tracking-wide">Transfer Manual / E-Wallet</p>
-                            </div>
-                            <p className="text-[9px] text-slate-400 font-semibold mt-1">BCA, DANA, Gopay.</p>
-                          </div>
-                        </div>
-                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          selectedPaymentMethod === 'manual' ? 'border-geun-blue bg-geun-blue' : 'border-slate-300'
-                        }`}>
-                          {selectedPaymentMethod === 'manual' && (
-                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Elegant Action Button */}
-                    <div className="pt-4">
-                      <button
-                        disabled={!selectedPaymentMethod}
-                        onClick={() => { triggerHaptic('medium'); setCheckoutStep('invoice'); }}
-                        className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block transition-all duration-300 ${
-                          selectedPaymentMethod
-                            ? 'bg-gradient-to-r from-geun-blue to-geun-purple text-white shadow-premium active:scale-98 cursor-pointer'
-                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                        }`}
-                      >
-                        Lanjutkan Pembayaran
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  (() => {
-                    const currentPrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
-
-                    return (
-                      <div className="space-y-5">
-                        <div className="flex justify-between items-center">
-                          <button
-                            onClick={() => { triggerHaptic('light'); setCheckoutStep('select_payment'); }}
-                            className="flex items-center gap-1.5 text-[9.5px] font-black text-geun-blue uppercase tracking-wider hover:opacity-80 transition-all duration-300"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                            </svg>
-                            Ubah Metode
-                          </button>
-                          <button
-                            onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
-                            className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
-                          >
-                            ✕
-                          </button>
-                        </div>
-
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="text-sm font-black text-geun-dark uppercase tracking-wider">Rincian Layanan</h3>
-                            <p className="text-[9px] text-geun-muted font-bold mt-0.5">Konfirmasi Pesanan Jaseb Anda</p>
-                          </div>
-                        </div>
-
-                        {/* Elegant Invoice layout */}
-                        <div className="bg-[#F8FAFC] border border-slate-200/60 p-5 rounded-2xl space-y-3 shadow-soft">
-                          <div className="flex justify-between text-xs items-center">
-                            <span className="text-geun-muted font-bold">Layanan</span>
-                            <span className="font-black text-geun-dark uppercase bg-geun-blue/10 text-geun-blue px-2.5 py-0.5 rounded-md text-[10px]">
-                              Jaseb {selectedPackage.type}
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between text-xs items-center border-t border-slate-200/50 pt-3">
-                            <span className="text-geun-muted font-bold">Limit LPM</span>
-                            <span className="font-black text-geun-dark">{selectedPackage.lpm} Grup LPM</span>
-                          </div>
-
-                          <div className="flex justify-between text-xs items-center border-t border-slate-200/50 pt-3">
-                            <span className="text-geun-muted font-bold">Durasi Aktif</span>
-                            <span className="font-black text-geun-dark">{selectedPackage.duration}</span>
-                          </div>
-
-                          {selectedPackage.type === 'userbot' && (
-                            <div className="flex justify-between text-xs items-center border-t border-slate-200/50 pt-3">
-                              <span className="text-geun-muted font-bold">Jumlah Akun</span>
-                              <span className="font-black text-geun-dark">{accountCount} Akun</span>
-                            </div>
-                          )}
-
-                          <div className="flex justify-between text-xs items-center border-t border-slate-200/50 pt-3">
-                            <span className="text-geun-muted font-bold">Metode Pembayaran</span>
-                            <span className="font-black text-geun-dark">
-                              {selectedPaymentMethod === 'qris' ? 'QRIS (KlikQRIS)' : 'Transfer Manual / E-Wallet'}
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between text-xs items-center border-t border-slate-200/50 pt-3">
-                            <span className="text-geun-muted font-bold">Total Harga</span>
-                            <span className="font-black text-geun-blue text-sm">Rp {currentPrice.toLocaleString('id-ID')}</span>
-                          </div>
-                        </div>
-
-                        {/* Interactive Quantity Selector for Userbot */}
-                        {selectedPackage.type === 'userbot' && (
-                          <div className="space-y-3 bg-[#F8FAFC] p-5 rounded-2xl border border-slate-200/50 shadow-soft">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <label className="text-[10px] font-black text-slate-800 uppercase tracking-wider">
-                                  Jumlah Akun Userbot
-                                </label>
-                                <p className="text-[8px] text-slate-400 font-semibold mt-0.5">
-                                  Beli untuk banyak akun sekaligus
-                                </p>
-                              </div>
-                              
-                              <div className="flex items-center gap-3.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (accountCount > 1) {
-                                      triggerHaptic('medium');
-                                      setAccountCount(prev => {
-                                        const next = prev - 1;
-                                        if (next <= 1) setUserIdsInput('');
-                                        return next;
-                                      });
-                                    }
-                                  }}
-                                  className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-black text-sm active:scale-90 transition-all select-none border border-slate-200/50"
-                                >
-                                  -
-                                </button>
-                                <span className="text-xs font-extrabold text-slate-800 min-w-[36px] text-center">
-                                  {accountCount}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    triggerHaptic('medium');
-                                    setAccountCount(prev => prev + 1);
-                                  }}
-                                  className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-black text-sm active:scale-90 transition-all select-none border border-slate-200/50"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* UserID List Input for Multi-Account Purchase */}
-                            {accountCount > 1 && (
-                              <div className="space-y-1.5 pt-1.5 border-t border-slate-200/60">
-                                <label className="text-[9px] font-black text-slate-700 uppercase tracking-wider block">
-                                  Daftar UserID Akun (Pisah dengan spasi)
-                                </label>
-                                <input
-                                  type="text"
-                                  value={userIdsInput}
-                                  onChange={(e) => setUserIdsInput(e.target.value)}
-                                  placeholder="Contoh: 8310379779 8371902690 8188030043"
-                                  className="w-full text-[10px] p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-geun-blue/50 text-slate-700 shadow-inner"
-                                />
-                                <p className="text-[7.5px] text-slate-400 font-semibold leading-relaxed">
-                                  *Pastikan akun target sudah melakukan start pada bot @GeunIDJaseb_Bot terlebih dahulu.
-                                </p>
-                                <div className="h-[1px] bg-slate-200/60 my-1"></div>
-                                <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
-                                  *Catatan: <span className="text-geun-blue font-extrabold">Tempel daftar UserID Anda langsung di Telegram</span> saat mengirim format ini agar tata letak tidak berantakan.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Premium Caution Warning for Userbot Account Age */}
-                        {selectedPackage.type === 'userbot' && (
-                          <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-3.5 flex items-start gap-2.5 shadow-soft">
-                            <svg className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            </svg>
-                            <div className="space-y-0.5">
-                              <p className="text-[9.5px] font-black text-amber-800 uppercase tracking-wider">Peringatan Keamanan Akun</p>
-                              <p className="text-[8.5px] font-semibold text-amber-700/90 leading-normal">
-                                Pastikan akun Telegram Anda berusia minimal <span className="font-bold">5 bulan ke atas</span> demi mengurangi risiko penangguhan/banned akun oleh sistem anti-spam Telegram.
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Plain, clean order format copy box (No IDE headers, pure elegant copy-box) */}
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 ml-1">
-                            <svg className="w-3.5 h-3.5 text-geun-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                            </svg>
-                            <label className="text-[9px] font-bold text-geun-muted uppercase tracking-wider">Format Pesanan</label>
-                          </div>
-
-                          <div className="relative">
-                            <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-slate-200/70 font-mono text-[9.5px] leading-relaxed relative overflow-hidden select-none text-slate-700 shadow-inner">
-                              {selectedPackage.type === 'userbot' ? (
-                                <>
-                                  <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</p>
-                                  <p>– Username: "{getUsername() || '@username'}"</p>
-                                  <p>– Durasi userbot: "{selectedPackage.duration}"</p>
-                                  <p>– Nomor Telegram: "(isi nomor HP akun userbot Anda)"</p>
-                                  <p>– Password: "(isi password jika ada 2FA, jika tidak kosongkan)"</p>
-                                  <p>– Payment: "{selectedPaymentMethod === 'qris' ? 'QRIS' : 'Transfer Manual'}"</p>
-                                  <p>– Total Harga: Rp {currentPrice.toLocaleString('id-ID')}</p>
-                                </>
-                              ) : (
-                                <>
-                                  <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</p>
-                                  <p>– Username akun: "{getUsername() || '@username'}"</p>
-                                  <p>– Durasi Jaseb: "{selectedPackage.duration}"</p>
-                                  <p>– Paket jaseb: "JASEB {selectedPackage.type.toUpperCase()} {selectedPackage.lpm} LPM"</p>
-                                  <p>– Payment: "{selectedPaymentMethod === 'qris' ? 'QRIS' : 'Transfer Manual'}"</p>
-                                  <p>– Request Lpm: "(isi @lpm1 @lpm2, kalau gaada kosongin/hapus)"</p>
-                                  <p>– Total Harga: Rp {currentPrice.toLocaleString('id-ID')}</p>
-                                </>
-                              )}
-
-
-                            </div>
-
                             <button
-                              onClick={handleCopyOrderFormat}
-                              className={`absolute top-3 right-3 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all duration-300 ${
-                                copied
-                                  ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 shadow-sm'
-                              }`}
+                              onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
+                              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
                             >
-                              {copied ? 'Tersalin' : 'Salin'}
+                              ✕
                             </button>
                           </div>
-                        </div>
 
-                        {/* Elegant Action Button */}
-                        <div className="pt-2">
-                          {selectedPaymentMethod === 'qris' ? (
+                          <div className="space-y-3 pt-2">
+                            {/* Option 1: QRIS */}
+                            <div
+                              onClick={() => { triggerHaptic('light'); setSelectedPaymentMethod('qris'); }}
+                              className={`glass-panel rounded-2xl p-4 flex items-center justify-between border cursor-pointer transition-all duration-300 relative overflow-hidden ${
+                                selectedPaymentMethod === 'qris'
+                                  ? 'border-geun-blue bg-geun-blue/5 shadow-active-glow ring-1 ring-geun-blue'
+                                  : 'border-slate-200/60 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3.5">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
+                                  selectedPaymentMethod === 'qris' ? 'bg-white border-geun-blue/20' : 'bg-slate-100 border-slate-200'
+                                }`}>
+                                  <svg className={`w-7 h-7 ${selectedPaymentMethod === 'qris' ? 'text-geun-blue' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 15h.008v.008H15V15zm0 2.25h.008v.008H15v-.008zm-.75-.75h.008v.008h-.008v-.008zm2.25-.75h.008v.008H16.5V15zm0 2.25h.008v.008H16.5v-.008zm-.75-.75h.008v.008h-.008v-.008zm2.25-.75h.008v.008H18V15zm0 2.25h.008v.008H18v-.008zm-.75-.75h.008v.008h-.008v-.008zm-2.25-2.25h.008v.008H15v-.008zm0 4.5h.008v.008H15v-.008z" />
+                                  </svg>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-black text-slate-800 leading-none tracking-wide">QRIS Otomatis (KlikQRIS)</p>
+                                    <span className="text-[7px] text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider shimmer-badge">
+                                      Otomatis
+                                    </span>
+                                  </div>
+                                  <p className="text-[9px] text-slate-400 font-semibold mt-1">Verifikasi instan & otomatis 24/7.</p>
+                                </div>
+                              </div>
+                              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                                selectedPaymentMethod === 'qris' ? 'border-geun-blue bg-geun-blue' : 'border-slate-300'
+                              }`}>
+                                {selectedPaymentMethod === 'qris' && (
+                                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Option 2: Transfer Manual */}
+                            <div
+                              onClick={() => { triggerHaptic('light'); setSelectedPaymentMethod('manual'); }}
+                              className={`glass-panel rounded-2xl p-4 flex items-center justify-between border cursor-pointer transition-all duration-300 relative overflow-hidden ${
+                                selectedPaymentMethod === 'manual'
+                                  ? 'border-geun-blue bg-geun-blue/5 shadow-active-glow ring-1 ring-geun-blue'
+                                  : 'border-slate-200/60 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3.5">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
+                                  selectedPaymentMethod === 'manual' ? 'bg-white border-geun-blue/20' : 'bg-slate-100 border-slate-200'
+                                }`}>
+                                  <svg className={`w-7 h-7 ${selectedPaymentMethod === 'manual' ? 'text-geun-blue' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                                  </svg>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-black text-slate-800 leading-none tracking-wide">Transfer Manual / E-Wallet</p>
+                                  </div>
+                                  <p className="text-[9px] text-slate-400 font-semibold mt-1">BCA, DANA, Gopay.</p>
+                                </div>
+                              </div>
+                              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                                selectedPaymentMethod === 'manual' ? 'border-geun-blue bg-geun-blue' : 'border-slate-300'
+                              }`}>
+                                {selectedPaymentMethod === 'manual' && (
+                                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Elegant Action Button */}
+                          <div className="pt-4">
                             <button
-                              onClick={handleCheckoutQRIS}
-                              disabled={loadingCheckout}
-                              className={`w-full bg-gradient-to-r from-geun-blue to-geun-purple hover:opacity-90 active:scale-98 text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium transition-all duration-300 ${
-                                loadingCheckout ? 'opacity-50 cursor-not-allowed' : ''
+                              disabled={!selectedPaymentMethod || loadingCheckout}
+                              onClick={handleContinueCheckout}
+                              className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block transition-all duration-300 ${
+                                selectedPaymentMethod && !loadingCheckout
+                                  ? 'bg-gradient-to-r from-geun-blue to-geun-purple text-white shadow-premium active:scale-98 cursor-pointer'
+                                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                               }`}
                             >
                               {loadingCheckout ? (
                                 <span className="flex items-center justify-center gap-2">
-                                  <svg className="animate-spin h-3.5 w-3.5 text-white animate-pulse" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <svg className="animate-spin h-3.5 w-3.5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                   </svg>
-                                  ⏳ Menghasilkan QRIS...
+                                  Menyiapkan...
                                 </span>
                               ) : (
-                                '💳 Buat QRIS Pembayaran'
+                                'Lanjutkan Pembayaran'
                               )}
                             </button>
-                          ) : (
+                          </div>
+                        </div>
+                      )}
+
+                      {/* STEP 2A: QRIS INVOICE VIEW */}
+                      {checkoutStep === 'qris_invoice' && (
+                        <div className="space-y-5">
+                          <div className="flex justify-between items-center">
+                            <button
+                              onClick={() => { triggerHaptic('light'); setCheckoutStep('select_payment'); }}
+                              className="flex items-center gap-1.5 text-[9.5px] font-black text-geun-blue uppercase tracking-wider hover:opacity-80 transition-all duration-300"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                              </svg>
+                              Kembali
+                            </button>
+                            <button
+                              onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
+                              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+
+                          <div className="text-center space-y-1">
+                            <h3 className="text-sm font-black text-geun-dark uppercase tracking-wider">QRIS Pembayaran Otomatis</h3>
+                            <p className="text-[9px] text-geun-muted font-bold">Pindai barcode di bawah ini untuk membayar</p>
+                          </div>
+
+                          {/* Barcode Render & Scanning laser animation */}
+                          <div className="flex flex-col items-center justify-center space-y-3">
+                            <div className="relative p-3.5 bg-white border border-slate-200/80 rounded-[24px] shadow-premium overflow-hidden">
+                              <div className="absolute left-0 right-0 h-[2.5px] bg-red-500 animate-scan"></div>
+                              {qrisData?.qris_url ? (
+                                <img
+                                  src={qrisData.qris_url}
+                                  alt="QRIS Barcode"
+                                  className="w-48 h-48 object-contain"
+                                />
+                              ) : (
+                                <div className="w-48 h-48 flex items-center justify-center bg-slate-50 text-slate-400 text-xs font-semibold">
+                                  QRIS Tidak Tersedia
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Detail Tagihan & Countdown */}
+                            <div className="flex items-center justify-between w-full bg-slate-50 border border-slate-200/50 px-4 py-3 rounded-2xl">
+                              <div className="text-left">
+                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Total Tagihan</p>
+                                <p className="text-sm font-black text-geun-blue">
+                                  Rp {qrisData?.total_amount.toLocaleString('id-ID')}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Batas Waktu</p>
+                                <p className="text-xs font-black text-red-500 flex items-center gap-1.5 justify-end">
+                                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0"></span>
+                                  {formatTime(timeLeft)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Guide / Instruction */}
+                          <div className="bg-amber-50/70 border border-amber-200/60 p-4 rounded-2xl text-[9px] text-amber-800 leading-relaxed space-y-1">
+                            <p className="font-black uppercase tracking-wide">💡 PANDUAN SCAN QRIS:</p>
+                            <ul className="list-disc pl-3 font-semibold space-y-0.5 text-amber-700/90">
+                              <li>Simpan/screenshot QRIS di atas atau gunakan HP lain untuk scan.</li>
+                              <li>Dapat discan menggunakan GoPay, DANA, OVO, ShopeePay, LinkAja, atau m-Banking apa saja.</li>
+                              <li>Sistem akan mendeteksi & memproses aktivasi pesanan secara otomatis segera setelah transfer diterima.</li>
+                            </ul>
+                          </div>
+
+                          {/* Action Button */}
+                          <div className="space-y-2.5">
+                            <button
+                              onClick={handleCheckQRISStatusManual}
+                              disabled={loadingCheckout}
+                              className="w-full bg-gradient-to-r from-geun-blue to-geun-purple text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium hover:opacity-90 active:scale-98 transition-all duration-300"
+                            >
+                              {loadingCheckout ? "⏳ Memeriksa..." : "🔄 Cek Status Bayar"}
+                            </button>
+                            {qrisData?.payment_url && (
+                              <a
+                                href={qrisData.payment_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider text-center block transition-all duration-300"
+                              >
+                                🔗 Bayar via Browser / Web Checkout
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* STEP 2B: MANUAL INVOICE VIEW */}
+                      {checkoutStep === 'manual_invoice' && (
+                        <div className="space-y-5">
+                          <div className="flex justify-between items-center">
+                            <button
+                              onClick={() => { triggerHaptic('light'); setCheckoutStep('select_payment'); }}
+                              className="flex items-center gap-1.5 text-[9.5px] font-black text-geun-blue uppercase tracking-wider hover:opacity-80 transition-all duration-300"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                              </svg>
+                              Kembali
+                            </button>
+                            <button
+                              onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
+                              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+
+                          <div className="text-center space-y-1">
+                            <h3 className="text-sm font-black text-geun-dark uppercase tracking-wider">Transfer Manual</h3>
+                            <p className="text-[9px] text-geun-muted font-bold">Lakukan transfer lalu kirim format & bukti ke Admin</p>
+                          </div>
+
+                          {/* Bank Accounts */}
+                          <div className="bg-slate-50 border border-slate-200/50 p-4 rounded-2xl space-y-2.5 text-xs text-slate-700">
+                            <p className="font-extrabold text-slate-800 uppercase text-[9px] tracking-wide text-geun-blue">Rekening Pembayaran:</p>
+                            <div className="space-y-2 font-semibold text-[10px] text-slate-600">
+                              <p className="flex justify-between">
+                                <span>🏦 BANK BCA:</span>
+                                <span className="font-black text-slate-800">8840742131 a/n GEUN</span>
+                              </p>
+                              <p className="flex justify-between">
+                                <span>📱 DANA / GOPAY:</span>
+                                <span className="font-black text-slate-800">0821-1234-5678 a/n GEUN</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Quantities for Userbot */}
+                          {selectedPackage.type === 'userbot' && (
+                            <div className="space-y-3 bg-[#F8FAFC] p-4 rounded-2xl border border-slate-200/50 shadow-soft">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <label className="text-[10px] font-black text-slate-800 uppercase tracking-wider">Jumlah Akun Userbot</label>
+                                </div>
+                                <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                                  <button
+                                    onClick={() => {
+                                      if (accountCount > 1) {
+                                        triggerHaptic('medium');
+                                        setAccountCount(prev => {
+                                          const next = prev - 1;
+                                          if (next <= 1) setUserIdsInput('');
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    className="w-6 h-6 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-black text-xs active:scale-90 transition-all border border-slate-200/50"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="text-xs font-extrabold text-slate-800 min-w-[28px] text-center">{accountCount}</span>
+                                  <button
+                                    onClick={() => { triggerHaptic('medium'); setAccountCount(prev => prev + 1); }}
+                                    className="w-6 h-6 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-black text-xs active:scale-90 transition-all border border-slate-200/50"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                              {accountCount > 1 && (
+                                <div className="space-y-1.5 pt-1.5 border-t border-slate-200/50">
+                                  <label className="text-[9px] font-black text-slate-700 uppercase tracking-wider block">Daftar UserID Akun (Pisah Spasi)</label>
+                                  <input
+                                    type="text"
+                                    value={userIdsInput}
+                                    onChange={(e) => setUserIdsInput(e.target.value)}
+                                    placeholder="Contoh: 8310379779 8371902690"
+                                    className="w-full text-[10px] p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-geun-blue/50 text-slate-700 shadow-inner"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Copy Format Box */}
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-geun-muted uppercase tracking-wider">Format Pesanan:</label>
+                            <div className="relative">
+                              <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-slate-200/70 font-mono text-[9.5px] leading-relaxed relative overflow-hidden select-none text-slate-700 shadow-inner">
+                                {selectedPackage.type === 'userbot' ? (
+                                  <>
+                                    <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</p>
+                                    <p>– Username: "{getUsername() || '@username'}"</p>
+                                    <p>– Durasi: "{selectedPackage.duration}"</p>
+                                    <p>– Jumlah Akun: "{accountCount} Akun"</p>
+                                    <p>– Nomor: "(isi nomor HP akun userbot)"</p>
+                                    <p>– Payment: "Transfer Manual"</p>
+                                    <p>– Total Harga: Rp {currentPrice.toLocaleString('id-ID')}</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="font-bold text-geun-blue border-b border-slate-200/50 pb-1.5 mb-2">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</p>
+                                    <p>– Username: "{getUsername() || '@username'}"</p>
+                                    <p>– Durasi: "{selectedPackage.duration}"</p>
+                                    <p>– Paket: "JASEB {selectedPackage.type.toUpperCase()} {selectedPackage.lpm} LPM"</p>
+                                    <p>– Payment: "Transfer Manual"</p>
+                                    <p>– Total Harga: Rp {currentPrice.toLocaleString('id-ID')}</p>
+                                  </>
+                                )}
+                              </div>
+                              <button
+                                onClick={handleCopyOrderFormat}
+                                className={`absolute top-3 right-3 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all duration-300 ${
+                                  copied
+                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 shadow-sm'
+                                }`}
+                              >
+                                {copied ? 'Tersalin' : 'Salin'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <div className="pt-2">
                             <a
                               href={`https://t.me/Geun_ID?text=${encodeURIComponent(getOrderFormatText())}`}
                               target="_blank"
@@ -1282,12 +1388,56 @@ const Dashboard = () => {
                             >
                               💬 Kirim Format ke Admin
                             </a>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()
-                )}
+                      )}
+
+                      {/* STEP 3: SUCCESS SCREEN */}
+                      {checkoutStep === 'success_screen' && (
+                        <div className="space-y-6 py-4 text-center">
+                          <div className="flex justify-center">
+                            <div className="w-16 h-16 bg-emerald-50 border border-emerald-200 rounded-full flex items-center justify-center text-emerald-500 shadow-premium animate-bounce">
+                              <svg className="w-9 h-9" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <h3 className="text-base font-black text-slate-800 uppercase tracking-wider">Pembayaran Sukses!</h3>
+                            <p className="text-[10px] text-slate-500 font-bold leading-relaxed px-4">
+                              Terima kasih! Pembayaran QRIS Anda telah terverifikasi secara otomatis. Layanan Anda sudah aktif.
+                            </p>
+                          </div>
+
+                          <div className="bg-slate-50 border border-slate-200/50 p-4 rounded-2xl mx-2 text-left space-y-1.5 text-[9.5px]">
+                            <p className="font-extrabold text-slate-800 uppercase text-[9px] tracking-wide text-geun-blue">📋 Langkah Lanjutan:</p>
+                            <p className="font-semibold text-slate-600 leading-normal">
+                              Silakan buka obrolan bot Telegram Anda. Bot telah mengirimi Anda instruksi setup lanjutan (meminta nomor HP untuk Userbot atau materi promosi untuk Jaseb).
+                            </p>
+                          </div>
+
+                          <div className="pt-2 px-2">
+                            <button
+                              onClick={() => {
+                                triggerHaptic('heavy');
+                                const webapp = (window as any).Telegram?.WebApp;
+                                if (webapp) {
+                                  webapp.close();
+                                } else {
+                                  setIsModalOpen(false);
+                                }
+                              }}
+                              className="w-full bg-gradient-to-r from-geun-blue to-geun-purple text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium hover:opacity-90 active:scale-98 transition-all duration-300"
+                            >
+                              Selesai & Buka Bot
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </motion.div>
             </div>
           )}
