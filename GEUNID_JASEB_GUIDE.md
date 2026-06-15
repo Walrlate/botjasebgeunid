@@ -1,6 +1,6 @@
 # 📖 PANDUAN LENGKAP MEMBUAT & MENATA CHANNEL TELEGRAM (JASEB & USERBOT)
 
-Panduan ini disusun untuk membantu Anda membuat Channel (CH) Telegram yang terstruktur, rapi, dan profesional seperti kompetitor (**Jaseb Aoshi** dan **Flensiza**), serta menghubungkannya dengan fitur **Force Join** (Wajib Join Channel) pada Bot Telegram Anda.
+Panduan ini disusun untuk membantu Anda membuat Channel (CH) Telegram yang terstruktur, rapi, dan profesional untuk brand Anda sendiri, serta menghubungkannya dengan fitur **Force Join** (Wajib Join Channel) pada Bot Telegram Anda.
 
 ---
 
@@ -15,7 +15,7 @@ Panduan ini disusun untuk membantu Anda membuat Channel (CH) Telegram yang terst
     5.  Masukkan foto profil channel yang menarik (bisa menggunakan logo store Anda).
     6.  Ketuk ikon centang/lanjut.
     7.  Pilih tipe channel:
-        *   **Public Channel (Channel Publik):** Siapa saja bisa mencari channel ini. Buat tautan permanen (contoh: `t.me/JasebAoshi`).
+        *   **Public Channel (Channel Publik):** Siapa saja bisa mencari channel ini. Buat tautan permanen (contoh: `t.me/username_channel_anda`).
         *   **Private Channel (Channel Privat):** Hanya orang yang diundang yang bisa masuk melalui tautan undangan.
     8.  Selesai!
 
@@ -90,7 +90,7 @@ Di bawah ini adalah template tulisan dengan ornamen estetis elegan bertema orany
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 💬 Bot Utama: @username_bot_anda
-📞 Hubungi Admin: @Aoshiee
+📞 Hubungi Admin: @username_admin_anda
 ```
 
 ---
@@ -157,7 +157,7 @@ Di bawah ini adalah template tulisan dengan ornamen estetis elegan bertema orany
 ## 🔄 BAGIAN 4: Cara Kerja Fitur Force Join di Bot Anda
 
 Kami telah memprogram logika bot Anda agar bekerja sebagai berikut:
-1.  Setiap kali user mengetik `/start`, `/install`, atau mencoba mengklik menu order/userbot, bot akan memanggil API `GetParticipantRequest` untuk memeriksa ID Telegram user tersebut di channel Anda (contoh: `@JasebAoshi`).
+1.  Setiap kali user mengetik `/start`, `/install`, atau mencoba mengklik menu order/userbot, bot akan memanggil API `GetParticipantRequest` untuk memeriksa ID Telegram user tersebut di channel Anda (contoh: `@geunidk`).
 2.  Jika user **belum bergabung**, bot akan mengirimkan pesan peringatan mewah bertema **WAJIB BERGABUNG CHANNEL** dengan tombol langsung ke Channel Anda dan tombol **"🔄 Cek Status"**.
 3.  Ketika user mengklik **"🔄 Cek Status"**, bot akan mengecek ulang. Jika terdeteksi sudah bergabung, bot akan memberikan akses dan menampilkan menu utama. Jika belum, bot akan menampilkan notifikasi kecil: *"Anda belum bergabung ke channel! Silakan gabung terlebih dahulu."*
-4.  Semua konfigurasi channel tersimpan dengan aman pada file `.env` di variabel `CHANNEL_USERNAME=@JasebAoshi`. Anda bebas menggantinya kapan saja tanpa perlu menyentuh kode program.
+4.  Semua konfigurasi channel tersimpan dengan aman pada file `.env` di variabel `CHANNEL_USERNAME=@geunidk`. Anda bebas menggantinya kapan saja tanpa perlu menyentuh kode program.
