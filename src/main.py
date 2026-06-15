@@ -1222,7 +1222,7 @@ async def main():
     await init_db()
     
     logger.info("Memulai Telegram Client...")
-    await bot.start(bot_token=BOT_TOKEN)
+    await bot.start(bot_token=BOT_TOKEN)  # type: ignore
     
     # Jalankan scheduler autopilot secara asinkron
     logger.info("Memulai Scheduler Autopilot...")
