@@ -24,6 +24,7 @@ async def init_db():
                 start_date TIMESTAMP,
                 end_date TIMESTAMP,
                 status TEXT DEFAULT 'active',
+                request_lpm TEXT,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
@@ -97,6 +98,12 @@ async def init_db():
             )
         ''')
         
+        # Safe migration for existing DB
+        try:
+            await db.execute("ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT")
+        except Exception:
+            pass
+            
         await db.commit()
 
 async def get_db():

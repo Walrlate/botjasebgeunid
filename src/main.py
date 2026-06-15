@@ -535,6 +535,85 @@ async def user_input_handler(event):
     current_state = state_data["state"]
     text = event.text.strip()
     
+    if current_state == "waiting_for_ad":
+        # 1. Simpan pesan atau media iklan
+        content_text = event.message.message or ""
+        media_path = ""
+        
+        await event.respond("⏳ **Sedang memproses dan menyimpan materi iklan Anda...**")
+        
+        if event.message.media:
+            try:
+                os.makedirs("data/media", exist_ok=True)
+                media_path = await event.message.download_media(file="data/media/")
+            except Exception as e:
+                logger.error(f"Gagal mengunduh media iklan: {e}")
+                await event.respond("⚠️ Gagal mengunduh file media. Iklan akan disimpan tanpa media.")
+                
+        async with await get_db() as db:
+            # Bersihkan iklan lama milik user
+            await db.execute("DELETE FROM user_ads WHERE user_id = ?", (event.sender_id,))
+            await db.execute(
+                "INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, ?, ?, ?)",
+                (event.sender_id, "Iklan Utama", content_text, media_path)
+            )
+            await db.commit()
+            
+        # Pindah state ke waiting_for_lpm_request
+        login_states[event.sender_id]["state"] = "waiting_for_lpm_request"
+        
+        await event.respond(
+            "📝 **Iklan Anda berhasil disimpan!**\n\n"
+            "Sekarang, silakan kirimkan daftar username/link grup LPM kustom Anda (maksimal 10 grup, dipisahkan dengan spasi).\n"
+            "Contoh: `@grup1 @grup2` atau `t.me/grup3`\n\n"
+            "Jika Anda tidak memiliki LPM kustom dan ingin menggunakan LPM default sistem, silakan ketik **/skip**."
+        )
+        return
+        
+    elif current_state == "waiting_for_lpm_request":
+        lpm_req_text = text.lower()
+        lpm_list_str = ""
+        
+        if lpm_req_text != "/skip":
+            # Ekstrak username / link grup LPM
+            links = re.findall(r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', text)
+            if not links:
+                await event.respond(
+                    "❌ **Tidak ada grup LPM valid terdeteksi!**\n"
+                    "Harap kirimkan daftar grup LPM yang benar (contoh: `@lpm1 @lpm2`), atau ketik **/skip** jika ingin melewati."
+                )
+                return
+                
+            # Batasi maks 10 LPM kustom
+            valid_links = []
+            for link in links[:10]:
+                full_link = f"@{link}" if not ("t.me" in link or "joinchat" in link) else link
+                valid_links.append(full_link)
+                
+            lpm_list_str = " ".join(valid_links)
+            await event.respond(f"✅ Berhasil mencatat **{len(valid_links)} grup LPM kustom** Anda.")
+            
+        # Simpan LPM kustom ke DB
+        async with await get_db() as db:
+            await db.execute(
+                "UPDATE subscriptions SET request_lpm = ? WHERE user_id = ? AND status = 'active'",
+                (lpm_list_str if lpm_list_str else None, event.sender_id)
+            )
+            await db.commit()
+            
+        # Bersihkan state login
+        del login_states[event.sender_id]
+        
+        await event.respond(
+            "🎉 **Proses Registrasi Iklan Selesai!**\n\n"
+            "Iklan Anda telah didaftarkan dan akan disebarkan secara otomatis oleh engine autopilot.\n"
+            "Ketik /start untuk melihat detail profil langganan Anda."
+        )
+        
+        # Pemicu broadcast instan pertama kali
+        asyncio.create_task(start_user_broadcast(event.sender_id))
+        return
+        
     if current_state == "waiting_for_phone":
         phone_number = text.replace(" ", "").replace("-", "")
         if not phone_number.startswith("+"):
@@ -905,13 +984,24 @@ async def check_payment_status_handler(event):
                             )
                         
                         await db.commit()
+                        
+                        # Set state percakapan ke waiting_for_ad untuk meminta materi iklan
+                        login_states[u_id] = {
+                            "state": "waiting_for_ad",
+                            "user_id": u_id,
+                            "package_name": package_name,
+                            "capacity": capacity
+                        }
+                        
                         await event.answer("✅ Pembayaran berhasil terverifikasi!", alert=True)
                         await event.edit(
                             f"🎉 **Pembayaran Sukses Terverifikasi!**\n\n"
                             f"📦 Paket: **{package_name}**\n"
                             f"💰 Total: Rp {amount:,}\n"
                             f"📅 Berlaku Hingga: **{new_end_str}**\n\n"
-                            f"Terima kasih telah berlangganan! Silakan ketik /start untuk memperbarui status Anda."
+                            f"✍️ **Langkah Selanjutnya (Wajib):**\n"
+                            f"Silakan kirimkan materi iklan Anda langsung ke chat ini.\n"
+                            f"Iklan dapat berupa teks biasa, foto/video dengan caption, emoji premium, atau pesan forward iklan toko Anda."
                         )
                         return
                     else:
@@ -925,12 +1015,153 @@ async def check_payment_status_handler(event):
     else:
         await event.answer("❌ Gagal memverifikasi ke gateway KlikQRIS. Silakan coba lagi.", alert=True)
 
+import os
+from src.jaseb_engine import JasebEngine
+
+async def start_user_broadcast(user_id):
+    logger.info(f"Memulai broadcast otomatis untuk user_id: {user_id}")
+    async with await get_db() as db:
+        # 1. Ambil subscription aktif
+        cursor = await db.execute("""
+            SELECT package_name, capacity_lpm, request_lpm 
+            FROM subscriptions 
+            WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime')
+            ORDER BY end_date DESC LIMIT 1
+        """, (user_id,))
+        sub = await cursor.fetchone()
+        if not sub:
+            logger.warning(f"Tidak ada subscription aktif untuk user_id: {user_id}")
+            return
+            
+        package_name, capacity, request_lpm = sub
+        
+        # 2. Ambil iklan aktif
+        cursor = await db.execute("""
+            SELECT id FROM user_ads 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
+        ad_row = await cursor.fetchone()
+        if not ad_row:
+            logger.warning(f"Tidak ada materi iklan terdaftar untuk user_id: {user_id}")
+            # Kirim peringatan ke user
+            await bot.send_message(user_id, "⚠️ **Materi iklan kosong!** Silakan kirimkan materi iklan (teks/media/forward) yang ingin disebarkan ke chat bot ini.")
+            return
+        ad_id = ad_row[0]
+        
+        # 3. Tentukan sesi pengirim
+        session_name = ""
+        is_userbot = "userbot" in package_name.lower() or "pasang userbot" in package_name.lower()
+        
+        if is_userbot:
+            # Cari sesi userbot pembeli
+            cursor = await db.execute("SELECT session_name, status FROM userbots WHERE user_id = ?", (user_id,))
+            ub_row = await cursor.fetchone()
+            if ub_row and ub_row[1] == 'connected':
+                session_name = f"data/sessions/{ub_row[0]}"
+            else:
+                logger.warning(f"Sesi userbot pembeli {user_id} terputus atau tidak aktif.")
+                # Kirim peringatan ke user
+                await bot.send_message(user_id, "⚠️ **Sesi Userbot Anda terputus!** Silakan sambungkan kembali via menu /start agar iklan dapat disebarkan.")
+                return
+        else:
+            # Cari sesi userbot admin (untuk paket Regular/Forward)
+            cursor = await db.execute("SELECT session_name, status FROM userbots WHERE user_id = ?", (ADMIN_ID,))
+            ub_row = await cursor.fetchone()
+            if ub_row and ub_row[1] == 'connected':
+                session_name = f"data/sessions/{ub_row[0]}"
+            else:
+                logger.warning("Sesi userbot admin terputus. Jaseb biasa tidak dapat disebarkan.")
+                # Kirim peringatan ke admin
+                await bot.send_message(ADMIN_ID, "⚠️ **Sesi Ubot Admin terputus!** Silakan sambungkan kembali ubot Anda agar iklan Jaseb Regular/Forward pelanggan dapat disebarkan.")
+                return
+                
+        # 4. Bangun daftar LPM target
+        # Pecah LPM kustom
+        lpm_links = []
+        if request_lpm:
+            # Bersihkan spasi dan ambil link LPM
+            lpm_links = [l.strip() for l in request_lpm.split() if l.strip()]
+            
+        # Ambil sisa LPM default dari database
+        sisa_kapasitas = max(0, capacity - len(lpm_links))
+        if sisa_kapasitas > 0:
+            cursor = await db.execute("""
+                SELECT group_link FROM lpm_lists 
+                WHERE is_active = 1 
+                ORDER BY member_count DESC LIMIT ?
+            """, (sisa_kapasitas,))
+            default_lpms = await cursor.fetchall()
+            for row in default_lpms:
+                lpm_links.append(row[0])
+                
+        # Jika tidak ada LPM sama sekali
+        if not lpm_links:
+            logger.warning("Daftar target LPM kosong.")
+            return
+            
+        # 5. Jalankan engine broadcast
+        engine = JasebEngine(session_name, API_ID, API_HASH)
+        await engine.start()
+        
+        # Tentukan delay mode (Regular/Forward)
+        delay_mode = 'slowly' if 'regular' in package_name.lower() else 'instant'
+        
+        # Tentukan auto_join_leave
+        auto_join_leave = True
+        
+        # Jalankan pengiriman secara asinkron
+        asyncio.create_task(run_broadcast_task(engine, user_id, ad_id, lpm_links, delay_mode, auto_join_leave))
+
+async def run_broadcast_task(engine, user_id, ad_id, lpm_links, delay_mode, auto_join_leave):
+    try:
+        await engine.broadcast_with_stealth(
+            user_id=user_id,
+            ad_id=ad_id,
+            group_links=lpm_links,
+            delay_mode=delay_mode,
+            auto_join_leave=auto_join_leave
+        )
+    except Exception as e:
+        logger.error(f"Error running broadcast engine task: {e}")
+    finally:
+        await engine.stop()
+
+async def run_jaseb_scheduler():
+    logger.info("Scheduler Autopilot Aktif...")
+    while True:
+        try:
+            # Jalankan scheduler setiap 2 jam sekali (7200 detik)
+            await asyncio.sleep(7200) 
+            logger.info("Memulai siklus broadcast autopilot berkala...")
+            
+            async with await get_db() as db:
+                # Ambil semua user yang memiliki subscription aktif
+                cursor = await db.execute("""
+                    SELECT DISTINCT user_id 
+                    FROM subscriptions 
+                    WHERE status = 'active' AND end_date > datetime('now', 'localtime')
+                """)
+                active_users = await cursor.fetchall()
+                
+            for row in active_users:
+                user_id = row[0]
+                # Jalankan broadcast asinkron untuk setiap user
+                asyncio.create_task(start_user_broadcast(user_id))
+                
+        except Exception as e:
+            logger.error(f"Error in scheduler loop: {e}")
+
 async def main():
     logger.info("Memulai Database...")
     await init_db()
     
     logger.info("Memulai Telegram Client...")
     await bot.start(bot_token=BOT_TOKEN)
+    
+    # Jalankan scheduler autopilot secara asinkron
+    logger.info("Memulai Scheduler Autopilot...")
+    asyncio.create_task(run_jaseb_scheduler())
     
     logger.info("Bot sedang berjalan...")
     await bot.run_until_disconnected()
