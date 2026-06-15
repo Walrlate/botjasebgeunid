@@ -502,6 +502,10 @@ async def install_command_handler(event):
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
     """Handler utama untuk semua state machine percakapan."""
+    text = (event.text or "").strip()
+    if text.startswith("/"):
+        return
+
     if event.sender_id not in login_states:
         return
 
