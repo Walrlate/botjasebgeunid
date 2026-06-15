@@ -1,5 +1,8 @@
+import asyncio
 import logging
 import re
+import os
+import json
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
@@ -7,6 +10,7 @@ from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, 
 from src.database import init_db, get_db
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction
+from src.jaseb_engine import JasebEngine
 
 
 # Konfigurasi Logging
@@ -14,11 +18,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # Inisialisasi Client
-# Client Bot (untuk UI)
-bot = TelegramClient('bot_session', API_ID, API_HASH)
+# Client Bot (untuk UI) - simpan session di /app/data agar persisten di Railway
+bot = TelegramClient('data/bot_session', API_ID, API_HASH)
 
-import json
-import os
 
 def load_prices():
     try:
@@ -1080,8 +1082,6 @@ async def check_payment_status_handler(event):
     else:
         await event.answer("❌ Gagal memverifikasi ke gateway KlikQRIS. Silakan coba lagi.", alert=True)
 
-import os
-from src.jaseb_engine import JasebEngine
 
 async def start_user_broadcast(user_id):
     logger.info(f"Memulai broadcast otomatis untuk user_id: {user_id}")
@@ -1232,5 +1232,4 @@ async def main():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    import asyncio
     asyncio.run(main())
