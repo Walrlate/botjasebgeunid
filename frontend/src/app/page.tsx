@@ -1094,13 +1094,12 @@ const Dashboard = () => {
                                 <p className="text-[7.5px] text-slate-400 font-semibold leading-relaxed">
                                   *Pastikan akun target sudah melakukan start pada bot @GeunIDJaseb_Bot terlebih dahulu.
                                 </p>
+                                <div className="h-[1px] bg-slate-200/60 my-1"></div>
+                                <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
+                                  *Catatan: <span className="text-geun-blue font-extrabold">Tempel daftar UserID Anda langsung di Telegram</span> saat mengirim format ini agar tata letak tidak berantakan.
+                                </p>
                               </div>
                             )}
-
-                            <div className="h-[1px] bg-slate-200/60 my-1"></div>
-                            <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
-                              *Catatan: <span className="text-geun-blue font-extrabold">Tempel daftar UserID Anda langsung di Telegram</span> saat mengirim format ini agar tata letak tidak berantakan.
-                            </p>
                           </div>
                         )}
 
