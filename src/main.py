@@ -285,7 +285,7 @@ async def _show_start_menu(event, is_callback: bool = False):
         buttons = [
             [KeyboardButtonWebView(text=f"{EMOJI_UI['rocket']} Buka Mini App", url=web_app_url)],
             [KeyboardButtonCallback(text="📖 Bantuan & Harga", data=b"help_main"),
-             KeyboardButtonCallback(text="🛒 Order Sekarang", data=b"order_start")],
+             KeyboardButtonWebView(text="🛒 Order Sekarang", url=web_app_url)],
             [KeyboardButtonCallback(text="📊 Status Jaseb Saya", data=b"my_status")],
             [KeyboardButtonUrl(text="📞 Hubungi Admin", url=f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
         ]

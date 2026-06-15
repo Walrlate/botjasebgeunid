@@ -92,9 +92,12 @@ def _register_handlers(bot):
 
         lines.append("\n🛒 Ketuk tombol di bawah untuk order sekarang!")
         text = "\n".join(lines)
+        from src.main import get_web_app_url
+        from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback
+        web_app_url = await get_web_app_url(event.sender_id)
         await event.edit(text, buttons=[
-            [Button.inline("🛒 Order Sekarang", b"order_start")],
-            [Button.inline("⬅️ Kembali", b"help_main")]
+            [KeyboardButtonWebView(text="🛒 Order Sekarang", url=web_app_url)],
+            [KeyboardButtonCallback(text="⬅️ Kembali", data=b"help_main")]
         ])
 
     @bot.on(events.CallbackQuery(data=b"help_howto"))
@@ -117,9 +120,12 @@ def _register_handlers(bot):
             "• **Userbot** — Pakai nomor Telegram Anda sendiri (paling stealth)\n\n"
             "💡 _Ketik /mystatus untuk cek status jaseb kapan saja._"
         )
+        from src.main import get_web_app_url
+        from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback
+        web_app_url = await get_web_app_url(event.sender_id)
         await event.edit(text, buttons=[
-            [Button.inline("🛒 Order Sekarang", b"order_start")],
-            [Button.inline("⬅️ Kembali", b"help_main")]
+            [KeyboardButtonWebView(text="🛒 Order Sekarang", url=web_app_url)],
+            [KeyboardButtonCallback(text="⬅️ Kembali", data=b"help_main")]
         ])
 
     # ─────────────────────────────────────────
@@ -351,13 +357,16 @@ async def _show_help_main(event):
         "Gunakan tombol di bawah untuk navigasi:"
     )
     text = format_menu_text(title, content)
+    from src.main import get_web_app_url
+    from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, KeyboardButtonUrl
+    web_app_url = await get_web_app_url(event.sender_id)
     buttons = [
-        [Button.inline("💰 Lihat Daftar Harga", b"help_prices"),
-         Button.inline("📖 Cara Pakai", b"help_howto")],
-        [Button.inline("🛒 Order Sekarang", b"order_start")],
-        [Button.inline("📊 Status Jaseb Saya", b"my_status")],
-        [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
-        [Button.inline("⬅️ Menu Utama", b"start")]
+        [KeyboardButtonCallback(text="💰 Lihat Daftar Harga", data=b"help_prices"),
+         KeyboardButtonCallback(text="📖 Cara Pakai", data=b"help_howto")],
+        [KeyboardButtonWebView(text="🛒 Order Sekarang", url=web_app_url)],
+        [KeyboardButtonCallback(text="📊 Status Jaseb Saya", data=b"my_status")],
+        [KeyboardButtonUrl(text="📞 Hubungi Admin", url=f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
+        [KeyboardButtonCallback(text="⬅️ Menu Utama", data=b"start")]
     ]
     if hasattr(event, "edit"):
         try:
