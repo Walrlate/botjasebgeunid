@@ -613,15 +613,48 @@ async def user_input_handler(event):
             if not links:
                 await event.respond(
                     "❌ Tidak ada link LPM valid!\n"
-                    "Kirim: `@lpm1 @lpm2` atau ketik `/skip` untuk pakai LPM default."
+                    "Kirim daftar LPM kustom Anda (Contoh: `@lpm1 @lpm2`) atau ketik `/skip` untuk pakai LPM default."
                 )
                 return
+
+            await event.respond(f"⏳ Sedang memvalidasi **{len(links[:10])} grup LPM** Anda secara otomatis...")
+
             valid_links = []
-            for link in links[:10]:  # Max 10
+            success_count = 0
+            failed_count = 0
+
+            for link in links[:10]:  # Batasi maks 10 kustom
                 full_link = f"@{link}" if not ("t.me" in link or "joinchat" in link) else link
-                valid_links.append(full_link)
+                res = await JasebEngine.verify_lpm_group(bot, full_link)
+                if res.get("success"):
+                    valid_links.append(full_link)
+                    success_count += 1
+                    # Simpan otomatis ke lpm_lists global agar bisa digunakan sistem di masa depan!
+                    try:
+                        async with await get_db() as db:
+                            await db.execute(
+                                "INSERT OR IGNORE INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, ?)",
+                                (full_link, res["group_id"], res["group_name"], res["member_count"], 1)
+                            )
+                            await db.commit()
+                    except Exception as db_err:
+                        logger.error(f"Gagal menyimpan LPM kustom ke database global: {db_err}")
+                else:
+                    failed_count += 1
+
+            if not valid_links:
+                await event.respond(
+                    "❌ Tidak ada satu pun grup LPM yang Anda kirimkan terbukti valid di Telegram!\n"
+                    "Silakan kirimkan kembali daftar LPM kustom yang valid atau ketik `/skip` untuk menggunakan LPM default."
+                )
+                return
+
             lpm_list_str = " ".join(valid_links)
-            await event.respond(f"✅ **{len(valid_links)} grup LPM kustom** berhasil dicatat.")
+            await event.respond(
+                f"✅ **Verifikasi Selesai!**\n"
+                f"• Berhasil disimpan: **{success_count} grup** (otomatis ditambahkan ke database global sistem)\n"
+                f"• Gagal/Tidak Valid: **{failed_count} grup**"
+            )
 
         async with await get_db() as db:
             await db.execute(
