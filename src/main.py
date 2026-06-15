@@ -1,27 +1,65 @@
+"""
+main.py — Core Bot GEUNID JASEB
+================================
+Bertanggung jawab atas:
+- Inisialisasi bot dan database
+- Handler /start (menu utama client & admin)
+- State machine: waiting_for_ad, waiting_for_lpm_request, waiting_for_phone, waiting_for_otp, waiting_for_password
+- Payment flow: check_payment_status_handler
+- Order format parser (auto-invoice dari format teks)
+- LPM Scanner (/scan) — admin only
+- Userbot installer (/install) — admin only
+- Scheduler autopilot & auto-reminder perpanjang
+- Integrasi client_handlers dan admin_handlers
+"""
+
 import asyncio
 import logging
 import re
 import os
 import json
+from datetime import datetime, timedelta
+
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
+
 from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME
 from src.database import init_db, get_db
 from src.ui_styles import EMOJI_UI, format_menu_text
-from src.payments import create_qris_transaction
+from src.payments import create_qris_transaction, check_transaction_status
 from src.jaseb_engine import JasebEngine
+from src.notifications import (
+    notify_admin_payment_success,
+    notify_client_broadcast_start,
+    notify_client_broadcast_done,
+    notify_client_subscription_expiring,
+    notify_client_ad_saved,
+)
 
-
+# ─────────────────────────────────────────
 # Konfigurasi Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# ─────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Inisialisasi Client
-# Client Bot (untuk UI) - simpan session di /app/data agar persisten di Railway
+# ─────────────────────────────────────────
+# Inisialisasi Bot Client
+# Simpan session di data/ agar persisten di Railway
+# ─────────────────────────────────────────
+os.makedirs("data", exist_ok=True)
 bot = TelegramClient('data/bot_session', API_ID, API_HASH)
 
+# State machine untuk percakapan multi-langkah
+login_states = {}
 
+
+# ─────────────────────────────────────────
+# Helpers: Load Prices
+# ─────────────────────────────────────────
 def load_prices():
     try:
         prices_path = os.path.join("frontend", "src", "prices.json")
@@ -32,319 +70,368 @@ def load_prices():
         logger.error(f"Gagal memuat prices.json: {e}")
     return {}
 
-def get_package_duration_days(package_name, amount):
+
+def get_package_duration_days(package_name: str, amount: int) -> int:
     prices = load_prices()
     if not prices:
         return 30
-        
     amount = int(amount)
-    
-    # Cari di semua kategori paket (regular, forward, userbot)
     for category in ['regular', 'forward', 'userbot']:
         for item in prices.get(category, []):
             if int(item.get('promoPrice', 0)) == amount:
-                # Dapatkan durasi dasar
                 duration_str = item.get('duration', '')
                 days = 0
-                days_match = re.search(r'(\d+)\s*Hari', duration_str, re.IGNORECASE)
-                if days_match:
-                    days = int(days_match.group(1))
-                
-                # Tambahkan bonus jika ada
+                m = re.search(r'(\d+)\s*Hari', duration_str, re.IGNORECASE)
+                if m:
+                    days = int(m.group(1))
                 bonus_str = item.get('bonus', '')
                 if bonus_str:
-                    bonus_match = re.search(r'\+(\d+)\s*Hari', bonus_str, re.IGNORECASE)
-                    if bonus_match:
-                        days += int(bonus_match.group(1))
-                
+                    bm = re.search(r'\+(\d+)\s*Hari', bonus_str, re.IGNORECASE)
+                    if bm:
+                        days += int(bm.group(1))
                 if days > 0:
                     return days
-                    
-    # Fallback pencocokan durasi dari nama paket jika nominal tidak cocok
-    days_match = re.search(r'(\d+)\s*Hari', package_name, re.IGNORECASE)
-    if days_match:
-        return int(days_match.group(1))
-        
-    return 30 # Default fallback
+    m = re.search(r'(\d+)\s*Hari', package_name, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return 30
 
-async def check_channel_join(event):
+
+def get_capacity_from_package(package_name: str) -> int:
+    """Ambil kapasitas LPM dari nama paket."""
+    for lpm in [50, 30, 20]:
+        if str(lpm) in package_name:
+            return lpm
+    return 20  # default
+
+
+# ─────────────────────────────────────────
+# Helper: Cek Channel Join
+# ─────────────────────────────────────────
+async def check_channel_join(event) -> bool:
     user_id = event.sender_id
-    if not user_id:
+    if not user_id or user_id == ADMIN_ID:
         return True
-    
-    # Bypass admin
-    if user_id == ADMIN_ID:
-        return True
-        
     if not CHANNEL_USERNAME:
         return True
-        
     try:
-        # Pengecekan status partisipan
         await bot(GetParticipantRequest(channel=CHANNEL_USERNAME, participant=user_id))
         return True
     except UserNotParticipantError:
         invite_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-        title = f"{EMOJI_UI['shield']} WAJIB BERGABUNG CHANNEL"
-        content = (
-            "Untuk dapat menggunakan layanan bot ini, Anda diwajibkan bergabung ke channel resmi kami terlebih dahulu.\n\n"
-            f"Silakan bergabung ke channel: **{CHANNEL_USERNAME}**\n\n"
-            "Setelah bergabung, silakan klik tombol **\"🔄 Cek Status\"** di bawah ini untuk mengaktifkan akses bot."
+        text = format_menu_text(
+            f"{EMOJI_UI['shield']} WAJIB BERGABUNG CHANNEL",
+            f"Untuk menggunakan bot ini, bergabunglah ke channel resmi kami terlebih dahulu.\n\n"
+            f"Channel: **{CHANNEL_USERNAME}**\n\n"
+            "Setelah bergabung, klik tombol **🔄 Cek Status** di bawah."
         )
-        text = format_menu_text(title, content)
         buttons = [
             [Button.url(f"{EMOJI_UI['rocket']} Gabung Channel", invite_link)],
             [Button.inline("🔄 Cek Status", b"check_join_status")]
         ]
-        
-        if isinstance(event, events.CallbackQuery.Event):
-            await event.edit(text, buttons=buttons)
+        if hasattr(event, "edit"):
+            try:
+                await event.edit(text, buttons=buttons)
+            except Exception:
+                await event.respond(text, buttons=buttons)
         else:
             await event.respond(text, buttons=buttons)
         return False
     except Exception as e:
-        logger.error(f"Error checking channel join status: {e}")
-        # Jika bot bukan admin di channel atau terjadi error lain, izinkan user masuk agar bot tidak macet
+        logger.error(f"Error cek channel join: {e}")
         return True
+
 
 @bot.on(events.CallbackQuery(data=b"check_join_status"))
 async def check_join_status_handler(event):
-    user_id = event.sender_id
     try:
-        await bot(GetParticipantRequest(channel=CHANNEL_USERNAME, participant=user_id))
-        # Jika berhasil (sudah join)
-        await event.answer("✅ Terima kasih! Akses bot Anda telah aktif.", alert=True)
-        # Tampilkan menu utama
+        await bot(GetParticipantRequest(channel=CHANNEL_USERNAME, participant=event.sender_id))
+        await event.answer("✅ Terima kasih! Akses bot Anda aktif.", alert=True)
         await callback_start_handler(event)
     except UserNotParticipantError:
-        await event.answer("❌ Anda belum bergabung ke channel! Silakan gabung terlebih dahulu.", alert=True)
-    except Exception as e:
-        logger.error(f"Error checking join status on callback: {e}")
-        await event.answer("✅ Akses aktif (Pemeriksaan dilewati).", alert=True)
+        await event.answer("❌ Anda belum bergabung ke channel!", alert=True)
+    except Exception:
+        await event.answer("✅ Akses aktif.", alert=True)
         await callback_start_handler(event)
 
 
-async def get_web_app_url(user_id):
-    total_broadcast = 0
-    total_lpm = 0
-    total_userbots = 0
+# ─────────────────────────────────────────
+# Helper: Buat URL Mini App
+# ─────────────────────────────────────────
+async def get_web_app_url(user_id: int) -> str:
+    total_broadcast = total_lpm = total_userbots = 0
     user_bot_status = 'disconnected'
     user_package = 'Tidak Aktif'
     user_lpm = 0
     user_days = 0
-    
     try:
         async with await get_db() as db:
-            # 1. Global Stats
-            cursor = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status = 'success'")
-            total_broadcast = (await cursor.fetchone())[0]
-            
-            cursor = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active = 1")
-            total_lpm = (await cursor.fetchone())[0]
-            
-            cursor = await db.execute("SELECT COUNT(*) FROM userbots WHERE status = 'connected'")
-            total_userbots = (await cursor.fetchone())[0]
-            
-            # 2. User Info
-            cursor = await db.execute("SELECT status FROM userbots WHERE user_id = ?", (user_id,))
-            row = await cursor.fetchone()
+            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
+            total_broadcast = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
+            total_lpm = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
+            total_userbots = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
+            row = await cur.fetchone()
             if row:
                 user_bot_status = row[0]
-                
-            cursor = await db.execute("""
-                SELECT package_name, capacity_lpm, end_date 
-                FROM subscriptions 
-                WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime') 
+            cur = await db.execute("""
+                SELECT package_name, capacity_lpm, end_date FROM subscriptions
+                WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
                 ORDER BY end_date DESC LIMIT 1
             """, (user_id,))
-            row = await cursor.fetchone()
+            row = await cur.fetchone()
             if row:
                 user_package = row[0]
                 user_lpm = row[1]
                 try:
-                    from datetime import datetime
                     clean_date = row[2].split(".")[0]
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
-                    delta = end_dt - datetime.now()
-                    user_days = max(0, delta.days)
-                except Exception as date_err:
-                    logger.error(f"Date parse error: {date_err}")
+                    user_days = max(0, (end_dt - datetime.now()).days)
+                except Exception:
                     user_days = 0
     except Exception as e:
-        logger.error(f"Error getting WebApp stats from DB: {e}")
-        
+        logger.error(f"Error build WebApp URL: {e}")
     return (
         f"https://geunid-jaseb.vercel.app/?"
-        f"b={total_broadcast}&"
-        f"l={total_lpm}&"
-        f"u={total_userbots}&"
-        f"ub={user_bot_status}&"
-        f"pkg={user_package}&"
-        f"ulpm={user_lpm}&"
-        f"days={user_days}"
+        f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
+        f"&ub={user_bot_status}&pkg={user_package}&ulpm={user_lpm}&days={user_days}"
     )
 
 
+# ─────────────────────────────────────────
+# /start & callback start
+# ─────────────────────────────────────────
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     if not await check_channel_join(event):
         return
-    sender = await event.get_sender()
-    user_id = event.sender_id
-
-    full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
-    
-    title = f"{EMOJI_UI['start']} GEUNID-JASEB REVOLUTION"
-    web_app_url = await get_web_app_url(user_id)
-    
-    if user_id == ADMIN_ID:
-        content = (
-            f"Halo **{full_name}** (Admin), selamat datang di panel kendali Jaseb.\n\n"
-            f"{EMOJI_UI['rocket']} **Fitur Admin:**\n"
-            "• Kelola bot & pengiriman iklan\n"
-            "• Hubungkan Ubot instan dengan ketik `/install`\n"
-            "• Pindai LPM aktif dengan `/scan`"
-        )
-        buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
-            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
-            [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
-        ]
-    else:
-        content = (
-            f"Halo **{full_name}**, selamat datang di layanan GEUNID-JASEB.\n\n"
-            f"Untuk mengetahui daftar fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, "
-            f"silakan gunakan tombol **📞 Hubungi Admin / Bantuan** di bawah ini."
-        )
-        buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin / Bantuan", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
-        ]
-        
-    welcome_text = format_menu_text(title, content)
-    await event.respond(welcome_text, buttons=buttons)
+    await _show_start_menu(event, is_callback=False)
 
 
 @bot.on(events.CallbackQuery(data=b"start"))
 async def callback_start_handler(event):
+    await _show_start_menu(event, is_callback=True)
+
+
+async def _show_start_menu(event, is_callback: bool = False):
     sender = await event.get_sender()
     user_id = event.sender_id
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
-    
-    title = f"{EMOJI_UI['start']} GEUNID-JASEB REVOLUTION"
-    web_app_url = await get_web_app_url(user_id)
-    
-    if user_id == ADMIN_ID:
-        content = (
-            f"Halo **{full_name}** (Admin), selamat datang di panel kendali Jaseb.\n\n"
-            f"{EMOJI_UI['rocket']} **Fitur Admin:**\n"
-            "• Kelola bot & pengiriman iklan\n"
-            "• Hubungkan Ubot instan dengan ketik `/install`\n"
-            "• Pindai LPM aktif dengan `/scan`"
-        )
-        buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
-            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
-            [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
-        ]
-    else:
-        content = (
-            f"Halo **{full_name}**, selamat datang di layanan GEUNID-JASEB.\n\n"
-            f"Untuk mengetahui daftar fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, "
-            f"silakan gunakan tombol **📞 Hubungi Admin / Bantuan** di bawah ini."
-        )
-        buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
-            [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin / Bantuan", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
-        ]
-        
-    welcome_text = format_menu_text(title, content)
-    await event.edit(welcome_text, buttons=buttons)
 
-
-@bot.on(events.CallbackQuery(data=b"stats"))
-async def stats_handler(event):
-    total_broadcast = 0
-    total_lpm = 0
-    total_userbots = 0
+    # Pastikan user terdaftar di DB
     try:
         async with await get_db() as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status = 'success'")
-            total_broadcast = (await cursor.fetchone())[0]
-            
-            cursor = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active = 1")
-            total_lpm = (await cursor.fetchone())[0]
-            
-            cursor = await db.execute("SELECT COUNT(*) FROM userbots WHERE status = 'connected'")
-            total_userbots = (await cursor.fetchone())[0]
+            await db.execute(
+                "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
+                (user_id, sender.username or "", full_name)
+            )
+            await db.commit()
     except Exception as e:
-        logger.error(f"Error fetching stats from DB: {e}")
+        logger.error(f"Error upsert user: {e}")
 
-    title = f"{EMOJI_UI['analytics']} STATISTIK GLOBAL"
-    content = (
-        "📊 **Performa Layanan Real-time:**\n\n"
-        f"• **Total Broadcast:** {total_broadcast:,} Pesan\n"
-        f"• **Grup LPM Aktif:** {total_lpm} Grup\n"
-        "• **Kecepatan Kirim:** ~1.5s / grup\n"
-        f"• **Userbot Aktif:** {total_userbots} Akun\n"
-        "• **Success Rate:** 100.0% (Fresh)\n\n"
-        "⚡ _Statistik diperbarui secara real-time dari database cluster GeunID._"
-    )
+    web_app_url = await get_web_app_url(user_id)
+
+    if user_id == ADMIN_ID:
+        title = f"{EMOJI_UI['start']} PANEL ADMIN GEUNID-JASEB"
+        content = (
+            f"Halo **{full_name}** (Owner/Admin)!\n\n"
+            f"{EMOJI_UI['rocket']} **Command Admin:**\n"
+            "• `/admin` — Panel admin lengkap\n"
+            "• `/setprice` — Edit harga paket\n"
+            "• `/billing` — Kelola langganan client\n"
+            "• `/ubots` — Kelola semua userbot\n"
+            "• `/broadcast_all` — Trigger sebar semua\n"
+            "• `/scan @grup` — Scan LPM\n"
+            "• `/install` — Sambung ubot admin"
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline("🛡️ Panel Admin", b"admin_main"),
+             Button.inline("📊 Statistik", b"admin_stats")],
+            [Button.inline("💰 Edit Harga", b"admin_prices"),
+             Button.inline("👥 Billing", b"admin_billing")],
+            [Button.inline("🤖 Userbot", b"admin_ubots"),
+             Button.inline("📋 Order", b"admin_orders")],
+        ]
+    else:
+        title = f"{EMOJI_UI['start']} GEUNID-JASEB"
+        content = (
+            f"Halo **{full_name}**! Selamat datang di layanan **GEUNID-JASEB**.\n\n"
+            "Sebar teks promosi Anda ke ribuan grup Telegram secara otomatis!\n\n"
+            "📖 `/help` — Panduan lengkap & daftar harga\n"
+            "🛒 Langsung order via tombol di bawah\n"
+            "📊 `/mystatus` — Cek status jaseb Anda"
+        )
+        buttons = [
+            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [Button.inline("📖 Bantuan & Harga", b"help_main"),
+             Button.inline("🛒 Order Sekarang", b"order_start")],
+            [Button.inline("📊 Status Jaseb Saya", b"my_status")],
+            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")],
+        ]
+
     text = format_menu_text(title, content)
-    await event.edit(text, buttons=[Button.inline(f"{EMOJI_UI['back']} Kembali", b"start")])
+    if is_callback:
+        try:
+            await event.edit(text, buttons=buttons)
+        except Exception:
+            await event.respond(text, buttons=buttons)
+    else:
+        await event.respond(text, buttons=buttons)
 
+
+# ─────────────────────────────────────────
+# Profil User — Data Real dari DB
+# ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(data=b"profile"))
 async def profile_handler(event):
+    user_id = event.sender_id
     sender = await event.get_sender()
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
     username = f"@{sender.username}" if sender.username else f"ID: {sender.id}"
-    
+
+    async with await get_db() as db:
+        cur = await db.execute("""
+            SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours
+            FROM subscriptions
+            WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+            ORDER BY end_date DESC LIMIT 1
+        """, (user_id,))
+        sub = await cur.fetchone()
+        cur = await db.execute("SELECT status, phone_number FROM userbots WHERE user_id=?", (user_id,))
+        ub_row = await cur.fetchone()
+        cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
+        total_sent = (await cur.fetchone())[0]
+
+    ub_status = "Terhubung ✅" if (ub_row and ub_row[0] == "connected") else "Tidak terhubung ❌"
+
+    if sub:
+        pkg_name, capacity, end_date, interval = sub
+        try:
+            clean_end = end_date.split(".")[0]
+            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
+            days_left = max(0, (end_dt - datetime.now()).days)
+        except Exception:
+            days_left = 0
+        pkg_info = (
+            f"• **Paket:** {pkg_name}\n"
+            f"• **Kapasitas:** {capacity} LPM\n"
+            f"• **Sisa:** {days_left} hari\n"
+            f"• **Jadwal Sebar:** Setiap {interval or 2} jam\n"
+            f"• **Total Terkirim:** {total_sent} pesan"
+        )
+    else:
+        pkg_info = "• **Paket:** Tidak ada paket aktif\n• Gunakan /help untuk order."
+
     title = f"{EMOJI_UI['profile']} PROFIL SAYA"
     content = (
-        f"👤 **Detail Akun Pembeli:**\n"
-        f"• **Nama:** {full_name}\n"
+        f"👤 **{full_name}**\n"
         f"• **Username:** {username}\n"
         f"• **ID Telegram:** `{sender.id}`\n\n"
-        f"🛡️ **Status Layanan Anda:**\n"
-        f"• **Userbot:** Terhubung (Stealth Active)\n"
-        f"• **Sesi Aktif:** 1 Sesi Telegram Client\n"
-        f"• **LPM Terdaftar:** 20 LPM Cluster\n"
-        f"• **Paket Saat Ini:** Jaseb Regular (Sisa 3 Hari)"
+        f"🤖 **Userbot:** {ub_status}\n\n"
+        f"📦 **Status Langganan:**\n{pkg_info}"
     )
     text = format_menu_text(title, content)
     buttons = [
-        [Button.inline("📜 Lihat Riwayat Kirim", b"view_logs")],
+        [Button.inline("📊 Status Jaseb", b"my_status"),
+         Button.inline("📜 Riwayat Kirim", b"view_logs")],
         [Button.inline(f"{EMOJI_UI['back']} Kembali", b"start")]
     ]
     await event.edit(text, buttons=buttons)
 
+
+# ─────────────────────────────────────────
+# Statistik Global
+# ─────────────────────────────────────────
+@bot.on(events.CallbackQuery(data=b"stats"))
+async def stats_handler(event):
+    async with await get_db() as db:
+        cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
+        total_broadcast = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
+        total_lpm = (await cur.fetchone())[0]
+        cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
+        total_userbots = (await cur.fetchone())[0]
+
+    title = f"{EMOJI_UI['analytics']} STATISTIK GLOBAL"
+    content = (
+        f"• **Total Broadcast:** {total_broadcast:,} Pesan\n"
+        f"• **Grup LPM Aktif:** {total_lpm} Grup\n"
+        f"• **Kecepatan Kirim:** ~1.5s / grup\n"
+        f"• **Userbot Aktif:** {total_userbots} Akun\n\n"
+        "⚡ _Statistik real-time dari database cluster GeunID._"
+    )
+    await event.edit(format_menu_text(title, content), buttons=[[Button.inline(f"{EMOJI_UI['back']} Kembali", b"start")]])
+
+
+# ─────────────────────────────────────────
+# Panduan (redirect ke help baru)
+# ─────────────────────────────────────────
+@bot.on(events.CallbackQuery(data=b"guide"))
+async def guide_handler(event):
+    # Redirect ke help_main dari client_handlers
+    await event.edit(data=b"help_main")
+
+
+# ─────────────────────────────────────────
+# Riwayat Kirim (Proof Hub)
+# ─────────────────────────────────────────
+@bot.on(events.CallbackQuery(data=b"view_logs"))
+async def view_logs_handler(event):
+    async with await get_db() as db:
+        cur = await db.execute("""
+            SELECT l.group_name, f.msg_link, f.status, f.sent_at
+            FROM forward_logs f
+            LEFT JOIN lpm_lists l ON f.group_id = l.group_id
+            WHERE f.user_id=? ORDER BY f.sent_at DESC LIMIT 10
+        """, (event.sender_id,))
+        logs = await cur.fetchall()
+
+    if not logs:
+        await event.answer("📭 Belum ada riwayat pengiriman.", alert=True)
+        return
+
+    text = "📜 **Proof Hub — 10 Pengiriman Terakhir**\n\n"
+    for group_name, link, status, sent_at in logs:
+        group_name = group_name or "Grup LPM"
+        icon = "✅" if status == 'success' else "❌"
+        time_str = sent_at.split()[1] if sent_at and " " in sent_at else "-"
+        if link:
+            text += f"{icon} [{group_name}]({link}) | 🕒 {time_str}\n"
+        else:
+            text += f"{icon} {group_name} (Gagal) | 🕒 {time_str}\n"
+
+    text += "\n_Klik link untuk melihat pesan di grup._"
+    await event.edit(text, buttons=[[Button.inline("⬅️ Kembali", b"profile")]])
+
+
+# ─────────────────────────────────────────
+# Login Userbot (Admin & Client)
+# ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(data=b"login_userbot"))
 async def login_userbot_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer("⚠️ Menu Userbot hanya dapat diakses oleh Admin.", alert=True)
+        await event.answer("⚠️ Fitur Userbot hanya untuk Admin.", alert=True)
         return
-    if not await check_channel_join(event):
-        return
-    async with await get_db() as db:
+    await _show_userbot_menu(event)
 
-        cursor = await db.execute("SELECT phone_number, status FROM userbots WHERE user_id = ?", (event.sender_id,))
-        userbot_data = await cursor.fetchone()
-        
+
+async def _show_userbot_menu(event):
+    user_id = event.sender_id
+    async with await get_db() as db:
+        cur = await db.execute("SELECT phone_number, status FROM userbots WHERE user_id=?", (user_id,))
+        ub = await cur.fetchone()
+
     title = f"{EMOJI_UI['shield']} MANAJEMEN USERBOT"
-    
-    if userbot_data and userbot_data[1] == 'connected':
+    if ub and ub[1] == 'connected':
         content = (
-            f"📱 **Userbot Anda Aktif!**\n\n"
-            f"• **Nomor HP:** `{userbot_data[0]}`\n"
-            f"• **Status:** Terhubung {EMOJI_UI['success']}\n\n"
-            "Anda dapat menggunakan akun Anda sendiri untuk menyebar iklan secara otomatis (Stealth Mode aktif).\n"
-            "Jika ingin memutuskan hubungan, klik tombol di bawah."
+            f"📱 **Userbot Admin Aktif!**\n\n"
+            f"• **Nomor HP:** `{ub[0]}`\n"
+            f"• **Status:** Terhubung ✅\n\n"
+            "Userbot admin digunakan untuk melayani jaseb Regular & Forward semua client."
         )
         buttons = [
             [Button.inline("❌ Putuskan Hubungan", b"disconnect_userbot")],
@@ -352,602 +439,449 @@ async def login_userbot_handler(event):
         ]
     else:
         content = (
-            "Fitur ini memungkinkan Anda menghubungkan nomor Telegram Anda ke bot ini.\n\n"
-            "**Keuntungan:**\n"
-            "• Bisa mengirim pesan ke banyak grup tanpa bot biasa.\n"
-            "• Lebih hemat biaya (Tanpa Modal Tambahan).\n\n"
-            "⚠️ _Pastikan Anda memahami cara kerja Userbot sebelum melanjutkan._"
+            "Hubungkan akun Telegram Admin sebagai userbot.\n\n"
+            "**Fungsi:**\n"
+            "• Mengirim jaseb Regular & Forward untuk semua client\n"
+            "• Berjalan otomatis 24/7\n\n"
+            "⚠️ _Gunakan nomor yang tidak dipakai sehari-hari untuk keamanan._"
         )
         buttons = [
             [Button.inline("➕ Hubungkan Nomor Baru", b"add_number")],
             [Button.inline(f"{EMOJI_UI['back']} Kembali", b"start")]
         ]
-        
-    text = format_menu_text(title, content)
-    await event.edit(text, buttons=buttons)
+    await event.edit(format_menu_text(title, content), buttons=buttons)
+
 
 @bot.on(events.CallbackQuery(data=b"disconnect_userbot"))
 async def disconnect_userbot_handler(event):
-    import os
     async with await get_db() as db:
-        await db.execute("UPDATE userbots SET status = 'disconnected' WHERE user_id = ?", (event.sender_id,))
+        await db.execute("UPDATE userbots SET status='disconnected' WHERE user_id=?", (event.sender_id,))
         await db.commit()
-    
     session_file = f"data/sessions/user_{event.sender_id}.session"
     if os.path.exists(session_file):
         try:
             os.remove(session_file)
         except Exception as e:
-            logger.error(f"Gagal menghapus file sesi: {e}")
-            
-    await event.answer("🔌 Hubungan userbot diputuskan.", alert=True)
-    await login_userbot_handler(event)
+            logger.error(f"Gagal hapus session: {e}")
+    await event.answer("🔌 Userbot Admin diputuskan.", alert=True)
+    await _show_userbot_menu(event)
 
-@bot.on(events.CallbackQuery(data=b"view_packages"))
-async def view_packages(event):
-    if event.sender_id != ADMIN_ID:
-        await event.edit(
-            "📞 **Hubungi Bantuan / Admin**\n\n"
-            "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
-            f"Telegram Admin: {ADMIN_USERNAME}",
-            buttons=[[Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")], [Button.inline("⬅️ Kembali", b"start")]]
-        )
-        return
-        
-    prices = load_prices()
-    if not prices:
-        await event.edit("❌ Gagal memuat daftar paket harga dinamis.", buttons=[Button.inline("⬅️ Kembali", b"start")])
-        return
-        
-    text_lines = []
-    
-    # 1. Tampilkan Regular Paket berdasarkan LPM
-    for capacity in [20, 30, 50]:
-        reg_items = [i for i in prices.get("regular", []) if i.get("lpm") == capacity]
-        if reg_items:
-            text_lines.append(f"── **𝗣𝗔𝗞𝗘𝗧 𝗥𝗘𝗚𝗨𝗟𝗔𝗥 {capacity} 𝗟𝗣𝗠**")
-            for item in reg_items:
-                bonus = f" {item['bonus']}" if item.get("bonus") else ""
-                text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
-            text_lines.append("")
-            
-    # 2. Tampilkan Forward Paket berdasarkan LPM
-    for capacity in [20, 30, 50]:
-        fwd_items = [i for i in prices.get("forward", []) if i.get("lpm") == capacity]
-        if fwd_items:
-            text_lines.append(f"── **𝗣𝗔𝗞𝗘𝗧 𝗙𝗢𝗥𝗪𝗔𝗥𝗗 {capacity} 𝗟𝗣𝗠**")
-            for item in fwd_items:
-                bonus = f" {item['bonus']}" if item.get("bonus") else ""
-                text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
-            text_lines.append("")
-            
-    # 3. Tampilkan Userbot Paket
-    ub_items = prices.get("userbot", [])
-    if ub_items:
-        text_lines.append("── **𝗣𝗔𝗞𝗘𝗧 𝗨𝗦𝗘𝗥𝗕𝗢𝗧 𝗔𝗨𝗧𝗢𝗣𝗜𝗟𝗢𝗧**")
-        for item in ub_items:
-            bonus = f" {item['bonus']}" if item.get("bonus") else ""
-            text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
-        text_lines.append("")
-        
-    text_lines.append("📅 Promo berlaku: Dinamis terupdate")
-    promo_text = "\n".join(text_lines)
-    
-    await event.edit(promo_text, buttons=[Button.inline("⬅️ Kembali", b"start")])
-
-from src.payments import create_qris_transaction
-from src.jaseb_engine import JasebEngine
-
-@bot.on(events.CallbackQuery(data=b"order"))
-async def order_handler(event):
-    if event.sender_id != ADMIN_ID:
-        await event.edit(
-            "📞 **Hubungi Bantuan / Admin**\n\n"
-            "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
-            f"Telegram Admin: {ADMIN_USERNAME}",
-            buttons=[[Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")], [Button.inline("⬅️ Kembali", b"start")]]
-        )
-        return
-    if not await check_channel_join(event):
-        return
-        
-    prices = load_prices()
-    buttons = []
-    
-    # Ambil beberapa contoh paket menarik dari JSON untuk tombol order instant
-    reg_20_5 = next((i for i in prices.get("regular", []) if i.get("lpm") == 20 and "5" in i.get("duration")), None)
-    if reg_20_5:
-        buttons.append([Button.inline(f"Regular 20 LPM - 5 Hari (Rp {reg_20_5['promoPrice']:,})", b"buy_regular_20_5hari")])
-        
-    fwd_30_30 = next((i for i in prices.get("forward", []) if i.get("lpm") == 30 and "30" in i.get("duration")), None)
-    if fwd_30_30:
-        buttons.append([Button.inline(f"Forward 30 LPM - 30 Hari (Rp {fwd_30_30['promoPrice']:,})", b"buy_forward_30_30hari")])
-        
-    ub_30 = next((i for i in prices.get("userbot", []) if "30" in i.get("duration")), None)
-    if ub_30:
-        buttons.append([Button.inline(f"Userbot Autopilot - 30 Hari (Rp {ub_30['promoPrice']:,})", b"buy_userbot_0_30hari")])
-        
-    buttons.append([Button.inline("⬅️ Kembali", b"start")])
-    
-    text = (
-        "🛒 **Pilih Paket yang ingin Anda beli:**\n\n"
-        "Gunakan tombol di bawah untuk membuat QRIS otomatis."
-    )
-    await event.edit(text, buttons=buttons)
-
-@bot.on(events.CallbackQuery(pattern=b"buy_"))
-async def process_payment(event):
-    callback_data = event.data.decode()
-    parts = callback_data.split("_")
-    
-    if len(parts) < 4:
-        await event.respond("❌ Format pembelian salah.")
-        return
-        
-    category = parts[1]
-    lpm = int(parts[2])
-    duration = parts[3].replace("hari", " Hari")
-    
-    prices = load_prices()
-    selected_item = None
-    
-    for item in prices.get(category, []):
-        if int(item.get("lpm", 0)) == lpm and item.get("duration", "").lower() == duration.lower():
-            selected_item = item
-            break
-            
-    if not selected_item:
-        await event.respond("❌ Paket tidak ditemukan atau telah kedaluwarsa.")
-        return
-        
-    amount = selected_item["promoPrice"]
-    package_desc = f"Paket {category.capitalize()} {lpm} LPM - {selected_item['duration']}"
-    if category == 'userbot':
-        package_desc = f"Paket Userbot Autopilot - {selected_item['duration']}"
-        
-    await event.answer("Sedang membuat QRIS...", alert=False)
-    
-    # Buat transaksi di KlikQRIS
-    trx_data = await create_qris_transaction(amount, f"Jaseb - {package_desc}")
-    
-    if trx_data:
-        # Simpan ke DB
-        async with await get_db() as db:
-            await db.execute(
-                "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (event.sender_id, trx_data['transaction_id'], package_desc, amount, trx_data['payment_url'], 'pending')
-            )
-            await db.commit()
-            
-        pay_text = (
-            f"✅ **Transaksi Berhasil Dibuat!**\n\n"
-            f"📦 Paket: {package_desc}\n"
-            f"💰 Total: Rp {trx_data['total_amount']:,}\n"
-            f"⏰ Expired: {trx_data['expired_at']}\n\n"
-            f"Silakan scan QRIS di atas atau klik tombol di bawah untuk membayar."
-        )
-        
-        await bot.send_file(
-            event.chat_id, 
-            file=trx_data['qris_url'], 
-            caption=pay_text,
-            buttons=[[Button.url("🔗 Bayar via Browser", trx_data['payment_url'])], [Button.inline("🔄 Cek Status", f"check_{trx_data['transaction_id']}".encode())]]
-        )
-    else:
-        await event.respond("❌ Gagal membuat pembayaran. Silakan hubungi admin.")
-
-@bot.on(events.CallbackQuery(data=b"view_logs"))
-async def view_logs_handler(event):
-    async with await get_db() as db:
-        # Ambil 10 log pengiriman terakhir
-        cursor = await db.execute("""
-            SELECT l.group_name, f.msg_link, f.status, f.sent_at 
-            FROM forward_logs f
-            LEFT JOIN lpm_lists l ON f.group_id = l.group_id
-            WHERE f.user_id = ? 
-            ORDER BY f.sent_at DESC LIMIT 10
-        """, (event.sender_id,))
-        logs = await cursor.fetchall()
-        
-    if not logs:
-        await event.answer("📭 Belum ada riwayat pengiriman.", alert=True)
-        return
-
-    text = "📜 **Proof Hub - 10 Pengiriman Terakhir**\n\n"
-    for log in logs:
-        group_name = log[0] or "Grup LPM"
-        link = log[1]
-        status = "✅" if log[2] == 'success' else "❌"
-        time = log[3].split()[1] # Ambil jamnya saja
-        
-        if link:
-            text += f"{status} [{group_name}]({link}) | 🕒 {time}\n"
-        else:
-            text += f"{status} {group_name} (Gagal) | 🕒 {time}\n"
-            
-    text += "\n_Klik link di atas untuk melihat pesan di grup._"
-    
-    await event.edit(text, buttons=[Button.inline("⬅️ Kembali", b"profile")])
-
-@bot.on(events.CallbackQuery(data=b"guide"))
-async def guide_handler(event):
-    title = f"{EMOJI_UI['logs']} EDUKASI & PENGERTIAN JASEB"
-    
-    # Menggunakan format Quote Block (garis samping) agar mirip dengan gambar contoh
-    content = (
-        "**𝐏𝐄𝐍𝐆𝐄𝐑𝐓𝐈𝐀𝐍 𝐁𝐀𝐒𝐈𝐂 𝐉𝐀𝐒𝐄𝐁**\n\n"
-        f"─── **{EMOJI_UI['rocket']} 𝗝𝗔𝗦𝗔 𝗦𝗘𝗕𝗔𝗥**\n"
-        "> Jaseb yaitu jasa sebar dibuat untuk menyebar luaskan wording atau teks kalian ke LPM atau grup yang ada di Telegram. Keuntungan jaseb: kalian tidak perlu menyebar secara manual karena bot berjalan otomatis 24 jam tanpa henti.\n\n"
-        f"─── **{EMOJI_UI['shield']} 𝗨𝗦𝗘𝗥𝗕𝗢𝗧**\n"
-        "> Userbot hampir sama dengan jaseb. Perbedaannya: Jaseb menggunakan akun Admin (Admin yang handle), sedangkan Userbot menggunakan akun Buyer/Anda sendiri.\n\n"
-        f"─── **{EMOJI_UI['package']} 𝗝𝗔𝗦𝗘𝗕 𝗥𝗘𝗚𝗨𝗟𝗔𝗥**\n"
-        "> • Memiliki watermark store\n"
-        "> • Tidak support Foto/Video\n"
-        "> • Tidak support Emoji Premium\n\n"
-        f"─── **{EMOJI_UI['forward']} 𝗝𝗔𝗦𝗘𝗕 𝗙𝗢𝗥𝗪𝗔𝗥𝗗**\n"
-        "> • Tanpa watermark (Murni Toko Anda)\n"
-        "> • Support Foto & Video\n"
-        "> • Support Emoji Premium\n"
-        "> • Menambah View Channel (View Booster)"
-    )
-    
-    text = format_menu_text(title, content)
-    await event.edit(text, buttons=[Button.inline(f"{EMOJI_UI['back']} Kembali", b"start")])
-
-# State Global & Logic Log In Userbot
-import os
-login_states = {}
-
-@bot.on(events.NewMessage(pattern='/install'))
-async def install_command_handler(event):
-    if event.sender_id != ADMIN_ID:
-        await event.respond(f"⚠️ Perintah `/install` hanya dapat digunakan oleh Admin. Hubungi admin di {ADMIN_USERNAME} untuk bantuan.")
-        return
-    if not await check_channel_join(event):
-        return
-    login_states[event.sender_id] = {"state": "waiting_for_phone"}
-    await event.respond(
-        "📱 **Silakan kirimkan nomor HP Anda** yang terdaftar di Telegram.\n\n"
-        "Format: Gunakan kode negara di depan (contoh: `+628123456789`).\n\n"
-        "⚠️ _Kode verifikasi OTP akan dikirimkan ke aplikasi Telegram resmi Anda._"
-    )
 
 @bot.on(events.CallbackQuery(data=b"add_number"))
 async def add_number_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer("⚠️ Menu ini hanya dapat diakses oleh Admin.", alert=True)
-        return
-    if not await check_channel_join(event):
+        await event.answer("⚠️ Hanya Admin.", alert=True)
         return
     login_states[event.sender_id] = {"state": "waiting_for_phone"}
     await event.edit(
-        "📱 **Silakan kirimkan nomor HP Anda** yang terdaftar di Telegram.\n\n"
-        "Format: Gunakan kode negara di depan (contoh: `+628123456789`).\n\n"
-        "⚠️ _Kode verifikasi OTP akan dikirimkan ke aplikasi Telegram resmi Anda._"
+        "📱 **Kirimkan nomor HP Anda** (format internasional).\n\n"
+        "Contoh: `+628123456789`\n\n"
+        "⚠️ _Kode OTP akan dikirim ke Telegram Anda._"
     )
 
 
+# ─────────────────────────────────────────
+# /install — Shortcut install userbot admin
+# ─────────────────────────────────────────
+@bot.on(events.NewMessage(pattern='/install'))
+async def install_command_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.respond(f"⚠️ Perintah `/install` hanya untuk Admin.")
+        return
+    login_states[event.sender_id] = {"state": "waiting_for_phone"}
+    await event.respond(
+        "📱 **Kirimkan nomor HP Anda** (format internasional).\n\n"
+        "Contoh: `+628123456789`\n\n"
+        "⚠️ _Kode OTP akan dikirim ke Telegram Anda._"
+    )
+
+
+# ─────────────────────────────────────────
+# State Machine — Input User (Multi-langkah)
+# ─────────────────────────────────────────
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
+    """Handler utama untuk semua state machine percakapan."""
     if event.sender_id not in login_states:
         return
-        
+
     state_data = login_states[event.sender_id]
-    current_state = state_data["state"]
-    text = event.text.strip()
-    
+    current_state = state_data.get("state", "")
+
+    # Guard: jika state adalah state admin, biarkan admin_handlers yang tangani
+    if current_state.startswith("admin_"):
+        return
+
+    text = (event.text or "").strip()
+
+    # ── State: Menunggu materi jaseb dari client ──
     if current_state == "waiting_for_ad":
-        # 1. Simpan pesan atau media jaseb
         content_text = event.message.message or ""
         media_path = ""
-        
-        await event.respond("⏳ **Sedang memproses dan menyimpan materi jaseb Anda...**")
-        
+
+        await event.respond("⏳ Menyimpan materi jaseb Anda...")
+
         if event.message.media:
             try:
                 os.makedirs("data/media", exist_ok=True)
                 media_path = await event.message.download_media(file="data/media/")
             except Exception as e:
-                logger.error(f"Gagal mengunduh media jaseb: {e}")
-                await event.respond("⚠️ Gagal mengunduh file media. Jaseb akan disimpan tanpa media.")
-                
+                logger.error(f"Gagal download media: {e}")
+                await event.respond("⚠️ Gagal unduh media. Jaseb disimpan tanpa media.")
+
         async with await get_db() as db:
-            # Bersihkan jaseb lama milik user
-            await db.execute("DELETE FROM user_ads WHERE user_id = ?", (event.sender_id,))
+            await db.execute("DELETE FROM user_ads WHERE user_id=?", (event.sender_id,))
             await db.execute(
                 "INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, ?, ?, ?)",
                 (event.sender_id, "Jaseb Utama", content_text, media_path)
             )
             await db.commit()
-            
-        # Pindah state ke waiting_for_lpm_request
+
         login_states[event.sender_id]["state"] = "waiting_for_lpm_request"
-        
-        await event.respond(
-            "📝 **Teks jaseb Anda berhasil disimpan!**\n\n"
-            "Sekarang, silakan kirimkan daftar username/link grup LPM kustom Anda (maksimal 10 grup, dipisahkan dengan spasi).\n"
-            "Contoh: `@grup1 @grup2` atau `t.me/grup3`\n\n"
-            "Jika Anda tidak memiliki LPM kustom dan ingin menggunakan LPM default sistem, silakan ketik **/skip**."
-        )
+        await notify_client_ad_saved(bot, event.sender_id)
         return
-        
+
+    # ── State: Menunggu daftar LPM kustom ──
     elif current_state == "waiting_for_lpm_request":
-        lpm_req_text = text.lower()
         lpm_list_str = ""
-        
-        if lpm_req_text != "/skip":
-            # Ekstrak username / link grup LPM
-            links = re.findall(r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', text)
+
+        if text.lower() != "/skip":
+            links = re.findall(
+                r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', text
+            )
             if not links:
                 await event.respond(
-                    "❌ **Tidak ada grup LPM valid terdeteksi!**\n"
-                    "Harap kirimkan daftar grup LPM yang benar (contoh: `@lpm1 @lpm2`), atau ketik **/skip** jika ingin melewati."
+                    "❌ Tidak ada link LPM valid!\n"
+                    "Kirim: `@lpm1 @lpm2` atau ketik `/skip` untuk pakai LPM default."
                 )
                 return
-                
-            # Batasi maks 10 LPM kustom
             valid_links = []
-            for link in links[:10]:
+            for link in links[:10]:  # Max 10
                 full_link = f"@{link}" if not ("t.me" in link or "joinchat" in link) else link
                 valid_links.append(full_link)
-                
             lpm_list_str = " ".join(valid_links)
-            await event.respond(f"✅ Berhasil mencatat **{len(valid_links)} grup LPM kustom** Anda.")
-            
-        # Simpan LPM kustom ke DB
+            await event.respond(f"✅ **{len(valid_links)} grup LPM kustom** berhasil dicatat.")
+
         async with await get_db() as db:
             await db.execute(
-                "UPDATE subscriptions SET request_lpm = ? WHERE user_id = ? AND status = 'active'",
-                (lpm_list_str if lpm_list_str else None, event.sender_id)
+                "UPDATE subscriptions SET request_lpm=? WHERE user_id=? AND status='active'",
+                (lpm_list_str or None, event.sender_id)
             )
             await db.commit()
-            
-        # Bersihkan state login
+
         del login_states[event.sender_id]
-        
+
         await event.respond(
-            "🎉 **Proses Registrasi Jaseb Selesai!**\n\n"
-            "Teks jaseb Anda telah didaftarkan dan akan disebarkan secara otomatis oleh engine autopilot.\n"
-            "Ketik /start untuk melihat detail profil langganan Anda."
+            "🎉 **Pendaftaran Jaseb Selesai!**\n\n"
+            "Bot akan mulai menyebarkan teks Anda secara otomatis sekarang.\n"
+            "Ketik /mystatus untuk memantau perkembangan."
         )
-        
-        # Pemicu broadcast instan pertama kali
+        # Trigger broadcast pertama
         asyncio.create_task(start_user_broadcast(event.sender_id))
         return
-        
-    if current_state == "waiting_for_phone":
+
+    # ── State: Menunggu nomor HP untuk login userbot ──
+    elif current_state == "waiting_for_phone":
         phone_number = text.replace(" ", "").replace("-", "")
         if not phone_number.startswith("+"):
-            await event.respond("❌ **Format nomor salah!**\n\nHarap gunakan format internasional dengan tanda `+` di depan (contoh: `+628123456789`). Silakan kirimkan kembali.")
+            await event.respond("❌ Format salah! Gunakan format: `+628123456789`")
             return
-            
-        await event.respond("⏳ **Menghubungkan ke Telegram...**\nSedang mengirim kode OTP.")
-        
+
+        await event.respond("⏳ Menghubungkan ke Telegram & mengirim OTP...")
         os.makedirs("data/sessions", exist_ok=True)
         session_path = f"data/sessions/user_{event.sender_id}"
-        
         client = TelegramClient(session_path, API_ID, API_HASH)
         try:
             await client.connect()
             send_code_result = await client.send_code_request(phone_number)
-            
             login_states[event.sender_id] = {
                 "state": "waiting_for_otp",
                 "phone": phone_number,
                 "client": client,
                 "phone_code_hash": send_code_result.phone_code_hash
             }
-            
             await event.respond(
-                "📨 **Kode OTP telah dikirim oleh Telegram!**\n\n"
-                "Silakan kirimkan kode OTP tersebut di sini.\n"
-                "Format: `12345` (5 digit angka)."
+                "📨 **Kode OTP dikirim oleh Telegram!**\n\n"
+                "Kirimkan kode OTP 5 digit di sini. Contoh: `12345`"
             )
         except Exception as e:
-            logger.error(f"Error sending code request: {e}")
-            await event.respond(f"❌ **Gagal mengirim OTP:** {str(e)}\n\nSilakan coba lagi dengan mengirimkan nomor HP yang valid.")
+            logger.error(f"Gagal kirim OTP: {e}")
+            await event.respond(f"❌ Gagal kirim OTP: {str(e)}")
             if client.is_connected():
                 await client.disconnect()
             if event.sender_id in login_states:
                 del login_states[event.sender_id]
-                
+
+    # ── State: Menunggu OTP ──
     elif current_state == "waiting_for_otp":
         otp_code = text.replace(" ", "")
         client = state_data["client"]
         phone = state_data["phone"]
         phone_code_hash = state_data["phone_code_hash"]
-        
-        await event.respond("⏳ **Memverifikasi OTP...**")
-        
+        await event.respond("⏳ Memverifikasi OTP...")
         try:
             await client.sign_in(phone=phone, code=otp_code, phone_code_hash=phone_code_hash)
-            
-            async with await get_db() as db:
-                await db.execute(
-                    "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
-                    (event.sender_id, (await event.get_sender()).username, f"{(await event.get_sender()).first_name or ''} {(await event.get_sender()).last_name or ''}".strip())
-                )
-                await db.execute(
-                    "INSERT OR REPLACE INTO userbots (user_id, phone_number, session_name, status) VALUES (?, ?, ?, ?)",
-                    (event.sender_id, phone, f"user_{event.sender_id}", "connected")
-                )
-                await db.commit()
-                
-            await event.respond(
-                "🎉 **Selamat! Akun Userbot Anda berhasil terhubung.**\n\n"
-                "Sekarang Anda dapat menggunakan fitur penyebaran otomatis menggunakan akun Anda sendiri (Stealth Mode aktif).\n"
-                "Ketik /start untuk kembali ke menu utama."
-            )
-            del login_states[event.sender_id]
-            
+            await _save_userbot_session(event, client, phone)
         except Exception as sign_in_error:
             from telethon.errors import SessionPasswordNeededError
             if isinstance(sign_in_error, SessionPasswordNeededError):
                 login_states[event.sender_id]["state"] = "waiting_for_password"
                 await event.respond(
-                    "🔒 **Akun Anda dilindungi Verifikasi 2 Langkah (2FA).**\n\n"
-                    "Silakan kirimkan password 2FA Anda di sini:"
+                    "🔒 **Akun dilindungi 2FA.**\n\nKirimkan password 2FA Anda:"
                 )
             else:
-                logger.error(f"Sign in error: {sign_in_error}")
-                await event.respond(f"❌ **OTP Salah atau kedaluwarsa:** {str(sign_in_error)}\n\nHarap kirimkan kode OTP yang benar.")
-                
+                logger.error(f"Sign-in error: {sign_in_error}")
+                await event.respond(f"❌ OTP salah atau expired: {str(sign_in_error)}")
+
+    # ── State: Menunggu Password 2FA ──
     elif current_state == "waiting_for_password":
         password = text
         client = state_data["client"]
         phone = state_data["phone"]
-        
-        await event.respond("⏳ **Memverifikasi Password 2FA...**")
-        
+        await event.respond("⏳ Memverifikasi password 2FA...")
         try:
             await client.sign_in(password=password)
-            
-            async with await get_db() as db:
-                await db.execute(
-                    "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
-                    (event.sender_id, (await event.get_sender()).username, f"{(await event.get_sender()).first_name or ''} {(await event.get_sender()).last_name or ''}".strip())
-                )
-                await db.execute(
-                    "INSERT OR REPLACE INTO userbots (user_id, phone_number, session_name, status) VALUES (?, ?, ?, ?)",
-                    (event.sender_id, phone, f"user_{event.sender_id}", "connected")
-                )
-                await db.commit()
-                
-            await event.respond(
-                "🎉 **Selamat! Akun Userbot Anda berhasil terhubung (dengan 2FA).**\n\n"
-                "Sekarang Anda dapat menggunakan fitur penyebaran otomatis menggunakan akun Anda sendiri (Stealth Mode aktif).\n"
-                "Ketik /start untuk kembali ke menu utama."
-            )
-            del login_states[event.sender_id]
-            
+            await _save_userbot_session(event, client, phone)
         except Exception as p_err:
             logger.error(f"2FA login error: {p_err}")
-            await event.respond(f"❌ **Password 2FA salah:** {str(p_err)}\n\nSilakan kirimkan kembali password 2FA Anda yang benar.")
+            await event.respond(f"❌ Password 2FA salah: {str(p_err)}")
 
+
+async def _save_userbot_session(event, client, phone: str):
+    """Simpan session userbot ke DB setelah login berhasil."""
+    sender = await event.get_sender()
+    async with await get_db() as db:
+        await db.execute(
+            "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
+            (event.sender_id, sender.username or "", f"{sender.first_name or ''} {sender.last_name or ''}".strip())
+        )
+        await db.execute(
+            "INSERT OR REPLACE INTO userbots (user_id, phone_number, session_name, status) VALUES (?, ?, ?, ?)",
+            (event.sender_id, phone, f"user_{event.sender_id}", "connected")
+        )
+        await db.commit()
+    del login_states[event.sender_id]
+    await event.respond(
+        "🎉 **Userbot Berhasil Terhubung!**\n\n"
+        "Sekarang jaseb akan menggunakan akun Anda sendiri (Stealth Mode aktif).\n"
+        "Ketik /start untuk kembali ke menu utama."
+    )
+
+
+# ─────────────────────────────────────────
+# Auto-Invoice Parser (Format Order Admin)
+# ─────────────────────────────────────────
 @bot.on(events.NewMessage(incoming=True))
 async def order_format_parser(event):
+    """Parse format order teks dan buat invoice QRIS otomatis."""
     if event.sender_id in login_states:
-        return
-        
+        return  # Jangan proses jika sedang di state machine
+
     text = event.text or ""
-    
-    # Deteksi apakah pesan ini adalah Format Order Baru
-    is_jaseb_format = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦" in text or "FORMAT JASEB OTOMATIS" in text
-    is_userbot_format = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" in text or "FORMAT PASANG USERBOT" in text
-    
-    if is_jaseb_format or is_userbot_format:
-        if event.sender_id != ADMIN_ID:
-            await event.respond(f"⚠️ Pembuatan invoice QRIS otomatis saat ini hanya diperbolehkan untuk Admin. Silakan hubungi admin di {ADMIN_USERNAME} untuk memesan paket.")
+    is_jaseb_fmt = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦" in text or "FORMAT JASEB OTOMATIS" in text
+    is_ubot_fmt = "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" in text or "FORMAT PASANG USERBOT" in text
+
+    if not (is_jaseb_fmt or is_ubot_fmt):
+        return
+
+    if not await check_channel_join(event):
+        return
+
+    await event.respond("⏳ Memproses pesanan & membuat QRIS...")
+
+    lines = text.split("\n")
+    data = {}
+    for line in lines:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            clean_key = k.strip().replace("–", "").strip().lower()
+            data[clean_key] = v.strip().replace('"', '')
+
+    paket = data.get("paket jaseb", "Paket Jaseb")
+    if is_ubot_fmt:
+        paket = f"Userbot - {data.get('durasi userbot', '30 Hari')}"
+
+    total_harga_str = data.get("total harga", "0")
+    amount = 0
+    m = re.search(r'\d[\d\.]*', total_harga_str)
+    if m:
+        amount = int(m.group(0).replace(".", ""))
+
+    if amount <= 0:
+        await event.respond("❌ Gagal baca nominal harga. Periksa format pesanan Anda.")
+        return
+
+    trx_data = await create_qris_transaction(amount, f"Jaseb - {paket}")
+    if trx_data:
+        sender = await event.get_sender()
+        full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+        async with await get_db() as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
+                (event.sender_id, sender.username or "", full_name)
+            )
+            await db.execute(
+                "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (event.sender_id, trx_data['transaction_id'], paket, amount, trx_data['payment_url'], 'pending')
+            )
+            await db.commit()
+
+        pay_text = (
+            f"✅ **Invoice QRIS Berhasil Dibuat!**\n\n"
+            f"📦 **Paket:** {paket}\n"
+            f"💰 **Total Bayar:** Rp {trx_data['total_amount']:,}\n"
+            f"⏰ **Expired:** {trx_data['expired_at']}\n\n"
+            "Scan QRIS di atas dan klik **🔄 Cek Status Bayar** setelah transfer."
+        )
+        await bot.send_file(
+            event.chat_id,
+            file=trx_data['qris_url'],
+            caption=pay_text,
+            buttons=[
+                [Button.url("🔗 Bayar via Browser", trx_data['payment_url'])],
+                [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
+            ]
+        )
+    else:
+        await event.respond(f"❌ Gagal buat QRIS. Hubungi admin: {ADMIN_USERNAME}")
+
+
+# ─────────────────────────────────────────
+# Cek Status Pembayaran
+# ─────────────────────────────────────────
+@bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
+async def check_payment_status_handler(event):
+    trx_id = event.pattern_match.group(1).decode('utf-8')
+    status_response = await check_transaction_status(trx_id)
+
+    if not status_response or not status_response.get("success"):
+        await event.answer("❌ Gagal cek status ke gateway. Coba lagi.", alert=True)
+        return
+
+    status = status_response.get("data", {}).get("status", "")
+
+    if status == "success":
+        async with await get_db() as db:
+            cur = await db.execute(
+                "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
+            )
+            trx_row = await cur.fetchone()
+
+        if not trx_row:
+            await event.answer("✅ Pembayaran sukses!", alert=True)
             return
-        if not await check_channel_join(event):
+
+        u_id, amount, package_name, old_status = trx_row
+
+        if old_status != 'pending':
+            await event.answer("⚠️ Transaksi ini sudah diproses sebelumnya.", alert=True)
             return
-            
-        await event.respond("⏳ **Memproses Pesanan Anda...**\nSedang membuat invoice QRIS otomatis.")
-        
-        # Ekstrak data
-        lines = text.split("\n")
-        data = {}
-        for line in lines:
-            if ":" in line:
-                key, val = line.split(":", 1)
-                # Bersihkan key dari spasi, tanda hubung (–), dan unicode bold/italic jika ada
-                clean_key = key.strip().replace("–", "").strip().lower()
-                data[clean_key] = val.strip().replace('"', '')
-                
-        # Dapatkan nilai
-        paket = data.get("paket jaseb", "Paket Jaseb")
-        if is_userbot_format:
-            paket = f"Userbot - {data.get('durasi userbot', '30 Hari')}"
-            
-        total_harga_str = data.get("total harga", "0")
-        target_link = data.get("request lpm", data.get("nomor telegram", ""))
-        
-        # Bersihkan nominal total harga (ambil angkanya saja)
-        amount = 0
-        amount_match = re.search(r'\d[\d\.]*', total_harga_str)
-        if amount_match:
-            amount = int(amount_match.group(0).replace(".", ""))
-            
-        if amount <= 0:
-            await event.respond("❌ **Gagal memproses nominal pembayaran.**\nHarap periksa kembali nominal total harga pada format pesanan Anda.")
-            return
-            
-        # Panggil API KlikQRIS
-        trx_data = await create_qris_transaction(amount, f"Jaseb - {paket}")
-        
-        if trx_data:
-            # Simpan transaksi ke database
-            async with await get_db() as db:
+
+        # Update transaksi
+        async with await get_db() as db:
+            await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
+            package_name = str(package_name or "Paket Jaseb")
+            capacity = get_capacity_from_package(package_name)
+            days = get_package_duration_days(package_name, amount)
+            now = datetime.now()
+
+            cur = await db.execute(
+                "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active'", (u_id,)
+            )
+            sub_row = await cur.fetchone()
+
+            if sub_row:
+                sub_id, current_end_str = sub_row
+                try:
+                    current_end = datetime.strptime(current_end_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    current_end = now
+                new_end = (current_end if current_end > now else now) + timedelta(days=days)
+                new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
                 await db.execute(
-                    "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
-                    (event.sender_id, trx_data['transaction_id'], paket, amount, trx_data['payment_url'], 'pending')
+                    "UPDATE subscriptions SET package_name=?, capacity_lpm=?, end_date=? WHERE id=?",
+                    (package_name, capacity, new_end_str, sub_id)
                 )
-                await db.commit()
-                
-            pay_text = (
-                f"✅ **Invoice QRIS Otomatis Berhasil Dibuat!**\n\n"
-                f"📦 **Paket:** {paket}\n"
-                f"💰 **Total Bayar:** Rp {trx_data['total_amount']:,}\n"
-                f"⏰ **Expired:** {trx_data['expired_at']}\n\n"
-                f"Silakan scan kode QRIS di bawah ini dengan OVO/Gopay/Dana/m-Banking Anda.\n"
-                f"Setelah membayar, silakan klik tombol **\"🔄 Cek Status Bayar\"**."
-            )
-            
-            await bot.send_file(
-                event.chat_id, 
-                file=trx_data['qris_url'], 
-                caption=pay_text,
-                buttons=[
-                    [Button.url("🔗 Bayar via Browser", trx_data['payment_url'])],
-                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-                ]
-            )
-        else:
-            await event.respond(f"❌ **Gagal membuat pembayaran QRIS.**\nTerjadi kesalahan koneksi ke payment gateway. Silakan hubungi admin di {ADMIN_USERNAME}.")
+            else:
+                new_end = now + timedelta(days=days)
+                new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
+                await db.execute(
+                    "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
+                    (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active')
+                )
+            await db.commit()
+
+        # Set state untuk minta teks jaseb
+        login_states[u_id] = {
+            "state": "waiting_for_ad",
+            "package_name": package_name,
+            "capacity": capacity
+        }
+
+        await event.answer("✅ Pembayaran berhasil!", alert=True)
+        await event.edit(
+            f"🎉 **Pembayaran Sukses!**\n\n"
+            f"📦 Paket: **{package_name}**\n"
+            f"💰 Total: Rp {amount:,}\n"
+            f"📅 Berlaku Hingga: **{new_end_str[:10]}**\n\n"
+            f"✍️ **Sekarang kirimkan teks yang mau di-promote** ke chat ini.\n"
+            f"Bisa berupa teks, foto/video, atau pesan forward."
+        )
+
+        # Notif admin
+        sender = await event.get_sender()
+        full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+        await notify_admin_payment_success(
+            bot, ADMIN_ID, u_id, full_name, sender.username or "",
+            package_name, amount, new_end_str[:10]
+        )
+
+    elif status == "pending":
+        await event.answer("⏳ Pembayaran belum terdeteksi. Silakan transfer terlebih dahulu.", alert=True)
+    else:
+        await event.answer("❌ Transaksi dibatalkan atau kedaluwarsa.", alert=True)
 
 
+# ─────────────────────────────────────────
+# LPM Scanner (/scan) — Admin Only
+# ─────────────────────────────────────────
 @bot.on(events.NewMessage(pattern=r'/scan(?:\s+(.+))?'))
 async def scan_lpm_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.respond(f"⚠️ Perintah `/scan` hanya dapat digunakan oleh Admin. Hubungi admin di {ADMIN_USERNAME} untuk bantuan.")
+        await event.respond(f"⚠️ Perintah `/scan` hanya untuk Admin.")
         return
-    if not await check_channel_join(event):
-        return
-        
+
     raw_args = event.pattern_match.group(1)
     if not raw_args:
-        # Tampilkan panduan scan
         title = f"{EMOJI_UI['analytics']} GEUNID FREE LPM SCANNER"
         content = (
-            "🔍 **Fitur Pemindai & Verifikator LPM Gratis!**\n\n"
-            "Gunakan perintah ini untuk memverifikasi apakah suatu grup/channel Telegram adalah LPM aktif yang valid.\n\n"
-            "📋 **Cara Penggunaan:**\n"
-            "• `/scan @username_grup` (Grup Tunggal)\n"
-            "• `/scan @grup1 @grup2 @grup3` (Banyak Grup sekaligus)\n\n"
-            "⚡ _Setiap grup valid yang Anda scan akan otomatis disimpan ke database cluster global kami untuk memperkaya daftar LPM!_"
+            "Verifikasi grup/channel Telegram sebagai LPM aktif.\n\n"
+            "📋 **Cara Pakai:**\n"
+            "• `/scan @username_grup`\n"
+            "• `/scan @grup1 @grup2 @grup3`\n\n"
+            "⚡ _Setiap LPM valid otomatis masuk database cluster._"
         )
         await event.respond(format_menu_text(title, content))
         return
-        
-    # Parse links
-    links = re.findall(r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', raw_args)
+
+    links = re.findall(
+        r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', raw_args
+    )
     if not links:
-        await event.respond("❌ **Format salah!**\nHarap kirimkan username atau link grup yang valid.")
+        await event.respond("❌ Format salah! Kirim username atau link grup yang valid.")
         return
-        
-    await event.respond(f"⌛ **Sedang memindai {len(links)} grup LPM...**\nHarap tunggu sebentar.")
-    
+
+    await event.respond(f"⌛ Memindai **{len(links)} grup**...")
+
     success_scanned = []
     failed_scanned = []
-    
-    # Run scanner as bot client (which is self.client or bot)
+
     for link in links:
         full_link = f"@{link}" if not ("t.me" in link or "joinchat" in link) else link
         res = await JasebEngine.verify_lpm_group(bot, full_link)
-        
         if res.get("success"):
             success_scanned.append(res)
-            # Simpan secara otomatis ke database lpm_lists (Crowdsourcing)
             try:
                 async with await get_db() as db:
                     await db.execute(
@@ -956,280 +890,233 @@ async def scan_lpm_handler(event):
                     )
                     await db.commit()
             except Exception as db_err:
-                logger.error(f"Error saving scanned group: {db_err}")
+                logger.error(f"Error save scanned group: {db_err}")
         else:
             failed_scanned.append({"link": full_link, "error": res.get("error")})
-            
-    # Format Report
-    title = f"{EMOJI_UI['success']} HASIL PENDETEKSIAN LPM"
+
     content = ""
-    
     if success_scanned:
-        content += "🟢 **LPM Valid & Aktif:**\n"
+        content += "🟢 **LPM Valid:**\n"
         for idx, item in enumerate(success_scanned, 1):
-            content += f"{idx}. **{item['group_name']}**\n"
-            content += f"   • Tipe: `{item['type']}`\n"
-            content += f"   • Anggota: `{item['member_count']:,} Member`\n"
-            content += f"   • ID: `{item['group_id']}`\n\n"
-            
+            content += f"{idx}. **{item['group_name']}** — {item['member_count']:,} member\n"
+        content += "\n"
     if failed_scanned:
-        content += "🔴 **Grup Gagal/Tidak Valid:**\n"
+        content += "🔴 **Gagal:**\n"
         for idx, item in enumerate(failed_scanned, 1):
-            content += f"{idx}. `{item['link']}` (Gagal: {item['error']})\n"
-            
+            content += f"{idx}. `{item['link']}` ({item['error']})\n"
     if not content:
         content = "❌ Tidak ada grup yang berhasil dipindai."
-        
-    content += "\n⚡ _Semua LPM aktif telah diindeks ke database cluster global GeunID._"
-    
-    await event.respond(format_menu_text(title, content))
+
+    content += "\n⚡ _LPM aktif sudah diindeks ke database._"
+    await event.respond(format_menu_text(f"{EMOJI_UI['success']} HASIL SCAN LPM", content))
 
 
-from src.payments import check_transaction_status
-
-@bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
-async def check_payment_status_handler(event):
-    trx_id = event.pattern_match.group(1).decode('utf-8')
-    
-    # Cek status pembayaran ke gateway
-    status_response = await check_transaction_status(trx_id)
-    
-    if status_response and status_response.get("success"):
-        data = status_response.get("data", {})
-        status = data.get("status")
-        
-        if status == "success":
-            async with await get_db() as db:
-                # Dapatkan detail transaksi
-                cursor = await db.execute("SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id = ?", (trx_id,))
-                trx_row = await cursor.fetchone()
-                
-                if trx_row:
-                    u_id, amount, package_name_db, old_status = trx_row
-                    if old_status == 'pending':
-                        # Update status transaksi di database
-                        await db.execute("UPDATE transactions SET status = 'success' WHERE trx_id = ?", (trx_id,))
-                        
-                        # Tentukan masa aktif dan kapasitas LPM
-                        package_name = str(package_name_db or "Paket Jaseb")
-                        capacity = 30 if "30" in package_name else 20
-                        
-                        # Tentukan durasi secara dinamis dari file prices.json
-                        days = get_package_duration_days(package_name, amount)
-                            
-                        # Hitung expiration date
-                        from datetime import datetime, timedelta
-                        now = datetime.now()
-                        
-                        cursor = await db.execute("SELECT id, end_date FROM subscriptions WHERE user_id = ? AND status = 'active'", (u_id,))
-                        sub_row = await cursor.fetchone()
-                        
-                        if sub_row:
-                            sub_id, current_end_str = sub_row
-                            try:
-                                current_end = datetime.strptime(current_end_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
-                            except Exception:
-                                current_end = now
-                            
-                            if current_end > now:
-                                new_end = current_end + timedelta(days=days)
-                            else:
-                                new_end = now + timedelta(days=days)
-                                
-                            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-                            await db.execute(
-                                "UPDATE subscriptions SET package_name = ?, capacity_lpm = ?, end_date = ? WHERE id = ?",
-                                (package_name, capacity, new_end_str, sub_id)
-                            )
-                        else:
-                            new_end = now + timedelta(days=days)
-                            new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-                            start_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
-                            await db.execute(
-                                "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)",
-                                (u_id, package_name, capacity, start_date_str, new_end_str, 'active')
-                            )
-                        
-                        await db.commit()
-                        
-                        # Set state percakapan ke waiting_for_ad untuk meminta teks jaseb
-                        login_states[u_id] = {
-                            "state": "waiting_for_ad",
-                            "user_id": u_id,
-                            "package_name": package_name,
-                            "capacity": capacity
-                        }
-                        
-                        await event.answer("✅ Pembayaran berhasil terverifikasi!", alert=True)
-                        await event.edit(
-                            f"🎉 **Pembayaran Sukses Terverifikasi!**\n\n"
-                            f"📦 Paket: **{package_name}**\n"
-                            f"💰 Total: Rp {amount:,}\n"
-                            f"📅 Berlaku Hingga: **{new_end_str}**\n\n"
-                            f"✍️ **Langkah Selanjutnya (Wajib):**\n"
-                            f"Silakan kirim teks yang mau di promote langsung ke chat ini.\n"
-                            f"Pesan jaseb dapat berupa teks biasa, foto/video dengan caption, emoji premium, atau pesan forward dari channel toko Anda."
-                        )
-                        return
-                    else:
-                        await event.answer("⚠️ Transaksi ini sudah sukses diproses sebelumnya.", alert=True)
-                        return
-            await event.answer("✅ Transaksi Anda sukses terbayar!", alert=True)
-        elif status == "pending":
-            await event.answer("⏳ Pembayaran Anda belum terdeteksi. Silakan transfer terlebih dahulu.", alert=True)
-        else:
-            await event.answer("❌ Transaksi dibatalkan atau kedaluwarsa.", alert=True)
-    else:
-        await event.answer("❌ Gagal memverifikasi ke gateway KlikQRIS. Silakan coba lagi.", alert=True)
-
-
-async def start_user_broadcast(user_id):
-    logger.info(f"Memulai broadcast otomatis untuk user_id: {user_id}")
+# ─────────────────────────────────────────
+# Broadcast Engine
+# ─────────────────────────────────────────
+async def start_user_broadcast(user_id: int):
+    """Mulai broadcast jaseb otomatis untuk satu user."""
+    logger.info(f"Memulai broadcast untuk user_id: {user_id}")
     async with await get_db() as db:
-        # 1. Ambil subscription aktif
-        cursor = await db.execute("""
-            SELECT package_name, capacity_lpm, request_lpm 
-            FROM subscriptions 
-            WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime')
+        cur = await db.execute("""
+            SELECT package_name, capacity_lpm, request_lpm, broadcast_interval_hours
+            FROM subscriptions
+            WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
             ORDER BY end_date DESC LIMIT 1
         """, (user_id,))
-        sub = await cursor.fetchone()
+        sub = await cur.fetchone()
         if not sub:
-            logger.warning(f"Tidak ada subscription aktif untuk user_id: {user_id}")
+            logger.warning(f"Tidak ada sub aktif untuk user {user_id}")
             return
-            
-        package_name, capacity, request_lpm = sub
-        
-        # 2. Ambil iklan aktif
-        cursor = await db.execute("""
-            SELECT id FROM user_ads 
-            WHERE user_id = ? 
-            ORDER BY created_at DESC LIMIT 1
-        """, (user_id,))
-        ad_row = await cursor.fetchone()
+
+        package_name, capacity, request_lpm, interval_hours = sub
+
+        cur = await db.execute(
+            "SELECT id FROM user_ads WHERE user_id=? ORDER BY created_at DESC LIMIT 1", (user_id,)
+        )
+        ad_row = await cur.fetchone()
         if not ad_row:
-            logger.warning(f"Tidak ada materi jaseb terdaftar untuk user_id: {user_id}")
-            # Kirim peringatan ke user
-            await bot.send_message(user_id, "⚠️ **Teks jaseb kosong!** Silakan kirim teks yang mau di promote langsung ke chat bot ini.")
+            logger.warning(f"Tidak ada materi jaseb untuk user {user_id}")
+            await bot.send_message(user_id, "⚠️ Belum ada teks jaseb. Kirim /edit_jaseb untuk mengisinya.")
             return
         ad_id = ad_row[0]
-        
-        # 3. Tentukan sesi pengirim
-        session_name = ""
-        is_userbot = "userbot" in package_name.lower() or "pasang userbot" in package_name.lower()
-        
+
+        # Tentukan session
+        is_userbot = "userbot" in package_name.lower()
         if is_userbot:
-            # Cari sesi userbot pembeli
-            cursor = await db.execute("SELECT session_name, status FROM userbots WHERE user_id = ?", (user_id,))
-            ub_row = await cursor.fetchone()
-            if ub_row and ub_row[1] == 'connected':
-                session_name = f"data/sessions/{ub_row[0]}"
-            else:
-                logger.warning(f"Sesi userbot pembeli {user_id} terputus atau tidak aktif.")
-                # Kirim peringatan ke user
-                await bot.send_message(user_id, "⚠️ **Sesi Userbot Anda terputus!** Silakan sambungkan kembali via menu /start agar jaseb dapat disebarkan.")
+            cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (user_id,))
+            ub_row = await cur.fetchone()
+            if not ub_row or ub_row[1] != 'connected':
+                await bot.send_message(user_id, "⚠️ Sesi Userbot Anda terputus! Hubungkan kembali via menu /start.")
                 return
+            session_name = f"data/sessions/{ub_row[0]}"
         else:
-            # Cari sesi userbot admin (untuk paket Regular/Forward)
-            cursor = await db.execute("SELECT session_name, status FROM userbots WHERE user_id = ?", (ADMIN_ID,))
-            ub_row = await cursor.fetchone()
-            if ub_row and ub_row[1] == 'connected':
-                session_name = f"data/sessions/{ub_row[0]}"
-            else:
-                logger.warning("Sesi userbot admin terputus. Jaseb biasa tidak dapat disebarkan.")
-                # Kirim peringatan ke admin
-                await bot.send_message(ADMIN_ID, "⚠️ **Sesi Ubot Admin terputus!** Silakan sambungkan kembali ubot Anda agar jaseb Regular/Forward pelanggan dapat disebarkan.")
+            cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (ADMIN_ID,))
+            ub_row = await cur.fetchone()
+            if not ub_row or ub_row[1] != 'connected':
+                await bot.send_message(ADMIN_ID, "⚠️ Sesi Ubot Admin terputus! Sambungkan kembali (/install).")
                 return
-                
-        # 4. Bangun daftar LPM target
-        # Pecah LPM kustom
+            session_name = f"data/sessions/{ub_row[0]}"
+
+        # Bangun daftar LPM target
         lpm_links = []
         if request_lpm:
-            # Bersihkan spasi dan ambil link LPM
             lpm_links = [l.strip() for l in request_lpm.split() if l.strip()]
-            
-        # Ambil sisa LPM default dari database
-        sisa_kapasitas = max(0, capacity - len(lpm_links))
-        if sisa_kapasitas > 0:
-            cursor = await db.execute("""
-                SELECT group_link FROM lpm_lists 
-                WHERE is_active = 1 
-                ORDER BY member_count DESC LIMIT ?
-            """, (sisa_kapasitas,))
-            default_lpms = await cursor.fetchall()
-            for row in default_lpms:
-                lpm_links.append(row[0])
-                
-        # Jika tidak ada LPM sama sekali
-        if not lpm_links:
-            logger.warning("Daftar target LPM kosong.")
-            return
-            
-        # 5. Jalankan engine broadcast
-        engine = JasebEngine(session_name, API_ID, API_HASH)
-        await engine.start()
-        
-        # Tentukan delay mode (Regular/Forward)
-        delay_mode = 'slowly' if 'regular' in package_name.lower() else 'instant'
-        
-        # Tentukan auto_join_leave
-        auto_join_leave = True
-        
-        # Jalankan pengiriman secara asinkron
-        asyncio.create_task(run_broadcast_task(engine, user_id, ad_id, lpm_links, delay_mode, auto_join_leave))
 
-async def run_broadcast_task(engine, user_id, ad_id, lpm_links, delay_mode, auto_join_leave):
+        sisa = max(0, capacity - len(lpm_links))
+        if sisa > 0:
+            cur = await db.execute("""
+                SELECT group_link FROM lpm_lists
+                WHERE is_active=1 AND is_blacklisted=0
+                ORDER BY member_count DESC LIMIT ?
+            """, (sisa,))
+            defaults = await cur.fetchall()
+            lpm_links.extend(row[0] for row in defaults)
+
+        if not lpm_links:
+            logger.warning(f"Daftar LPM kosong untuk user {user_id}")
+            return
+
+    # Notif user broadcast mulai
+    await notify_client_broadcast_start(bot, user_id, len(lpm_links), package_name)
+
+    # Jalankan engine
+    engine = JasebEngine(session_name, API_ID, API_HASH)
+    await engine.start()
+    delay_mode = 'slowly' if 'regular' in package_name.lower() else 'instant'
+    asyncio.create_task(
+        run_broadcast_task(engine, user_id, ad_id, lpm_links, delay_mode, True, interval_hours or 2)
+    )
+
+
+async def run_broadcast_task(engine, user_id: int, ad_id: int, lpm_links: list,
+                              delay_mode: str, auto_join_leave: bool, interval_hours: int):
+    """Task background untuk menjalankan broadcast dan mengirim laporan."""
+    success_count = 0
+    failed_count = 0
     try:
-        await engine.broadcast_with_stealth(
+        result = await engine.broadcast_with_stealth(
             user_id=user_id,
             ad_id=ad_id,
             group_links=lpm_links,
             delay_mode=delay_mode,
             auto_join_leave=auto_join_leave
         )
+        # Hitung hasil dari DB
+        async with await get_db() as db:
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success' AND sent_at > datetime('now','-1 day','localtime')",
+                (user_id,)
+            )
+            success_count = (await cur.fetchone())[0]
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='failed' AND sent_at > datetime('now','-1 day','localtime')",
+                (user_id,)
+            )
+            failed_count = (await cur.fetchone())[0]
     except Exception as e:
-        logger.error(f"Error running broadcast engine task: {e}")
+        logger.error(f"Error broadcast task user {user_id}: {e}")
+        failed_count = len(lpm_links)
     finally:
         await engine.stop()
 
+    # Kirim laporan ke client
+    await notify_client_broadcast_done(bot, user_id, success_count, failed_count, interval_hours)
+
+
+# ─────────────────────────────────────────
+# Scheduler Autopilot
+# ─────────────────────────────────────────
 async def run_jaseb_scheduler():
+    """Scheduler utama — broadcast otomatis berdasarkan interval per-client."""
     logger.info("Scheduler Autopilot Aktif...")
+    # Simpan waktu terakhir broadcast per user
+    last_broadcast = {}
+
     while True:
         try:
-            # Jalankan scheduler setiap 2 jam sekali (7200 detik)
-            await asyncio.sleep(7200) 
-            logger.info("Memulai siklus broadcast autopilot berkala...")
-            
-            async with await get_db() as db:
-                # Ambil semua user yang memiliki subscription aktif
-                cursor = await db.execute("""
-                    SELECT DISTINCT user_id 
-                    FROM subscriptions 
-                    WHERE status = 'active' AND end_date > datetime('now', 'localtime')
-                """)
-                active_users = await cursor.fetchall()
-                
-            for row in active_users:
-                user_id = row[0]
-                # Jalankan broadcast asinkron untuk setiap user
-                asyncio.create_task(start_user_broadcast(user_id))
-                
-        except Exception as e:
-            logger.error(f"Error in scheduler loop: {e}")
+            await asyncio.sleep(60)  # Cek tiap 1 menit
+            now = datetime.now()
 
+            async with await get_db() as db:
+                cur = await db.execute("""
+                    SELECT DISTINCT user_id, broadcast_interval_hours
+                    FROM subscriptions
+                    WHERE status='active' AND end_date > datetime('now','localtime')
+                """)
+                active_users = await cur.fetchall()
+
+            for user_id, interval_hours in active_users:
+                interval = interval_hours or 2
+                last_time = last_broadcast.get(user_id)
+
+                if last_time is None or (now - last_time).total_seconds() >= interval * 3600:
+                    last_broadcast[user_id] = now
+                    asyncio.create_task(start_user_broadcast(user_id))
+
+        except Exception as e:
+            logger.error(f"Error scheduler loop: {e}")
+
+
+async def run_expiry_reminder():
+    """Kirim reminder ke client yang paketnya hampir habis (3 hari & 1 hari sebelum)."""
+    logger.info("Expiry Reminder Service Aktif...")
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Cek setiap 1 jam
+            async with await get_db() as db:
+                cur = await db.execute("""
+                    SELECT user_id, package_name, end_date FROM subscriptions
+                    WHERE status='active'
+                """)
+                subs = await cur.fetchall()
+
+            now = datetime.now()
+            for user_id, package_name, end_date in subs:
+                try:
+                    clean_end = end_date.split(".")[0]
+                    end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
+                    delta = end_dt - now
+                    days_left = delta.days
+
+                    if days_left in [3, 1]:
+                        await notify_client_subscription_expiring(
+                            bot, user_id, days_left, package_name, ADMIN_USERNAME
+                        )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Error expiry reminder: {e}")
+
+
+# ─────────────────────────────────────────
+# Main Entry Point
+# ─────────────────────────────────────────
 async def main():
-    logger.info("Memulai Database...")
+    logger.info("Inisialisasi Database...")
     await init_db()
-    
-    logger.info("Memulai Telegram Client...")
+
+    logger.info("Memulai Bot Telegram...")
     await bot.start(bot_token=BOT_TOKEN)  # type: ignore
-    
-    # Jalankan scheduler autopilot secara asinkron
-    logger.info("Memulai Scheduler Autopilot...")
+
+    # Inject dependencies ke modul handler
+    from src.client_handlers import init_client_handlers, register_edit_jaseb_btn
+    from src.admin_handlers import init_admin_handlers, register_broadcast_all_confirm
+
+    init_client_handlers(bot, login_states, load_prices)
+    register_edit_jaseb_btn(bot, login_states)
+    init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
+    register_broadcast_all_confirm(bot, start_user_broadcast)
+
+    # Jalankan semua background service
+    logger.info("Memulai Scheduler & Services...")
     asyncio.create_task(run_jaseb_scheduler())
-    
-    logger.info("Bot sedang berjalan...")
+    asyncio.create_task(run_expiry_reminder())
+
+    logger.info("Bot GEUNID-JASEB siap! Semua sistem aktif.")
     await bot.run_until_disconnected()
+
 
 if __name__ == '__main__':
     asyncio.run(main())

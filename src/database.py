@@ -28,11 +28,12 @@ async def init_db():
                 end_date TIMESTAMP,
                 status TEXT DEFAULT 'active',
                 request_lpm TEXT,
+                broadcast_interval_hours INTEGER DEFAULT 2,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
         
-        # Table for User Ads (Multi-Variation)
+        # Table for User Ads (Materi Jaseb)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS user_ads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +46,7 @@ async def init_db():
             )
         ''')
         
-        # Table for LPM Lists (Enhanced)
+        # Table for LPM Lists
         await db.execute('''
             CREATE TABLE IF NOT EXISTS lpm_lists (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,11 +55,12 @@ async def init_db():
                 group_name TEXT,
                 member_count INTEGER DEFAULT 0,
                 last_active TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1
+                is_active BOOLEAN DEFAULT 1,
+                is_blacklisted BOOLEAN DEFAULT 0
             )
         ''')
 
-        # Table for Detailed Transaction Tracking (KlikQRIS)
+        # Table for Transaction Tracking (KlikQRIS)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +68,7 @@ async def init_db():
                 trx_id TEXT UNIQUE,
                 package_id INTEGER,
                 amount INTEGER,
-                status TEXT DEFAULT 'pending', -- pending, success, expired
+                status TEXT DEFAULT 'pending',
                 payment_url TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
@@ -81,7 +83,7 @@ async def init_db():
                 ad_id INTEGER,
                 group_id INTEGER,
                 msg_link TEXT,
-                status TEXT, -- success, failed
+                status TEXT,
                 error_msg TEXT,
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id),
@@ -101,11 +103,17 @@ async def init_db():
             )
         ''')
         
-        # Safe migration for existing DB
-        try:
-            await db.execute("ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT")
-        except Exception:
-            pass
+        # Safe migration for existing DB — tambahkan kolom baru tanpa drop table
+        migrations = [
+            "ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT",
+            "ALTER TABLE subscriptions ADD COLUMN broadcast_interval_hours INTEGER DEFAULT 2",
+            "ALTER TABLE lpm_lists ADD COLUMN is_blacklisted BOOLEAN DEFAULT 0",
+        ]
+        for migration in migrations:
+            try:
+                await db.execute(migration)
+            except Exception:
+                pass  # Kolom sudah ada, skip
             
         await db.commit()
 
