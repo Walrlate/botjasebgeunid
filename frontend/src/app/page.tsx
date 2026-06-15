@@ -94,6 +94,7 @@ const Dashboard = () => {
   const [checkoutStep, setCheckoutStep] = useState<'select_payment' | 'invoice'>('select_payment');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'qris' | 'manual' | null>(null);
   const [accountCount, setAccountCount] = useState(1);
+  const [loadingCheckout, setLoadingCheckout] = useState(false);
 
   const [stats, setStats] = useState({
     broadcasts: 0,
@@ -247,6 +248,71 @@ const Dashboard = () => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCheckoutQRIS = async () => {
+    if (!user) {
+      alert("Gagal mendeteksi akun Telegram Anda. Pastikan Anda membuka Mini App ini dari dalam bot Telegram.");
+      return;
+    }
+    if (!selectedPackage) return;
+
+    triggerHaptic('heavy');
+    setLoadingCheckout(true);
+
+    const currentPrice = selectedPackage.type === 'userbot'
+      ? selectedPackage.price * accountCount
+      : selectedPackage.price;
+
+    const packName = selectedPackage.type === 'userbot'
+      ? `Jaseb Userbot ${selectedPackage.duration}`
+      : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
+
+    try {
+      const payload = {
+        user_id: user.id,
+        username: user.username || "",
+        first_name: user.first_name || "",
+        last_name: user.last_name || "",
+        package_name: packName,
+        amount: currentPrice,
+        duration: selectedPackage.duration,
+        lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
+        package_type: selectedPackage.type,
+        request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : ""
+      };
+
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const resData = await response.json();
+      if (resData.status) {
+        const webapp = (window as any).Telegram?.WebApp;
+        if (webapp) {
+          webapp.showPopup({
+            title: '🎉 QRIS Berhasil Dibuat!',
+            message: 'Silakan cek obrolan bot Telegram Anda. Barcode QRIS pembayaran telah dikirimkan ke sana untuk verifikasi otomatis.',
+            buttons: [{ type: 'ok', text: 'Buka Bot' }]
+          }, () => {
+            webapp.close();
+          });
+        } else {
+          alert("🎉 QRIS Berhasil Dibuat!\nSilakan cek obrolan bot Telegram Anda untuk menyelesaikan pembayaran.");
+        }
+      } else {
+        alert(`❌ Gagal membuat transaksi: ${resData.error || 'Terjadi kesalahan sistem.'}`);
+      }
+    } catch (err: any) {
+      console.error("Checkout Error:", err);
+      alert("❌ Terjadi kesalahan koneksi. Silakan coba lagi.");
+    } finally {
+      setLoadingCheckout(false);
+    }
   };
 
   const formatBroadcast = (val: number) => {
@@ -1186,15 +1252,37 @@ const Dashboard = () => {
 
                         {/* Elegant Action Button */}
                         <div className="pt-2">
-                          <a
-                            href={`https://t.me/Geun_ID?text=${encodeURIComponent(getOrderFormatText())}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => triggerHaptic('heavy')}
-                            className="bg-gradient-to-r from-geun-blue to-geun-purple hover:opacity-90 active:scale-98 text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium transition-all duration-300"
-                          >
-                            💬 Kirim Format ke Admin
-                          </a>
+                          {selectedPaymentMethod === 'qris' ? (
+                            <button
+                              onClick={handleCheckoutQRIS}
+                              disabled={loadingCheckout}
+                              className={`w-full bg-gradient-to-r from-geun-blue to-geun-purple hover:opacity-90 active:scale-98 text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium transition-all duration-300 ${
+                                loadingCheckout ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              {loadingCheckout ? (
+                                <span className="flex items-center justify-center gap-2">
+                                  <svg className="animate-spin h-3.5 w-3.5 text-white animate-pulse" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  ⏳ Menghasilkan QRIS...
+                                </span>
+                              ) : (
+                                '💳 Buat QRIS Pembayaran'
+                              )}
+                            </button>
+                          ) : (
+                            <a
+                              href={`https://t.me/Geun_ID?text=${encodeURIComponent(getOrderFormatText())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => triggerHaptic('heavy')}
+                              className="bg-gradient-to-r from-geun-blue to-geun-purple hover:opacity-90 active:scale-98 text-white py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center block shadow-premium transition-all duration-300"
+                            >
+                              💬 Kirim Format ke Admin
+                            </a>
+                          )}
                         </div>
                       </div>
                     );

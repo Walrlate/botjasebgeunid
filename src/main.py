@@ -1769,12 +1769,143 @@ async def handle_prices_api(request):
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
+async def handle_checkout_api(request):
+    try:
+        if request.method == "OPTIONS":
+            return web.Response(headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            })
+
+        data = await request.json()
+        user_id = data.get("user_id")
+        username = data.get("username", "")
+        first_name = data.get("first_name", "")
+        last_name = data.get("last_name", "")
+        package_name = data.get("package_name")
+        amount = data.get("amount")
+        request_lpm = data.get("request_lpm", "")
+
+        if not user_id or not package_name or not amount:
+            return web.json_response({"status": False, "error": "user_id, package_name, and amount are required"}, status=400, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            })
+
+        from src.payments import create_qris_transaction
+        from src.database import get_db
+        from src.notifications import notify_admin_new_order
+        from telethon import Button
+
+        # Bentuk deskripsi paket
+        pkg_desc = package_name
+        if request_lpm and request_lpm.strip():
+            pkg_desc = f"{package_name} (LPM: {request_lpm.strip()})"
+
+        logger.info(f"Memproses checkout QRIS dari Mini App: User={user_id}, Paket={pkg_desc}, Harga={amount}")
+
+        # Buat QRIS transaksi
+        trx_data = await create_qris_transaction(amount, pkg_desc)
+        if not trx_data:
+            return web.json_response({"status": False, "error": "Gagal membuat transaksi QRIS melalui Payment Gateway"}, status=500, headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            })
+
+        full_name = f"{first_name} {last_name}".strip() or "Client MiniApp"
+
+        # Simpan ke DB SQLite
+        async with get_db() as db:
+            await db.execute(
+                "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
+                (int(user_id), username, full_name)
+            )
+            await db.execute(
+                "INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (int(user_id), trx_data["transaction_id"], pkg_desc, int(amount), trx_data["payment_url"], "pending")
+            )
+            await db.commit()
+
+        # Kirim notifikasi ke admin
+        try:
+            await notify_admin_new_order(
+                bot, int(ADMIN_ID), int(user_id), full_name, username, pkg_desc, int(amount), trx_data["transaction_id"]
+            )
+        except Exception as e:
+            logger.error(f"Gagal kirim notifikasi order baru ke admin: {e}")
+
+        # Kirim QRIS ke chat Telegram user
+        pay_text = (
+            f"✅ **Invoice QRIS Berhasil Dibuat via Mini App!**\n\n"
+            f"📦 Paket: **{pkg_desc}**\n"
+            f"💰 Total Bayar: **Rp {trx_data['total_amount']:,}**\n"
+            f"⏰ Berlaku: {trx_data['expired_at']}\n\n"
+            f"Scan QRIS di atas dengan OVO / Gopay / Dana / m-Banking.\n"
+            f"Setelah bayar, klik **🔄 Cek Status Bayar** di bawah."
+        )
+
+        sent = False
+        try:
+            await bot.send_file(
+                int(user_id),
+                file=trx_data["qris_url"],
+                caption=pay_text,
+                buttons=[
+                    [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
+                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
+                ]
+            )
+            sent = True
+        except Exception as e:
+            logger.error(f"Gagal kirim file QRIS ke chat user {user_id}: {e}")
+            try:
+                await bot.send_message(
+                    int(user_id),
+                    pay_text,
+                    buttons=[
+                        [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
+                        [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
+                    ]
+                )
+                sent = True
+            except Exception as e2:
+                logger.error(f"Gagal kirim teks invoice ke chat user {user_id}: {e2}")
+
+        return web.json_response({
+            "status": True,
+            "message": "QRIS berhasil dibuat dan dikirim ke bot Telegram Anda.",
+            "sent_to_bot": sent,
+            "data": trx_data
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
+    except Exception as e:
+        logger.error(f"Error handle_checkout_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
     app.router.add_options('/api/prices', lambda r: web.Response(headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }))
+    app.router.add_post('/api/checkout', handle_checkout_api)
+    app.router.add_options('/api/checkout', lambda r: web.Response(headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
     }))
     port = int(os.environ.get("PORT", 8080))
