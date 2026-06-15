@@ -3,7 +3,7 @@ import re
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
-from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME
+from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME
 from src.database import init_db, get_db
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction
@@ -160,7 +160,7 @@ async def start_handler(event):
             [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
             [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
             [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
+            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
         ]
     else:
         content = (
@@ -171,7 +171,7 @@ async def start_handler(event):
         buttons = [
             [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
             [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin / Bantuan", "https://t.me/JASEBAOSHI")]
+            [Button.url("📞 Hubungi Admin / Bantuan", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
         ]
         
     welcome_text = format_menu_text(title, content)
@@ -200,7 +200,7 @@ async def callback_start_handler(event):
             [Button.inline(f"{EMOJI_UI['package']} Lihat Paket", b"view_packages"), Button.inline(f"{EMOJI_UI['order']} Order", b"order")],
             [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['shield']} Login Userbot", b"login_userbot")],
             [Button.inline(f"{EMOJI_UI['analytics']} Statistik Global", b"stats"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")]
+            [Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
         ]
     else:
         content = (
@@ -211,7 +211,7 @@ async def callback_start_handler(event):
         buttons = [
             [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
             [Button.inline(f"{EMOJI_UI['profile']} Profil Saya", b"profile"), Button.inline(f"{EMOJI_UI['logs']} Cara Pakai", b"guide")],
-            [Button.url("📞 Hubungi Admin / Bantuan", "https://t.me/JASEBAOSHI")]
+            [Button.url("📞 Hubungi Admin / Bantuan", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")]
         ]
         
     welcome_text = format_menu_text(title, content)
@@ -339,8 +339,8 @@ async def view_packages(event):
         await event.edit(
             "📞 **Hubungi Bantuan / Admin**\n\n"
             "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
-            "Telegram Admin: @JASEBAOSHI",
-            buttons=[[Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")], [Button.inline("⬅️ Kembali", b"start")]]
+            f"Telegram Admin: {ADMIN_USERNAME}",
+            buttons=[[Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")], [Button.inline("⬅️ Kembali", b"start")]]
         )
         return
     promo_text = (
@@ -380,8 +380,8 @@ async def order_handler(event):
         await event.edit(
             "📞 **Hubungi Bantuan / Admin**\n\n"
             "Untuk mengetahui fitur-fitur lengkap, harga paket jaseb/userbot terbaru, dan cara menggunakannya, silakan langsung hubungi admin kami.\n\n"
-            "Telegram Admin: @JASEBAOSHI",
-            buttons=[[Button.url("📞 Hubungi Admin", "https://t.me/JASEBAOSHI")], [Button.inline("⬅️ Kembali", b"start")]]
+            f"Telegram Admin: {ADMIN_USERNAME}",
+            buttons=[[Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")], [Button.inline("⬅️ Kembali", b"start")]]
         )
         return
     if not await check_channel_join(event):
@@ -500,7 +500,7 @@ login_states = {}
 @bot.on(events.NewMessage(pattern='/install'))
 async def install_command_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.respond("⚠️ Perintah `/install` hanya dapat digunakan oleh Admin. Hubungi admin di @JASEBAOSHI untuk bantuan.")
+        await event.respond(f"⚠️ Perintah `/install` hanya dapat digunakan oleh Admin. Hubungi admin di {ADMIN_USERNAME} untuk bantuan.")
         return
     if not await check_channel_join(event):
         return
@@ -657,7 +657,7 @@ async def order_format_parser(event):
     
     if is_jaseb_format or is_userbot_format:
         if event.sender_id != ADMIN_ID:
-            await event.respond("⚠️ Pembuatan invoice QRIS otomatis saat ini hanya diperbolehkan untuk Admin. Silakan hubungi admin di @JASEBAOSHI untuk memesan paket.")
+            await event.respond(f"⚠️ Pembuatan invoice QRIS otomatis saat ini hanya diperbolehkan untuk Admin. Silakan hubungi admin di {ADMIN_USERNAME} untuk memesan paket.")
             return
         if not await check_channel_join(event):
             return
@@ -723,13 +723,13 @@ async def order_format_parser(event):
                 ]
             )
         else:
-            await event.respond("❌ **Gagal membuat pembayaran QRIS.**\nTerjadi kesalahan koneksi ke payment gateway. Silakan hubungi admin di @JASEBAOSHI.")
+            await event.respond(f"❌ **Gagal membuat pembayaran QRIS.**\nTerjadi kesalahan koneksi ke payment gateway. Silakan hubungi admin di {ADMIN_USERNAME}.")
 
 
 @bot.on(events.NewMessage(pattern=r'/scan(?:\s+(.+))?'))
 async def scan_lpm_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.respond("⚠️ Perintah `/scan` hanya dapat digunakan oleh Admin. Hubungi admin di @JASEBAOSHI untuk bantuan.")
+        await event.respond(f"⚠️ Perintah `/scan` hanya dapat digunakan oleh Admin. Hubungi admin di {ADMIN_USERNAME} untuk bantuan.")
         return
     if not await check_channel_join(event):
         return
