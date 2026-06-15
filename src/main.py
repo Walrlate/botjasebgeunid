@@ -1210,6 +1210,71 @@ async def scan_lpm_handler(event):
     await event.respond(format_menu_text(f"{EMOJI_UI['success']} HASIL SCAN LPM", content))
 
 
+# Import LPM Massal (Admin Only)
+# ─────────────────────────────────────────
+@bot.on(events.NewMessage(pattern=r'/import_lpm(?:\s+([\s\S]+))?'))
+async def import_lpm_handler(event):
+    if event.sender_id != ADMIN_ID:
+        await event.respond("⚠️ Perintah ini hanya untuk Admin.")
+        return
+
+    raw_text = event.pattern_match.group(1)
+    if not raw_text:
+        await event.respond(
+            "📋 **Cara Pakai /import_lpm:**\n\n"
+            "Ketik `/import_lpm` diikuti dengan daftar link/username LPM yang panjang.\n"
+            "Contoh:\n"
+            "`/import_lpm @LPM_A @LPM_B https://t.me/LPM_C`"
+        )
+        return
+
+    # Saring username/link
+    links = re.findall(
+        r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', raw_text
+    )
+    if not links:
+        await event.respond("❌ Tidak ditemukan link atau username LPM yang valid dalam teks tersebut.")
+        return
+
+    await event.respond(f"⏳ Mengekstrak dan mengimpor **{len(links)} item** ke database...")
+
+    unique_links = []
+    seen = set()
+    for link in links:
+        if "joinchat" in link:
+            full_link = link
+        else:
+            full_link = f"@{link}"
+        if full_link not in seen:
+            seen.add(full_link)
+            unique_links.append(full_link)
+
+    success_count = 0
+    async with get_db() as db:
+        for link in unique_links:
+            group_name = link.replace("@", "").replace("https://t.me/", "")
+            try:
+                # Masukkan ke DB, status default active (1)
+                cursor = await db.execute(
+                    "INSERT OR IGNORE INTO lpm_lists (group_link, group_name, member_count, is_active) VALUES (?, ?, ?, ?)",
+                    (link, group_name, 0, 1)
+                )
+                if cursor.rowcount > 0:
+                    success_count += 1
+            except Exception as e:
+                logger.error(f"Gagal mengimpor LPM {link}: {e}")
+        await db.commit()
+
+    await event.respond(
+        f"✅ **Proses Impor Selesai!**\n\n"
+        f"📊 **Hasil Statistik:**\n"
+        f"• Total Ditemukan: **{len(unique_links)} grup unik**\n"
+        f"• Berhasil Ditambahkan: **{success_count} grup baru**\n"
+        f"• Duplikat / Sudah Ada: **{len(unique_links) - success_count} grup**\n\n"
+        f"⚡ _Semua LPM baru berhasil terindeks di database cluster._"
+    )
+
+
 # ─────────────────────────────────────────
 # Broadcast Engine
 # ─────────────────────────────────────────
