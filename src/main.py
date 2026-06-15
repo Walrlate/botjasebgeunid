@@ -1434,6 +1434,10 @@ async def main():
 
     logger.info("Memulai Bot Telegram...")
     await bot.start(bot_token=BOT_TOKEN)  # type: ignore
+    me = await bot.get_me()
+    import src.config
+    src.config.BOT_USERNAME = me.username if me and me.username else "GeunID_bot"
+    logger.info(f"Bot Username terdaftar: @{src.config.BOT_USERNAME}")
 
     # Inject dependencies ke modul handler
     from src.client_handlers import init_client_handlers, register_edit_jaseb_btn

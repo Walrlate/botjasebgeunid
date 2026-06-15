@@ -27,5 +27,6 @@ KLIKQRIS_MERCHANT_ID = os.getenv('KLIKQRIS_MERCHANT_ID', '')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '') # URL untuk menerima notifikasi pembayaran sukses
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', '@geunidk')
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', '@Geun_ID')
+BOT_USERNAME = "GeunID_bot"
 
 

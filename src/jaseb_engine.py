@@ -44,6 +44,20 @@ class JasebEngine:
             
             content, media_path = ad
 
+            # Ambil package_name untuk mendeteksi apakah Regular
+            cursor = await db.execute("""
+                SELECT package_name FROM subscriptions 
+                WHERE user_id = ? AND status = 'active'
+                ORDER BY end_date DESC LIMIT 1
+            """, (user_id,))
+            sub_row = await cursor.fetchone()
+            package_name = sub_row[0] if sub_row else ""
+
+            # Tambahkan watermark jika paket Regular
+            if package_name and "regular" in package_name.lower():
+                from src.config import BOT_USERNAME
+                content = f"{content}\n\n• Promote Auto by @{BOT_USERNAME}"
+
             for link in group_links:
                 if not self.is_running:
                     break
