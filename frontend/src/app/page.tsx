@@ -907,7 +907,7 @@ const Dashboard = () => {
                       </div>
                       <button
                         onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
-                        className="w-6.5 h-6.5 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
+                        className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
                       >
                         ✕
                       </button>
@@ -1022,7 +1022,7 @@ const Dashboard = () => {
                           </button>
                           <button
                             onClick={() => { triggerHaptic('light'); setIsModalOpen(false); }}
-                            className="w-6.5 h-6.5 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
+                            className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs transition-colors"
                           >
                             ✕
                           </button>
@@ -1036,7 +1036,7 @@ const Dashboard = () => {
                         </div>
 
                         {/* Elegant Invoice layout */}
-                        <div className="bg-[#F8FAFC] border border-slate-200/60 p-4.5 rounded-2xl space-y-3 shadow-soft">
+                        <div className="bg-[#F8FAFC] border border-slate-200/60 p-5 rounded-2xl space-y-3 shadow-soft">
                           <div className="flex justify-between text-xs items-center">
                             <span className="text-geun-muted font-bold">Layanan</span>
                             <span className="font-black text-geun-dark uppercase bg-geun-blue/10 text-geun-blue px-2.5 py-0.5 rounded-md text-[10px]">
@@ -1076,7 +1076,7 @@ const Dashboard = () => {
 
                         {/* Interactive Quantity Selector for Userbot */}
                         {selectedPackage.type === 'userbot' && (
-                          <div className="space-y-3 bg-[#F8FAFC] p-4.5 rounded-2xl border border-slate-200/50 shadow-soft">
+                          <div className="space-y-3 bg-[#F8FAFC] p-5 rounded-2xl border border-slate-200/50 shadow-soft">
                             <div className="flex items-center justify-between">
                               <div>
                                 <label className="text-[10px] font-black text-slate-800 uppercase tracking-wider">
