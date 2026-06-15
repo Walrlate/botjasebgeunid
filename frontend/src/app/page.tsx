@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import pricesData from '../prices.json';
 interface TelegramUser {
   id: number;
   first_name: string;
@@ -162,51 +163,8 @@ const Dashboard = () => {
 
 
 
-  // Pricing Data with Cheaper/Discounted Prices
-  const pricingData: Record<'regular' | 'forward' | 'userbot', PackageItem[]> = {
-    regular: [
-      // 20 LPM
-      { duration: '5 Hari', lpm: 20, originalPrice: 15000, promoPrice: 9500 },
-      { duration: '7 Hari', lpm: 20, bonus: '+2 Hari', originalPrice: 25000, promoPrice: 16500 },
-      { duration: '14 Hari', lpm: 20, bonus: '+3 Hari', originalPrice: 50000, promoPrice: 32500 },
-      { duration: '30 Hari', lpm: 20, bonus: '+4 Hari', originalPrice: 65000, promoPrice: 42500 },
-      // 30 LPM
-      { duration: '3 Hari', lpm: 30, originalPrice: 20000, promoPrice: 13500 },
-      { duration: '7 Hari', lpm: 30, originalPrice: 35000, promoPrice: 23500 },
-      { duration: '10 Hari', lpm: 30, originalPrice: 50000, promoPrice: 32500 },
-      { duration: '30 Hari', lpm: 30, originalPrice: 85000, promoPrice: 55500 },
-      // 50 LPM
-      { duration: '3 Hari', lpm: 50, originalPrice: 30000, promoPrice: 19500 },
-      { duration: '7 Hari', lpm: 50, originalPrice: 55000, promoPrice: 36500 },
-      { duration: '14 Hari', lpm: 50, originalPrice: 80000, promoPrice: 52500 },
-      { duration: '30 Hari', lpm: 50, originalPrice: 130000, promoPrice: 85500 },
-    ],
-    forward: [
-      // 20 LPM
-      { duration: '3 Hari', lpm: 20, originalPrice: 15000, promoPrice: 9500 },
-      { duration: '5 Hari', lpm: 20, originalPrice: 20000, promoPrice: 13500 },
-      { duration: '7 Hari', lpm: 20, bonus: '+2 Hari', originalPrice: 30000, promoPrice: 19500 },
-      { duration: '10 Hari', lpm: 20, bonus: '+2 Hari', originalPrice: 40000, promoPrice: 26500 },
-      { duration: '14 Hari', lpm: 20, bonus: '+4 Hari', originalPrice: 55000, promoPrice: 36500 },
-      { duration: '30 Hari', lpm: 20, bonus: '+5 Hari', originalPrice: 75000, promoPrice: 49500 },
-      // 30 LPM
-      { duration: '3 Hari', lpm: 30, originalPrice: 30000, promoPrice: 19500 },
-      { duration: '5 Hari', lpm: 30, originalPrice: 40000, promoPrice: 26500 },
-      { duration: '7 Hari', lpm: 30, originalPrice: 45000, promoPrice: 29500 },
-      { duration: '14 Hari', lpm: 30, originalPrice: 70000, promoPrice: 46500 },
-      { duration: '30 Hari', lpm: 30, originalPrice: 120000, promoPrice: 79500 },
-      // 50 LPM
-      { duration: '3 Hari', lpm: 50, originalPrice: 45000, promoPrice: 29500 },
-      { duration: '7 Hari', lpm: 50, originalPrice: 75000, promoPrice: 49500 },
-      { duration: '14 Hari', lpm: 50, originalPrice: 110000, promoPrice: 72550 },
-      { duration: '30 Hari', lpm: 50, originalPrice: 180000, promoPrice: 119500 },
-    ],
-    userbot: [
-      { duration: '7 Hari', lpm: 0, originalPrice: 15000, promoPrice: 10000 },
-      { duration: '30 Hari', lpm: 0, originalPrice: 35000, promoPrice: 25000 },
-      { duration: '60 Hari', lpm: 0, originalPrice: 70000, promoPrice: 50000 },
-    ]
-  };
+  // Pricing Data with Cheaper/Discounted Prices loaded from prices.json
+  const pricingData: Record<'regular' | 'forward' | 'userbot', PackageItem[]> = pricesData as any;
 
   const activePackages = pricingData[selectedType] || [];
   const filteredPackages = selectedType === 'userbot'

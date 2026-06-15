@@ -17,6 +17,54 @@ logger = logging.getLogger(__name__)
 # Client Bot (untuk UI)
 bot = TelegramClient('bot_session', API_ID, API_HASH)
 
+import json
+import os
+
+def load_prices():
+    try:
+        prices_path = os.path.join("frontend", "src", "prices.json")
+        if os.path.exists(prices_path):
+            with open(prices_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Gagal memuat prices.json: {e}")
+    return {}
+
+def get_package_duration_days(package_name, amount):
+    prices = load_prices()
+    if not prices:
+        return 30
+        
+    amount = int(amount)
+    
+    # Cari di semua kategori paket (regular, forward, userbot)
+    for category in ['regular', 'forward', 'userbot']:
+        for item in prices.get(category, []):
+            if int(item.get('promoPrice', 0)) == amount:
+                # Dapatkan durasi dasar
+                duration_str = item.get('duration', '')
+                days = 0
+                days_match = re.search(r'(\d+)\s*Hari', duration_str, re.IGNORECASE)
+                if days_match:
+                    days = int(days_match.group(1))
+                
+                # Tambahkan bonus jika ada
+                bonus_str = item.get('bonus', '')
+                if bonus_str:
+                    bonus_match = re.search(r'\+(\d+)\s*Hari', bonus_str, re.IGNORECASE)
+                    if bonus_match:
+                        days += int(bonus_match.group(1))
+                
+                if days > 0:
+                    return days
+                    
+    # Fallback pencocokan durasi dari nama paket jika nominal tidak cocok
+    days_match = re.search(r'(\d+)\s*Hari', package_name, re.IGNORECASE)
+    if days_match:
+        return int(days_match.group(1))
+        
+    return 30 # Default fallback
+
 async def check_channel_join(event):
     user_id = event.sender_id
     if not user_id:
@@ -343,32 +391,46 @@ async def view_packages(event):
             buttons=[[Button.url("📞 Hubungi Admin", f"https://t.me/{ADMIN_USERNAME.replace('@', '')}")], [Button.inline("⬅️ Kembali", b"start")]]
         )
         return
-    promo_text = (
-        "── **𝗣𝗔𝗞𝗘𝗧 𝗥𝗘𝗚𝗨𝗟𝗔𝗥 𝟮𝟬 𝗟𝗣𝗠**\n"
-        "𖤓 5 HARI : 9.500 (Promo)\n"
-        "𖤓 7 HARI + 2 HARI : 16.500 (Promo)\n"
-        "𖤓 14 HARI + 3 HARI: 32.500 (Promo)\n"
-        "𖤓 30 HARI + 4 HARI : 42.500 (Promo)\n\n"
-        "── **𝗣𝗔𝗞𝗘𝗧 𝗙𝗢𝗥𝗪𝗔𝗥𝗗 𝟮𝟬 𝗟𝗣𝗠**\n"
-        "𖤓 3 HARI : 9.500 (Promo)\n"
-        "𖤓 5 HARI : 13.500 (Promo)\n"
-        "𖤓 7 HARI + 2 HARI : 19.500 (Promo)\n"
-        "𖤓 10 HARI + 2 HARI : 26.500 (Promo)\n"
-        "𖤓 14 HARI + 4 HARI : 36.500 (Promo)\n"
-        "𖤓 30 HARI + 5 HARI : 49.500 (Promo)\n\n"
-        "── **𝗣𝗔𝗞𝗘𝗧 𝗥𝗘𝗚𝗨𝗟𝗔𝗥 𝟯𝟬 𝗟𝗣𝗠**\n"
-        "𖤓 3 HARI : 13.500 (Promo)\n"
-        "𖤓 7 HARI : 23.500 (Promo)\n"
-        "𖤓 10 HARI : 32.500 (Promo)\n"
-        "𖤓 30 HARI : 55.500 (Promo)\n\n"
-        "── **𝗣𝗔𝗞𝗘𝗧 𝗙𝗢𝗥𝗪𝗔𝗥𝗗 𝟯𝟬 𝗟𝗣𝗠**\n"
-        "𖤓 3 HARI : 19.500 (Promo)\n"
-        "𖤓 5 HARI : 26.500 (Promo)\n"
-        "𖤓 7 HARI : 29.500 (Promo)\n"
-        "𖤓 14 HARI : 46.500 (Promo)\n"
-        "𖤓 30 HARI : 79.500 (Promo)\n\n"
-        "📅 Promo berlaku: Juni - Agustus 2026"
-    )
+        
+    prices = load_prices()
+    if not prices:
+        await event.edit("❌ Gagal memuat daftar paket harga dinamis.", buttons=[Button.inline("⬅️ Kembali", b"start")])
+        return
+        
+    text_lines = []
+    
+    # 1. Tampilkan Regular Paket berdasarkan LPM
+    for capacity in [20, 30, 50]:
+        reg_items = [i for i in prices.get("regular", []) if i.get("lpm") == capacity]
+        if reg_items:
+            text_lines.append(f"── **𝗣𝗔𝗞𝗘𝗧 𝗥𝗘𝗚𝗨𝗟𝗔𝗥 {capacity} 𝗟𝗣𝗠**")
+            for item in reg_items:
+                bonus = f" {item['bonus']}" if item.get("bonus") else ""
+                text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
+            text_lines.append("")
+            
+    # 2. Tampilkan Forward Paket berdasarkan LPM
+    for capacity in [20, 30, 50]:
+        fwd_items = [i for i in prices.get("forward", []) if i.get("lpm") == capacity]
+        if fwd_items:
+            text_lines.append(f"── **𝗣𝗔𝗞𝗘𝗧 𝗙𝗢𝗥𝗪𝗔𝗥𝗗 {capacity} 𝗟𝗣𝗠**")
+            for item in fwd_items:
+                bonus = f" {item['bonus']}" if item.get("bonus") else ""
+                text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
+            text_lines.append("")
+            
+    # 3. Tampilkan Userbot Paket
+    ub_items = prices.get("userbot", [])
+    if ub_items:
+        text_lines.append("── **𝗣𝗔𝗞𝗘𝗧 𝗨𝗦𝗘𝗥𝗕𝗢𝗧 𝗔𝗨𝗧𝗢𝗣𝗜𝗟𝗢𝗧**")
+        for item in ub_items:
+            bonus = f" {item['bonus']}" if item.get("bonus") else ""
+            text_lines.append(f"𖤓 {item['duration'].upper()}{bonus} : {item['promoPrice']:,} (Promo)")
+        text_lines.append("")
+        
+    text_lines.append("📅 Promo berlaku: Dinamis terupdate")
+    promo_text = "\n".join(text_lines)
+    
     await event.edit(promo_text, buttons=[Button.inline("⬅️ Kembali", b"start")])
 
 from src.payments import create_qris_transaction
@@ -386,24 +448,61 @@ async def order_handler(event):
         return
     if not await check_channel_join(event):
         return
+        
+    prices = load_prices()
+    buttons = []
+    
+    # Ambil beberapa contoh paket menarik dari JSON untuk tombol order instant
+    reg_20_5 = next((i for i in prices.get("regular", []) if i.get("lpm") == 20 and "5" in i.get("duration")), None)
+    if reg_20_5:
+        buttons.append([Button.inline(f"Regular 20 LPM - 5 Hari (Rp {reg_20_5['promoPrice']:,})", b"buy_regular_20_5hari")])
+        
+    fwd_30_30 = next((i for i in prices.get("forward", []) if i.get("lpm") == 30 and "30" in i.get("duration")), None)
+    if fwd_30_30:
+        buttons.append([Button.inline(f"Forward 30 LPM - 30 Hari (Rp {fwd_30_30['promoPrice']:,})", b"buy_forward_30_30hari")])
+        
+    ub_30 = next((i for i in prices.get("userbot", []) if "30" in i.get("duration")), None)
+    if ub_30:
+        buttons.append([Button.inline(f"Userbot Autopilot - 30 Hari (Rp {ub_30['promoPrice']:,})", b"buy_userbot_0_30hari")])
+        
+    buttons.append([Button.inline("⬅️ Kembali", b"start")])
+    
     text = (
-
         "🛒 **Pilih Paket yang ingin Anda beli:**\n\n"
         "Gunakan tombol di bawah untuk membuat QRIS otomatis."
     )
-    buttons = [
-        [Button.inline("Regular 20 LPM - 5 Hari (9.5rb)", b"buy_reg_20_5")],
-        [Button.inline("Forward 30 LPM - 30 Hari (79.5rb)", b"buy_fwd_30_30")],
-        [Button.inline("⬅️ Kembali", b"start")]
-    ]
     await event.edit(text, buttons=buttons)
 
 @bot.on(events.CallbackQuery(pattern=b"buy_"))
 async def process_payment(event):
-    data = event.data.decode()
-    amount = 9500 if "reg_20_5" in data else 79500
-    package_desc = "Paket Regular 20 LPM - 5 Hari" if "reg_20_5" in data else "Paket Forward 30 LPM - 30 Hari"
+    callback_data = event.data.decode()
+    parts = callback_data.split("_")
     
+    if len(parts) < 4:
+        await event.respond("❌ Format pembelian salah.")
+        return
+        
+    category = parts[1]
+    lpm = int(parts[2])
+    duration = parts[3].replace("hari", " Hari")
+    
+    prices = load_prices()
+    selected_item = None
+    
+    for item in prices.get(category, []):
+        if int(item.get("lpm", 0)) == lpm and item.get("duration", "").lower() == duration.lower():
+            selected_item = item
+            break
+            
+    if not selected_item:
+        await event.respond("❌ Paket tidak ditemukan atau telah kedaluwarsa.")
+        return
+        
+    amount = selected_item["promoPrice"]
+    package_desc = f"Paket {category.capitalize()} {lpm} LPM - {selected_item['duration']}"
+    if category == 'userbot':
+        package_desc = f"Paket Userbot Autopilot - {selected_item['duration']}"
+        
     await event.answer("Sedang membuat QRIS...", alert=False)
     
     # Buat transaksi di KlikQRIS
@@ -913,42 +1012,8 @@ async def check_payment_status_handler(event):
                         package_name = str(package_name_db or "Paket Jaseb")
                         capacity = 30 if "30" in package_name else 20
                         
-                        # Tentukan durasi berdasarkan nama paket atau nominal
-                        days = 30
-                        if "5 Hari" in package_name or "5 hari" in package_name:
-                            days = 5
-                        elif "3 Hari" in package_name or "3 hari" in package_name:
-                            days = 3
-                        elif "7 Hari" in package_name or "7 hari" in package_name:
-                            days = 7
-                        elif "10 Hari" in package_name or "10 hari" in package_name:
-                            days = 10
-                        elif "14 Hari" in package_name or "14 hari" in package_name:
-                            days = 14
-                        elif "30 Hari" in package_name or "30 hari" in package_name:
-                            days = 30
-                        elif amount == 9500:
-                            days = 5
-                        elif amount == 16500:
-                            days = 9
-                        elif amount == 32500:
-                            days = 17
-                        elif amount == 42500:
-                            days = 34
-                        elif amount == 13500:
-                            days = 3
-                        elif amount == 19500:
-                            days = 9
-                        elif amount == 23500:
-                            days = 7
-                        elif amount == 26500:
-                            days = 12
-                        elif amount == 36500:
-                            days = 18
-                        elif amount == 49500:
-                            days = 35
-                        elif amount == 79500:
-                            days = 30
+                        # Tentukan durasi secara dinamis dari file prices.json
+                        days = get_package_duration_days(package_name, amount)
                             
                         # Hitung expiration date
                         from datetime import datetime, timedelta
