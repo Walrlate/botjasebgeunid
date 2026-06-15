@@ -94,7 +94,7 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event):
             return
 
-        async with await get_db() as db:
+        async with get_db() as db:
             # Total users
             cur = await db.execute("SELECT COUNT(*) FROM users")
             total_users = (await cur.fetchone())[0]
@@ -191,7 +191,7 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event):
             return
         uid = int(event.pattern_match.group(1).decode())
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute(
                 "UPDATE subscriptions SET status='inactive' WHERE user_id=? AND status='active'", (uid,)
             )
@@ -230,7 +230,7 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event):
             return
         uid = int(event.pattern_match.group(1).decode())
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute("UPDATE userbots SET status='disconnected' WHERE user_id=?", (uid,))
             await db.commit()
         session_file = f"data/sessions/user_{uid}.session"
@@ -250,7 +250,7 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event):
             return
 
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute("""
                 SELECT t.user_id, u.username, u.full_name, t.package_id, t.amount, t.status, t.created_at
                 FROM transactions t
@@ -341,7 +341,7 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event):
             return
         await event.respond("⏳ Memulai broadcast manual untuk semua client aktif...")
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute(
                 "SELECT DISTINCT user_id FROM subscriptions WHERE status='active' AND end_date > datetime('now','localtime')"
             )
@@ -409,7 +409,7 @@ def _register_admin_handlers(bot):
                 await event.respond("❌ Masukkan angka hari yang valid. Contoh: `7`")
                 return
             days = int(text)
-            async with await get_db() as db:
+            async with get_db() as db:
                 cur = await db.execute(
                     "SELECT id, end_date FROM subscriptions WHERE user_id=? AND status='active' ORDER BY end_date DESC LIMIT 1",
                     (target_uid,)
@@ -443,7 +443,7 @@ def _register_admin_handlers(bot):
                 await event.respond("❌ Masukkan angka jam yang valid (1-24). Contoh: `2`")
                 return
             hours = int(text)
-            async with await get_db() as db:
+            async with get_db() as db:
                 await db.execute(
                     "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status='active'",
                     (hours, target_uid)
@@ -482,7 +482,7 @@ async def _show_admin_panel(event):
 
 
 async def _show_billing(event):
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("""
             SELECT s.user_id, u.username, u.full_name, s.package_name, s.end_date, s.broadcast_interval_hours
             FROM subscriptions s
@@ -516,7 +516,7 @@ async def _show_billing(event):
 
 
 async def _show_client_billing_detail(event, uid: int):
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute(
             "SELECT username, full_name FROM users WHERE user_id=?", (uid,)
         )
@@ -566,7 +566,7 @@ async def _show_client_billing_detail(event, uid: int):
 
 
 async def _show_ubots(event):
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("""
             SELECT ub.user_id, u.username, u.full_name, ub.phone_number, ub.status
             FROM userbots ub
@@ -633,7 +633,7 @@ def register_broadcast_all_confirm(bot, start_broadcast_fn):
             await event.answer("⛔ Hanya Admin.", alert=True)
             return
         await event.edit("⏳ Memulai broadcast semua client aktif...")
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute(
                 "SELECT DISTINCT user_id FROM subscriptions WHERE status='active' AND end_date > datetime('now','localtime')"
             )

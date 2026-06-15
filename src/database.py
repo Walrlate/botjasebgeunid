@@ -117,5 +117,5 @@ async def init_db():
             
         await db.commit()
 
-async def get_db():
-    return await aiosqlite.connect(DB_PATH)
+def get_db():
+    return aiosqlite.connect(DB_PATH)

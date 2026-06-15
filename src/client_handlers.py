@@ -226,7 +226,7 @@ def _register_handlers(bot):
         full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
         username = sender.username or ""
 
-        async with await get_db() as db:
+        async with get_db() as db:
             # Upsert user
             await db.execute(
                 "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
@@ -285,7 +285,7 @@ def _register_handlers(bot):
     # ─────────────────────────────────────────
     @bot.on(events.NewMessage(pattern='/edit_jaseb'))
     async def edit_jaseb_command_handler(event):
-        async with await get_db() as db:
+        async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime')",
                 (event.sender_id,)
@@ -312,7 +312,7 @@ def _register_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"resend_jaseb"))
     async def resend_jaseb_handler(event):
         from src.main import start_user_broadcast
-        async with await get_db() as db:
+        async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime')",
                 (event.sender_id,)
@@ -370,7 +370,7 @@ async def _show_help_main(event):
 
 async def _show_mystatus(event, user_id: int):
     """Tampilkan status jaseb real-time dari database."""
-    async with await get_db() as db:
+    async with get_db() as db:
         cursor = await db.execute("""
             SELECT package_name, capacity_lpm, start_date, end_date, broadcast_interval_hours
             FROM subscriptions
@@ -460,7 +460,7 @@ async def _show_mystatus(event, user_id: int):
 def register_edit_jaseb_btn(bot, login_states):
     @bot.on(events.CallbackQuery(data=b"edit_jaseb_btn"))
     async def edit_jaseb_btn_handler(event):
-        async with await get_db() as db:
+        async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' AND end_date > datetime('now', 'localtime')",
                 (event.sender_id,)

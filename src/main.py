@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.tl.types import KeyboardButtonWebView
 
 from src.config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, CHANNEL_USERNAME, ADMIN_USERNAME
 from src.database import init_db, get_db
@@ -176,7 +177,7 @@ async def get_web_app_url(user_id: int) -> str:
     user_lpm = 0
     user_days = 0
     try:
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
             total_broadcast = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
@@ -235,7 +236,7 @@ async def _show_start_menu(event, is_callback: bool = False):
 
     # Pastikan user terdaftar di DB
     try:
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute(
                 "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
                 "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
@@ -261,7 +262,7 @@ async def _show_start_menu(event, is_callback: bool = False):
             "• `/install` — Sambung ubot admin"
         )
         buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [KeyboardButtonWebView(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
             [Button.inline("🛡️ Panel Admin", b"admin_main"),
              Button.inline("📊 Statistik", b"admin_stats")],
             [Button.inline("💰 Edit Harga", b"admin_prices"),
@@ -279,7 +280,7 @@ async def _show_start_menu(event, is_callback: bool = False):
             "📊 `/mystatus` — Cek status jaseb Anda"
         )
         buttons = [
-            [Button.web_app(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
+            [KeyboardButtonWebView(f"{EMOJI_UI['rocket']} Buka Mini App", web_app_url)],
             [Button.inline("📖 Bantuan & Harga", b"help_main"),
              Button.inline("🛒 Order Sekarang", b"order_start")],
             [Button.inline("📊 Status Jaseb Saya", b"my_status")],
@@ -306,7 +307,7 @@ async def profile_handler(event):
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
     username = f"@{sender.username}" if sender.username else f"ID: {sender.id}"
 
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("""
             SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours
             FROM subscriptions
@@ -361,7 +362,7 @@ async def profile_handler(event):
 # ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(data=b"stats"))
 async def stats_handler(event):
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
         total_broadcast = (await cur.fetchone())[0]
         cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
@@ -394,7 +395,7 @@ async def guide_handler(event):
 # ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(data=b"view_logs"))
 async def view_logs_handler(event):
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("""
             SELECT l.group_name, f.msg_link, f.status, f.sent_at
             FROM forward_logs f
@@ -434,7 +435,7 @@ async def login_userbot_handler(event):
 
 async def _show_userbot_menu(event):
     user_id = event.sender_id
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("SELECT phone_number, status FROM userbots WHERE user_id=?", (user_id,))
         ub = await cur.fetchone()
 
@@ -467,7 +468,7 @@ async def _show_userbot_menu(event):
 
 @bot.on(events.CallbackQuery(data=b"disconnect_userbot"))
 async def disconnect_userbot_handler(event):
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute("UPDATE userbots SET status='disconnected' WHERE user_id=?", (event.sender_id,))
         await db.commit()
     session_file = f"data/sessions/user_{event.sender_id}.session"
@@ -551,7 +552,7 @@ async def user_input_handler(event):
         amount = state_data.get("amount")
         package_name = state_data.get("package_name")
 
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute(
                 "UPDATE transactions SET status='waiting_approval', payment_url=? WHERE trx_id=?",
                 (media_path, trx_id)
@@ -607,7 +608,7 @@ async def user_input_handler(event):
                 logger.error(f"Gagal download media: {e}")
                 await event.respond("⚠️ Gagal unduh media. Jaseb disimpan tanpa media.")
 
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute("DELETE FROM user_ads WHERE user_id=?", (event.sender_id,))
             await db.execute(
                 "INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, ?, ?, ?)",
@@ -648,7 +649,7 @@ async def user_input_handler(event):
                     success_count += 1
                     # Simpan otomatis ke lpm_lists global agar bisa digunakan sistem di masa depan!
                     try:
-                        async with await get_db() as db:
+                        async with get_db() as db:
                             await db.execute(
                                 "INSERT OR IGNORE INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, ?)",
                                 (full_link, res["group_id"], res["group_name"], res["member_count"], 1)
@@ -673,7 +674,7 @@ async def user_input_handler(event):
                 f"• Gagal/Tidak Valid: **{failed_count} grup**"
             )
 
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute(
                 "UPDATE subscriptions SET request_lpm=? WHERE user_id=? AND status='active'",
                 (lpm_list_str or None, event.sender_id)
@@ -758,7 +759,7 @@ async def user_input_handler(event):
 async def _save_userbot_session(event, client, phone: str):
     """Simpan session userbot ke DB setelah login berhasil."""
     sender = await event.get_sender()
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute(
             "INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, full_name=excluded.full_name",
@@ -836,7 +837,7 @@ async def order_format_parser(event):
         import random
         trx_id = f"TRX-MAN-{int(time.time())}{random.randint(100, 999)}"
         
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute(
                 "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
                 (event.sender_id, sender.username or "", full_name)
@@ -869,7 +870,7 @@ async def order_format_parser(event):
         await event.respond("⏳ Memproses pesanan & membuat QRIS...")
         trx_data = await create_qris_transaction(amount, f"Jaseb - {paket}")
         if trx_data:
-            async with await get_db() as db:
+            async with get_db() as db:
                 await db.execute(
                     "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
                     (event.sender_id, sender.username or "", full_name)
@@ -915,7 +916,7 @@ async def check_payment_status_handler(event):
     status = status_response.get("data", {}).get("status", "")
 
     if status == "success":
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute(
                 "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
             )
@@ -932,7 +933,7 @@ async def check_payment_status_handler(event):
             return
 
         # Update transaksi
-        async with await get_db() as db:
+        async with get_db() as db:
             await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
             package_name = str(package_name or "Paket Jaseb")
             capacity = get_capacity_from_package(package_name)
@@ -1021,7 +1022,7 @@ async def approve_manual_handler(event):
     
     trx_id = event.pattern_match.group(1).decode('utf-8')
     
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute(
             "SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
         )
@@ -1042,7 +1043,7 @@ async def approve_manual_handler(event):
     days = get_package_duration_days(package_name, amount)
     now = datetime.now()
     
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
         
         cur = await db.execute(
@@ -1109,7 +1110,7 @@ async def reject_manual_handler(event):
     
     trx_id = event.pattern_match.group(1).decode('utf-8')
     
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute(
             "SELECT user_id, package_id, status FROM transactions WHERE trx_id=?", (trx_id,)
         )
@@ -1125,7 +1126,7 @@ async def reject_manual_handler(event):
         await event.answer("⚠️ Transaksi ini tidak dalam status menunggu persetujuan.", alert=True)
         return
     
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute("UPDATE transactions SET status='rejected' WHERE trx_id=?", (trx_id,))
         await db.commit()
     
@@ -1178,7 +1179,7 @@ async def scan_lpm_handler(event):
         if res.get("success"):
             success_scanned.append(res)
             try:
-                async with await get_db() as db:
+                async with get_db() as db:
                     await db.execute(
                         "INSERT OR IGNORE INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, ?)",
                         (full_link, res["group_id"], res["group_name"], res["member_count"], 1)
@@ -1212,7 +1213,7 @@ async def scan_lpm_handler(event):
 async def start_user_broadcast(user_id: int):
     """Mulai broadcast jaseb otomatis untuk satu user."""
     logger.info(f"Memulai broadcast untuk user_id: {user_id}")
-    async with await get_db() as db:
+    async with get_db() as db:
         cur = await db.execute("""
             SELECT package_name, capacity_lpm, request_lpm, broadcast_interval_hours
             FROM subscriptions
@@ -1298,7 +1299,7 @@ async def run_broadcast_task(engine, user_id: int, ad_id: int, lpm_links: list,
             auto_join_leave=auto_join_leave
         )
         # Hitung hasil dari DB
-        async with await get_db() as db:
+        async with get_db() as db:
             cur = await db.execute(
                 "SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success' AND sent_at > datetime('now','-1 day','localtime')",
                 (user_id,)
@@ -1333,7 +1334,7 @@ async def run_jaseb_scheduler():
             await asyncio.sleep(60)  # Cek tiap 1 menit
             now = datetime.now()
 
-            async with await get_db() as db:
+            async with get_db() as db:
                 cur = await db.execute("""
                     SELECT DISTINCT user_id, broadcast_interval_hours
                     FROM subscriptions
@@ -1359,7 +1360,7 @@ async def run_expiry_reminder():
     while True:
         try:
             await asyncio.sleep(3600)  # Cek setiap 1 jam
-            async with await get_db() as db:
+            async with get_db() as db:
                 cur = await db.execute("""
                     SELECT user_id, package_name, end_date FROM subscriptions
                     WHERE status='active'

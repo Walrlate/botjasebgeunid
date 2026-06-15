@@ -33,7 +33,7 @@ class JasebEngine:
         3. FloodWait Resilience: Otomatis tidur jika terkena pembatasan rate limit Telegram.
         """
         self.is_running = True
-        async with await get_db() as db:
+        async with get_db() as db:
             # Ambil konten iklan
             cursor = await db.execute("SELECT content, media_path FROM user_ads WHERE id = ?", (ad_id,))
             ad = await cursor.fetchone()
