@@ -1283,34 +1283,58 @@ async def validate_lpm_handler(event):
         await event.respond("⚠️ Perintah ini hanya untuk Admin.")
         return
 
-    await event.respond("⏳ Memulai validasi dan pemindaian massal database LPM...")
+    # Ambil sesi ubot admin untuk validasi
+    async with get_db() as db:
+        cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (ADMIN_ID,))
+        ub_row = await cur.fetchone()
+
+    if not ub_row or ub_row[1] != 'connected':
+        await event.respond("❌ Ubot Admin terputus! Sambungkan kembali terlebih dahulu via perintah `/install` agar bisa melakukan validasi.")
+        return
+
+    session_name = f"data/sessions/{ub_row[0]}"
+
+    await event.respond("⏳ Memulai validasi database LPM menggunakan Ubot Admin...")
 
     async with get_db() as db:
-        cur = await db.execute("SELECT group_link FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
+        # Ambil semua grup non-blacklist agar grup yang tidak sengaja dinonaktifkan tadi bisa divalidasi ulang
+        cur = await db.execute("SELECT group_link FROM lpm_lists WHERE is_blacklisted=0")
         rows = await cur.fetchall()
         
     if not rows:
-        await event.respond("❌ Tidak ada LPM aktif di database untuk divalidasi.")
+        await event.respond("❌ Tidak ada LPM di database untuk divalidasi.")
         return
 
     links = [r[0] for r in rows]
     total = len(links)
     await event.respond(f"📊 Menemukan **{total} grup LPM** di database. Proses validasi berjalan di latar belakang...")
 
-    # Jalankan proses validasi di background task agar tidak memblock bot
-    asyncio.create_task(run_lpm_validation_task(event.sender_id, links))
+    # Jalankan proses validasi di background task menggunakan JasebEngine dari Ubot Admin
+    asyncio.create_task(run_lpm_validation_task(event.sender_id, links, session_name))
 
-async def run_lpm_validation_task(admin_id: int, links: list):
+
+async def run_lpm_validation_task(admin_id: int, links: list, session_name: str):
+    engine = JasebEngine(session_name, API_ID, API_HASH)
+    try:
+        await engine.start()
+        if not await engine.client.is_user_authorized():
+            await bot.send_message(admin_id, "❌ Ubot Admin tidak terotorisasi! Jalankan `/install` ulang.")
+            return
+    except Exception as e:
+        await bot.send_message(admin_id, f"❌ Gagal menghubungkan Ubot Admin untuk validasi: {e}")
+        return
+
     success_count = 0
     failed_count = 0
     total = len(links)
     
     for idx, link in enumerate(links, 1):
         try:
-            res = await JasebEngine.verify_lpm_group(bot, link)
+            # Gunakan engine.client (Ubot Admin) agar bisa me-resolve username publik
+            res = await JasebEngine.verify_lpm_group(engine.client, link)
             async with get_db() as db:
                 if res.get("success"):
-                    # Update info asli
+                    # Update info asli dan aktifkan kembali
                     await db.execute(
                         "UPDATE lpm_lists SET group_name=?, member_count=?, is_active=1 WHERE group_link=?",
                         (res["group_name"], res["member_count"], link)
@@ -1342,6 +1366,12 @@ async def run_lpm_validation_task(admin_id: int, links: list):
             
         # Jeda tipis anti flood limit Telegram
         await asyncio.sleep(1)
+
+    # Matikan client ubot admin setelah selesai
+    try:
+        await engine.stop()
+    except Exception:
+        pass
 
     try:
         await bot.send_message(
