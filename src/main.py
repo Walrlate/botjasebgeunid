@@ -293,8 +293,38 @@ async def check_payment_status_handler(event):
     else: await event.answer("⏳ Menunggu...", alert=True)
 
 # ─────────────────────────────────────────
-# API Handlers
+# API Handlers & Authorization
 # ─────────────────────────────────────────
+def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
+    """Verifikasi tanda tangan digital Telegram initData secara kriptografis."""
+    import hmac
+    import hashlib
+    import json
+    from urllib.parse import parse_qsl
+    
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data))
+        if "hash" not in parsed:
+            return None
+        
+        received_hash = parsed.pop("hash")
+        sorted_items = sorted(parsed.items())
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted_items)
+        
+        secret_key = hmac.new(b"WebAppData", bot_token.encode('utf-8'), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
+        
+        if calculated_hash == received_hash:
+            user_json = parsed.get("user")
+            if user_json:
+                return json.loads(user_json)
+        return None
+    except Exception as e:
+        logger.error(f"Error dalam verifikasi initData: {e}")
+        return None
+
 async def handle_prices_api(request): return web.json_response(load_prices(), headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_checkout_api(request):
@@ -317,6 +347,15 @@ async def handle_checkout_api(request):
 async def handle_user_stats_api(request):
     try:
         uid = int(request.match_info['user_id'])
+        
+        # Otorisasi & Validasi Privasi Tingkat Tinggi
+        init_data = request.headers.get("x-telegram-init-data", "")
+        verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
+        is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
+        if is_production or init_data:
+            if not verified_user or int(verified_user.get("id", 0)) != uid:
+                return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+                
         succ = db_get_success_forward_logs_count(uid)
         sub = db_get_active_subscription_status(uid)
         ub_status = db_get_userbot_status(uid)
@@ -334,6 +373,15 @@ async def handle_user_stats_api(request):
 async def handle_history_api(request):
     try:
         uid = int(request.match_info['user_id'])
+        
+        # Otorisasi & Validasi Privasi Tingkat Tinggi
+        init_data = request.headers.get("x-telegram-init-data", "")
+        verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
+        is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
+        if is_production or init_data:
+            if not verified_user or int(verified_user.get("id", 0)) != uid:
+                return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+                
         rows = db_get_forward_history(uid)
         return web.json_response({"status": True, "data": [{"group_name": r[0] or "Grup LPM", "msg_link": r[1], "status": r[2], "error_msg": r[3], "sent_at": r[4]} for r in rows]}, headers={"Access-Control-Allow-Origin": "*"})
     except: return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})

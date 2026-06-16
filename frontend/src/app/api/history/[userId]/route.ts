@@ -30,6 +30,7 @@ export async function GET(
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        'x-telegram-init-data': request.headers.get('x-telegram-init-data') || '',
       },
       next: { revalidate: 0 }
     });

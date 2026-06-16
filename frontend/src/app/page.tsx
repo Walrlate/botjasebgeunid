@@ -114,7 +114,13 @@ const Dashboard = () => {
 
   const fetchUserStats = async (userId: number) => {
     try {
-      const res = await fetch(`/api/user-stats/${userId}`);
+      const webapp = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+      const initData = webapp?.initData || '';
+      const res = await fetch(`/api/user-stats/${userId}`, {
+        headers: {
+          'x-telegram-init-data': initData
+        }
+      });
       const result = await res.json();
       if (result.status && result.data) {
         const d = result.data;
@@ -197,7 +203,13 @@ const Dashboard = () => {
   const fetchHistory = async (userId: number) => {
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/history/${userId}`);
+      const webapp = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+      const initData = webapp?.initData || '';
+      const res = await fetch(`/api/history/${userId}`, {
+        headers: {
+          'x-telegram-init-data': initData
+        }
+      });
       const data = await res.json();
       if (data.status) {
         setHistory(data.data);
