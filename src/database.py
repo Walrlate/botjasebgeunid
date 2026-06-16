@@ -129,6 +129,8 @@ async def init_db():
             "ALTER TABLE forward_logs ADD COLUMN ad_id INTEGER",
             "CREATE TABLE IF NOT EXISTS admin_userbots (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE, session_name TEXT, status TEXT DEFAULT 'connected', cooldown_until TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
         ]
+        
+        for migration in migrations:
             try:
                 await db.execute(migration)
             except Exception:
