@@ -50,9 +50,14 @@ def get_package_duration_days(package_name: str, amount: int, prices: dict) -> i
     m = re.search(r'(\d+)\s*Hari', package_name, re.IGNORECASE)
     return int(m.group(1)) if m else 30
 
+active_broadcasts = set()
+
 def get_capacity_from_package(package_name: str) -> int:
-    """Mendapatkan kapasitas LPM dari teks nama paket."""
-    for lpm in [50, 30, 20]:
+    """Mendapatkan kapasitas LPM dari teks nama paket secara dinamis."""
+    m = re.search(r'(\d+)\s*LPM', package_name, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    for lpm in [100, 50, 30, 20]:
         if str(lpm) in package_name: return lpm
     return 20
 
@@ -65,7 +70,8 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     Proses aktivasi paket tunggal yang aman dari duplikasi.
     Digunakan oleh Bot Callback, API Web, dan Admin Paste Format.
     """
-    now = datetime.now()
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     
     # 1. Lock transaksi agar tidak diproses 2x (Idempotency)
@@ -89,7 +95,7 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
         # MODE PERPANJANG
         sub_id, old_end_str = active_sub
         try:
-            old_end_dt = datetime.strptime(old_end_str.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
+            old_end_dt = datetime.strptime(old_end_str.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
             base_date = max(old_end_dt, now)
         except:
             base_date = now
@@ -136,78 +142,89 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
     """
     Eksekusi satu siklus broadcast. Menangani pemilihan pool admin atau ubot pembeli.
     """
-    from src.jaseb_engine import JasebEngine
-    from src.notifications import notify_client_broadcast_done
-    
-    # 1. Ambil Langganan
-    sub = db_get_active_subscription_broadcast_details(user_id)
-    if not sub: return
-    
-    pkg, cap, req_lpm, iv = sub
-    
-    # 2. Ambil Iklan
-    ad = db_get_latest_user_ad_id(user_id)
-    if not ad:
-        try: await bot.send_message(user_id, "⚠️ Iklan Anda kosong. Gunakan /edit_jaseb.");
-        except: pass
+    if user_id in active_broadcasts:
+        logger.warning(f"⚠️ Broadcast untuk user {user_id} sedang berjalan. Siklus ganda diabaikan.")
         return
-    ad_id = ad[0]
-    
-    # 3. Siapkan Target LPM
-    links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
-    sisa = max(0, cap - len(links))
-    if sisa > 0:
-        links.extend(db_get_active_lpm_lists(sisa))
 
-    if "userbot" in pkg.lower():
-        # JALUR USERBOT PEMBELI
-        ub = db_get_userbot_session_and_status(user_id)
-        if ub and ub[1] == 'connected':
-            eng = JasebEngine(f"data/sessions/{ub[0]}", api_id, api_hash)
-            try:
-                await eng.start()
-                res = await eng.broadcast_with_stealth(user_id, ad_id, links, 'slowly')
-                await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5)
-            except Exception as e:
-                logger.error(f"Gagal broadcast userbot pembeli {user_id}: {e}")
-                from src.database import db_update_userbot_status
-                db_update_userbot_status(user_id, 'disconnected')
-                try:
-                    await bot.send_message(user_id, "⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot Anda terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
-                except: pass
-            finally:
-                await eng.stop()
-        else:
-            try: await bot.send_message(user_id, "⚠️ Userbot terputus! Sambungkan kembali.");
+    active_broadcasts.add(user_id)
+    try:
+        from src.jaseb_engine import JasebEngine
+        from src.notifications import notify_client_broadcast_done
+        from datetime import timezone
+        
+        # 1. Ambil Langganan
+        sub = db_get_active_subscription_broadcast_details(user_id)
+        if not sub: return
+        
+        pkg, cap, req_lpm, iv = sub
+        
+        # 2. Ambil Iklan
+        ad = db_get_latest_user_ad_id(user_id)
+        if not ad:
+            try: await bot.send_message(user_id, "⚠️ Iklan Anda kosong. Gunakan /edit_jaseb.");
             except: pass
-    else:
-        # JALUR POOL ADMIN (FALLBACK)
-        admins = db_get_active_admin_userbots()
-        
-        if not admins:
-            logger.error(f"Pool Kosong untuk user {user_id}")
             return
-            
-        unprocessed = links.copy()
-        total_succ = 0
-        total_fail = 0
+        ad_id = ad[0]
         
-        for sess, phone, aid in admins:
-            if not unprocessed: break
-            eng = JasebEngine(f"data/sessions/{sess}", api_id, api_hash)
-            try:
-                await eng.start()
-                res = await eng.broadcast_with_stealth(user_id, ad_id, unprocessed, 'slowly' if 'regular' in pkg.lower() else 'instant')
-                total_succ += res.get("success_count", 0)
-                total_fail += res.get("failed_count", 0)
-                unprocessed = res.get("unprocessed_links", [])
-                
-                if res.get("floodwait_seconds", 0) > 300:
-                    until = (datetime.now() + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
-                    db_cooldown_admin_userbot(aid, until)
-                    continue
-                break
-            except: continue
-            finally: await eng.stop()
+        # 3. Siapkan Target LPM
+        links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
+        sisa = max(0, cap - len(links))
+        if sisa > 0:
+            links.extend(db_get_active_lpm_lists(sisa))
+
+        if "userbot" in pkg.lower():
+            # JALUR USERBOT PEMBELI
+            ub = db_get_userbot_session_and_status(user_id)
+            if ub and ub[1] == 'connected':
+                eng = JasebEngine(f"data/sessions/{ub[0]}", api_id, api_hash)
+                try:
+                    await eng.start()
+                    res = await eng.broadcast_with_stealth(user_id, ad_id, links, 'slowly')
+                    await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5)
+                except Exception as e:
+                    logger.error(f"Gagal broadcast userbot pembeli {user_id}: {e}")
+                    from src.database import db_update_userbot_status
+                    db_update_userbot_status(user_id, 'disconnected')
+                    try:
+                        await bot.send_message(user_id, "⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot Anda terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
+                    except: pass
+                finally:
+                    await eng.stop()
+            else:
+                try: await bot.send_message(user_id, "⚠️ Userbot terputus! Sambungkan kembali.");
+                except: pass
+        else:
+            # JALUR POOL ADMIN (FALLBACK)
+            admins = db_get_active_admin_userbots()
             
-        await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5)
+            if not admins:
+                logger.error(f"Pool Kosong untuk user {user_id}")
+                return
+                
+            unprocessed = links.copy()
+            total_succ = 0
+            total_fail = 0
+            
+            for sess, phone, aid in admins:
+                if not unprocessed: break
+                eng = JasebEngine(f"data/sessions/{sess}", api_id, api_hash)
+                try:
+                    await eng.start()
+                    res = await eng.broadcast_with_stealth(user_id, ad_id, unprocessed, 'slowly' if 'regular' in pkg.lower() else 'instant')
+                    total_succ += res.get("success_count", 0)
+                    total_fail += res.get("failed_count", 0)
+                    unprocessed = res.get("unprocessed_links", [])
+                    
+                    if res.get("floodwait_seconds", 0) > 300:
+                        until = (datetime.now(timezone.utc) + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
+                        db_cooldown_admin_userbot(aid, until)
+                        continue
+                    
+                    if not unprocessed:
+                        break
+                except: continue
+                finally: await eng.stop()
+                
+            await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5)
+    finally:
+        active_broadcasts.discard(user_id)

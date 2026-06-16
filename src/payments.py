@@ -23,13 +23,32 @@ async def create_qris_transaction(amount, description):
         "keterangan": description
     }
     
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             async with session.post(url, json=payload, headers=headers) as response:
                 result = await response.json()
                 logger.info(f"KlikQRIS Create Response: {result}")
-                if result.get("status") is True:
-                    data = result.get("data", {})
+                
+                is_success = (
+                    result.get("status") is True or 
+                    result.get("status") == "true" or 
+                    result.get("success") is True or 
+                    result.get("success") == "true" or 
+                    result.get("code") == 200 or 
+                    result.get("message") == "Success"
+                )
+                
+                if is_success:
+                    data = result.get("data")
+                    if not isinstance(data, dict):
+                        data = result
+                        
+                    # Dapatkan order_id / transaction_id dari data atau root
+                    trx_id = data.get("order_id") or data.get("transaction_id") or data.get("reference_id") or result.get("transaction_id") or order_id
+                    pay_url = data.get("redirect_url") or data.get("payment_url") or data.get("url") or result.get("payment_url")
+                    qris_url = data.get("qris_url") or data.get("qr_url") or result.get("qris_url")
+                    
                     # Konversi string total_amount ke integer/float untuk kompatibilitas
                     try:
                         total_amt = int(float(data.get("total_amount", amount)))
@@ -37,11 +56,11 @@ async def create_qris_transaction(amount, description):
                         total_amt = amount
                         
                     return {
-                        "transaction_id": data.get("order_id"),
-                        "payment_url": data.get("redirect_url"),
+                        "transaction_id": trx_id,
+                        "payment_url": pay_url,
                         "total_amount": total_amt,
                         "expired_at": data.get("expired_at"),
-                        "qris_url": data.get("qris_url")
+                        "qris_url": qris_url
                     }
                 else:
                     logger.error(f"KlikQRIS Create Error: {result.get('message')}")
@@ -59,14 +78,25 @@ async def check_transaction_status(trx_id):
         "id_merchant": str(KLIKQRIS_MERCHANT_ID)
     }
     
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             async with session.get(url, headers=headers) as response:
                 result = await response.json()
-                if result.get("status") is True:
-                    data = result.get("data", {})
+                is_success = (
+                    result.get("status") is True or 
+                    result.get("status") == "true" or 
+                    result.get("success") is True or 
+                    result.get("success") == "true" or 
+                    result.get("code") == 200 or
+                    result.get("message") == "Success"
+                )
+                if is_success:
+                    data = result.get("data")
+                    if not isinstance(data, dict):
+                        data = result
                     # Ubah status SUCCESS/PENDING menjadi lowercase untuk kompatibilitas bot
-                    api_status = str(data.get("status", "pending")).lower()
+                    api_status = str(data.get("status") or data.get("transaction_status") or "pending").lower()
                     return {
                         "success": True,
                         "data": {

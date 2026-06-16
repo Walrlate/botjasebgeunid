@@ -39,7 +39,8 @@ from src.database import (
     db_get_active_users_for_scheduler,
     db_get_expiring_subscriptions,
     db_save_user_ad,
-    db_update_subscription_lpm
+    db_update_subscription_lpm,
+    db_get_last_broadcast_time
 )
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction, check_transaction_status
@@ -89,11 +90,20 @@ async def clear_login_state(user_id):
 
 def load_prices():
     try:
-        path = os.path.join("frontend", "src", "prices.json")
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
+        persistent_path = os.path.join("data", "prices.json")
+        default_path = os.path.join("frontend", "src", "prices.json")
+        
+        if not os.path.exists(persistent_path):
+            if os.path.exists(default_path):
+                import shutil
+                shutil.copy(default_path, persistent_path)
+                logger.info("ℹ️ prices.json default disalin ke penyimpanan persisten data/prices.json")
+                
+        if os.path.exists(persistent_path):
+            with open(persistent_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except: pass
+    except Exception as e:
+        logger.error(f"Gagal memuat prices: {e}")
     return {}
 
 async def check_channel_join(event) -> bool:
@@ -216,13 +226,14 @@ async def install_handler(event):
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
     text = (event.text or "").strip()
+    user_id = event.sender_id
     
     # Abaikan perintah utama agar tidak diproses ganda
     # Kecuali /skip dan /same yang dipakai dalam state machine
     if text.startswith("/") and not text.lower().startswith("/skip") and not text.lower().startswith("/same"):
+        await clear_login_state(user_id)
         return
 
-    user_id = event.sender_id
     if user_id not in login_states: return
     state_data = login_states[user_id]
     current_state = state_data.get("state")
@@ -266,7 +277,11 @@ async def user_input_handler(event):
     elif current_state == "waiting_for_otp":
         try:
             client = state_data["client"]
-            await client.sign_in(state_data["phone"], text, phone_code_hash=state_data["hash"])
+            otp_code = "".join(re.findall(r'\d+', text))
+            if len(otp_code) != 5:
+                await event.respond("❌ Format salah! Harap masukkan 5 digit angka OTP yang Anda terima:")
+                return
+            await client.sign_in(state_data["phone"], otp_code, phone_code_hash=state_data["hash"])
             await _save_userbot_session(event, client, state_data["phone"])
         except SessionPasswordNeededError:
             login_states[user_id].update({"state": "waiting_for_password"})
@@ -336,7 +351,9 @@ async def order_format_parser(event):
     for line in lines:
         if ":" in line:
             k, v = line.split(":", 1)
-            data[k.strip().lower().replace("–","").strip()] = v.strip()
+            # Bersihkan semua simbol en-dash, em-dash, bullet, asterisk, dan spasi di awal key secara regex
+            clean_key = re.sub(r'^[–—\-•\*\s]+', '', k).strip().lower()
+            data[clean_key] = v.strip()
     m = re.search(r'\d+', data.get("total harga", "0").replace(".", ""))
     amount = int(m.group(0)) if m else 0
     if "durasi userbot" in data:
@@ -349,7 +366,8 @@ async def order_format_parser(event):
         target_uid = int(raw_uid) if raw_uid.isdigit() else event.sender_id
     except Exception:
         target_uid = event.sender_id
-    trx_id = f"MAN-{int(datetime.now().timestamp())}"
+    import random
+    trx_id = f"MAN-{int(datetime.now().timestamp())}{random.randint(100, 999)}"
     db_save_transaction(target_uid, trx_id, paket, amount, "manual")
     await process_activation(bot, trx_id, load_prices(), login_states)
     await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
@@ -486,29 +504,68 @@ async def start_user_broadcast(user_id: int):
 
 async def run_jaseb_scheduler():
     last_run = {}
+    from datetime import timezone
     while True:
         await asyncio.sleep(60)
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         users = db_get_active_users_for_scheduler()
         for uid, iv_h in users:
             iv = float(iv_h or 0.5)
-            if uid not in last_run or (now - last_run[uid]).total_seconds() >= iv * 3600:
-                last_run[uid] = now; asyncio.create_task(start_user_broadcast(uid))
+            if uid not in last_run:
+                last_db = db_get_last_broadcast_time(uid)
+                if last_db:
+                    if last_db.tzinfo is None:
+                        last_db = last_db.replace(tzinfo=timezone.utc)
+                    last_run[uid] = last_db
+                else:
+                    last_run[uid] = now - timedelta(hours=iv + 1)
+            if (now - last_run[uid]).total_seconds() >= iv * 3600:
+                last_run[uid] = now
+                asyncio.create_task(start_user_broadcast(uid))
 
 async def run_expiry_reminder():
+    from datetime import timezone
     while True:
         try:
             await asyncio.sleep(3600 * 6)
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             exp = db_get_expiring_subscriptions(24)
             for u, p, e in exp:
                 try:
-                    end_dt = datetime.strptime(e.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
+                    end_dt = datetime.strptime(e.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
                     days_left = max(0, (end_dt - now).days)
                     if days_left == 0 and (end_dt - now).total_seconds() > 0: days_left = 1
                 except: days_left = 1
                 await notify_client_subscription_expiring(bot, u, days_left, p, ADMIN_USERNAME)
         except: pass
+
+async def handle_klikqris_webhook(request):
+    try:
+        if request.content_type == 'application/json':
+            data = await request.json()
+        else:
+            data = await request.post()
+            
+        logger.info(f"Received KlikQRIS Webhook: {dict(data)}")
+        
+        # Identifikasi ID Transaksi & Status
+        trx_id = data.get("order_id") or data.get("transaction_id") or data.get("reference_id")
+        status = str(data.get("status", "")).lower()
+        
+        if trx_id and status in ("success", "settlement", "paid", "terbayar"):
+            from src.logic import process_activation
+            success, msg = await process_activation(bot, trx_id, load_prices(), login_states)
+            if success:
+                logger.info(f"Webhook: Transaksi {trx_id} berhasil diaktifkan secara otomatis.")
+                return web.json_response({"status": "ok", "message": "Activated"}, headers={"Access-Control-Allow-Origin": "*"})
+            else:
+                logger.warning(f"Webhook: Gagal mengaktifkan transaksi {trx_id}: {msg}")
+                return web.json_response({"status": "fail", "message": msg}, headers={"Access-Control-Allow-Origin": "*"})
+        
+        return web.json_response({"status": "ignored"}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error handle_klikqris_webhook: {e}")
+        return web.json_response({"status": "error", "message": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 async def run_web_server():
     app = web.Application()
@@ -517,11 +574,15 @@ async def run_web_server():
     app.router.add_get('/api/user-stats/{user_id}', handle_user_stats_api)
     app.router.add_get('/api/history/{user_id}', handle_history_api)
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
+    app.router.add_post('/api/callback/klikqris', handle_klikqris_webhook)
     async def opt(req): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
-    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}']: app.router.add_options(p, opt)
+    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}', '/api/callback/klikqris']: app.router.add_options(p, opt)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 async def main():
+    if not BOT_TOKEN:
+        raise ValueError("❌ Gagal memulai bot: BOT_TOKEN tidak disetel di environment variables!")
+        
     await init_db()
     
     # Retry loop untuk menghindari 'database is locked' pada rolling deployment di Railway
@@ -532,7 +593,15 @@ async def main():
             break
         except Exception as e:
             err_msg = str(e).lower()
-            if "locked" in err_msg or "lock" in err_msg:
+            if "malformed" in err_msg or "database disk image" in err_msg:
+                logger.error("❌ Berkas sesi Telegram (.session) rusak/malformed! Menghapus file rusak untuk pemulihan otomatis...")
+                for sf in ['data/bot_session.session', 'data/bot_session.session-journal']:
+                    if os.path.exists(sf):
+                        try: os.remove(sf)
+                        except: pass
+                retries -= 1
+                continue
+            elif "locked" in err_msg or "lock" in err_msg:
                 logger.warning(f"⚠️ Berkas sesi Telegram (.session) sedang dikunci oleh proses lain. Mencoba kembali dalam 10 detik... (Sisa percobaan: {retries})")
                 await asyncio.sleep(10)
                 retries -= 1

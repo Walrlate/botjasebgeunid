@@ -56,9 +56,14 @@ def _register_handlers(bot):
 
     @bot.on(events.CallbackQuery(data=b"resend_jaseb"))
     async def resend_jaseb_handler(event):
+        uid = int(event.sender_id)
+        sub = db_get_active_subscription_id(uid)
+        if not sub:
+            await event.answer("❌ Anda tidak memiliki paket aktif yang dapat disebar ulang.", alert=True)
+            return
         from src.main import start_user_broadcast
         await event.answer("🚀 Memulai broadcast ulang...", alert=False)
-        asyncio.create_task(start_user_broadcast(event.sender_id))
+        asyncio.create_task(start_user_broadcast(uid))
 
 async def _show_help_main(event):
     from src.main import get_web_app_url

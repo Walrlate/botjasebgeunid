@@ -58,7 +58,7 @@ _login_states = None
 _load_prices = None
 _get_package_duration_days = None
 _start_user_broadcast = None
-_PRICES_PATH = os.path.join("frontend", "src", "prices.json")
+_PRICES_PATH = os.path.join("data", "prices.json")
 
 
 def init_admin_handlers(bot, login_states, load_prices_fn, get_pkg_days_fn, start_broadcast_fn):
@@ -91,6 +91,13 @@ async def _admin_only_check(event) -> bool:
 
 def _load_prices_json() -> dict:
     try:
+        default_path = os.path.join("frontend", "src", "prices.json")
+        if not os.path.exists(_PRICES_PATH):
+            if os.path.exists(default_path):
+                import shutil
+                os.makedirs(os.path.dirname(_PRICES_PATH), exist_ok=True)
+                shutil.copy(default_path, _PRICES_PATH)
+                logger.info("ℹ️ prices.json default disalin ke penyimpanan persisten data/prices.json")
         if os.path.exists(_PRICES_PATH):
             with open(_PRICES_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -735,13 +742,28 @@ def _register_admin_handlers(bot):
         # Bersihkan command dari teks
         args_str = re.sub(r'^/import_lpm', '', args_str, flags=re.IGNORECASE).strip()
         
+        # Cek apakah ada file terlampir
+        file_content = ""
+        if event.message.media and event.message.file and event.message.file.name and event.message.file.name.endswith(".txt"):
+            try:
+                buffer = await event.message.download_media(file=bytes)
+                if buffer:
+                    file_content = buffer.decode('utf-8', errors='ignore')
+            except Exception as fe:
+                logger.error(f"Gagal mendownload file import_lpm: {fe}")
+                await event.respond(f"❌ Gagal membaca file lampiran: {fe}")
+                return
+                
+        # Gabungkan teks input manual dan isi file
+        combined_text = args_str + "\n" + file_content
+        
         # Cari semua username atau link
-        usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', args_str)
-        links = re.findall(r'(?:https?://)?t\.me/(?:joinchat/[a-zA-Z0-9_\-]+|[a-zA-Z0-9_]{5,32})', args_str)
+        usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', combined_text)
+        links = re.findall(r'(?:https?://)?t\.me/(?:joinchat/[a-zA-Z0-9_\-]+|[a-zA-Z0-9_]{5,32})', combined_text)
         
         all_targets = set(usernames + links)
         if not all_targets:
-            await event.respond("❌ Tidak ditemukan tautan LPM yang valid. Gunakan format:\n`/import_lpm @LPM1 @LPM2 ...` atau kirim list link.")
+            await event.respond("❌ Tidak ditemukan tautan LPM yang valid. Gunakan format:\n`/import_lpm @LPM1 @LPM2 ...` atau lampirkan file .txt berisi daftar LPM.")
             return
             
         total_targets = len(all_targets)
@@ -831,7 +853,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             # Ambil daftar chat/grup yang sudah diikuti oleh admin ini
             joined_ids = set()
             try:
-                async for dialog in client.iter_dialogs(limit=300):
+                async for dialog in client.iter_dialogs(limit=None):
                     if dialog.is_group or dialog.is_channel:
                         joined_ids.add(dialog.entity.id)
             except Exception as ex:
@@ -1093,7 +1115,9 @@ async def _handle_setprice_add(event, state_data, text):
     promo = int(promo_str)
 
     slug = re.sub(r'[^a-z0-9]', '', duration_str.lower())
-    new_id = f"{ptype[:3]}_{lpm}lpm_{slug}" if lpm > 0 else f"{ptype[:2]}_{slug}"
+    prefix_map = {"regular": "reg", "forward": "fwd", "userbot": "ub"}
+    prefix = prefix_map.get(ptype, ptype[:3])
+    new_id = f"{prefix}_{lpm}lpm_{slug}" if lpm > 0 else f"{prefix}_{slug}"
 
     new_item = {"id": new_id, "duration": duration_str, "lpm": lpm, "originalPrice": orig, "promoPrice": promo}
     if bonus_str:

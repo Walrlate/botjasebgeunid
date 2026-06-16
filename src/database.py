@@ -8,17 +8,31 @@ Menggantikan seluruh dependensi aiosqlite dengan Supabase Client.
 import os
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
+
+def parse_utc_date(date_str: str) -> datetime:
+    """Mengubah format ISO Supabase (UTC) ke timezone-aware UTC datetime."""
+    if not date_str:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        clean = date_str.replace("Z", "+00:00")
+        return datetime.fromisoformat(clean)
+    except:
+        try:
+            clean = date_str.replace("T", " ").split(".")[0].split("+")[0].strip()
+            dt = datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
+            return dt.replace(tzinfo=timezone.utc)
+        except:
+            return datetime.min.replace(tzinfo=timezone.utc)
 
 def normalize_date(date_str: str) -> str:
     """Mengubah format ISO dari Supabase ke format YYYY-MM-DD HH:MM:SS untuk kompatibilitas."""
     if not date_str:
         return ""
     try:
-        # Ganti 'T' dengan spasi, hilangkan milidetik dan offset zona waktu
         date_str = date_str.replace("T", " ")
         if "+" in date_str:
             date_str = date_str.split("+")[0]
@@ -30,12 +44,13 @@ def normalize_date(date_str: str) -> str:
         return date_str
 
 async def init_db():
-    """Inisialisasi koneksi ke Supabase dan memverifikasi koneksi."""
+    """Inisialisasi koneksi ke Supabase dan memverifikasi koneksi dengan test query."""
     try:
         supabase = get_supabase()
-        if supabase:
-            logger.info("✅ Supabase Enterprise DAL Berhasil Diinisialisasi.")
-            return True
+        # Test query ringan untuk verifikasi kredensial
+        supabase.table("users").select("user_id").limit(1).execute()
+        logger.info("✅ Supabase Enterprise DAL Berhasil Diinisialisasi dan Terverifikasi.")
+        return True
     except Exception as e:
         logger.error(f"❌ Gagal inisialisasi Supabase DAL: {e}")
         raise e
@@ -62,7 +77,7 @@ def db_ensure_user(user_id: int, username: str = "", full_name: str = ""):
 def db_get_active_subscription_id(user_id: int):
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("id")\
             .eq("user_id", user_id)\
@@ -81,7 +96,7 @@ def db_get_active_subscription_id(user_id: int):
 def db_get_active_subscription_status(user_id: int):
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("package_name, capacity_lpm, end_date, broadcast_interval_hours")\
             .eq("user_id", user_id)\
@@ -106,7 +121,7 @@ def db_get_active_subscription_status(user_id: int):
 def db_get_active_subscription_id_and_end(user_id: int):
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("id, end_date")\
             .eq("user_id", user_id)\
@@ -129,7 +144,7 @@ def db_get_active_subscription_id_and_end(user_id: int):
 def db_get_active_subscription_broadcast_details(user_id: int):
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("package_name, capacity_lpm, request_lpm, broadcast_interval_hours")\
             .eq("user_id", user_id)\
@@ -232,7 +247,7 @@ def db_get_active_subscriptions_list(limit: int = 10):
 def db_get_active_users_for_scheduler():
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("user_id, broadcast_interval_hours")\
             .eq("status", "active")\
@@ -248,7 +263,7 @@ def db_get_active_users_for_scheduler():
 def db_get_expiring_subscriptions(limit_hours: int = 24):
     try:
         supabase = get_supabase()
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         now_str = now.isoformat()
         limit_str = (now + timedelta(hours=limit_hours)).isoformat()
         res = supabase.table("subscriptions")\
@@ -439,14 +454,13 @@ def db_get_active_admin_userbots():
         if not res.data:
             return []
             
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         active_admins = []
         for r in res.data:
             cooldown = r.get("cooldown_until")
             if cooldown:
                 try:
-                    cooldown_clean = normalize_date(cooldown)
-                    cooldown_dt = datetime.strptime(cooldown_clean, "%Y-%m-%d %H:%M:%S")
+                    cooldown_dt = parse_utc_date(cooldown)
                     if cooldown_dt > now:
                         continue
                 except Exception as ex:
@@ -752,7 +766,7 @@ def db_get_all_subscriptions_detail(limit: int = 20):
     """Ambil semua langganan aktif dengan detail lengkap untuk admin."""
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("id, user_id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
             .eq("status", "active")\
@@ -769,7 +783,7 @@ def db_get_subscription_by_user(user_id: int):
     """Ambil langganan aktif satu user dengan detail lengkap."""
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
             .eq("user_id", user_id)\
@@ -789,7 +803,7 @@ def db_extend_subscription(user_id: int, days: int) -> bool:
     """Perpanjang langganan aktif user sejumlah hari."""
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
             .select("id, end_date")\
             .eq("user_id", user_id)\
@@ -804,8 +818,10 @@ def db_extend_subscription(user_id: int, days: int) -> bool:
         old_end = sub["end_date"]
         try:
             old_dt = datetime.fromisoformat(old_end.replace("Z", "+00:00").split("+")[0])
+            if old_dt.tzinfo is None:
+                old_dt = old_dt.replace(tzinfo=timezone.utc)
         except:
-            old_dt = datetime.now()
+            old_dt = datetime.now(timezone.utc)
         new_end = (old_dt + timedelta(days=days)).isoformat()
         supabase.table("subscriptions").update({"end_date": new_end}).eq("id", sub["id"]).execute()
         return True
@@ -817,7 +833,7 @@ def db_set_subscription_interval(user_id: int, interval_hours: float) -> bool:
     """Ubah interval broadcast langganan aktif user."""
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         supabase.table("subscriptions")\
             .update({"broadcast_interval_hours": interval_hours})\
             .eq("user_id", user_id)\
@@ -834,7 +850,7 @@ def db_revoke_subscription(user_id: int) -> bool:
     try:
         supabase = get_supabase()
         supabase.table("subscriptions")\
-            .update({"status": "expired", "end_date": datetime.now().isoformat()})\
+            .update({"status": "expired", "end_date": datetime.now(timezone.utc).isoformat()})\
             .eq("user_id", user_id)\
             .eq("status", "active")\
             .execute()
@@ -847,7 +863,7 @@ def db_set_subscription_lpm_capacity(user_id: int, capacity: int) -> bool:
     """Ubah kapasitas LPM langganan aktif user."""
     try:
         supabase = get_supabase()
-        now_str = datetime.now().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         supabase.table("subscriptions")\
             .update({"capacity_lpm": capacity})\
             .eq("user_id", user_id)\
@@ -928,4 +944,29 @@ def db_update_lpm_details(lpm_id: int, group_name: str = None, member_count: int
     except Exception as e:
         logger.error(f"Error in db_update_lpm_details: {e}")
         return False
+
+def db_get_last_broadcast_time(user_id: int):
+    """Mendapatkan waktu broadcast sukses terakhir dari forward_logs."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("forward_logs")\
+            .select("sent_at")\
+            .eq("user_id", user_id)\
+            .eq("status", "success")\
+            .order("sent_at", desc=True)\
+            .limit(1)\
+            .execute()
+        if res.data:
+            sent_at = res.data[0]["sent_at"]
+            try:
+                # Parsing UTC ISO format dari Supabase ke datetime lokal
+                clean_date = sent_at.replace("T", " ").replace("Z", "").split("+")[0].split(".")[0]
+                return datetime.strptime(clean_date.strip(), "%Y-%m-%d %H:%M:%S")
+            except Exception as ex:
+                logger.error(f"Gagal parse date {sent_at}: {ex}")
+        return None
+    except Exception as e:
+        logger.error(f"Error in db_get_last_broadcast_time: {e}")
+        return None
+
 
