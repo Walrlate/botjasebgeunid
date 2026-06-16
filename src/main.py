@@ -707,25 +707,45 @@ async def user_input_handler(event):
     # ── State: Menunggu materi jaseb dari client ──
     elif current_state == "waiting_for_ad":
         # 1. Cek paket aktif user untuk membedakan Forward vs Regular/Userbot
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         async with get_db() as db:
             cur = await db.execute("""
                 SELECT package_name FROM subscriptions
-                WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+                WHERE user_id=? AND status='active' AND end_date > ?
                 ORDER BY end_date DESC LIMIT 1
-            """, (event.sender_id,))
+            """, (event.sender_id, now_str))
             sub_row = await cur.fetchone()
+        
         package_name = sub_row[0] if sub_row else ""
+        if not package_name:
+            await event.respond("❌ **Gagal!** Anda tidak memiliki paket aktif. Silakan beli paket terlebih dahulu.")
+            del login_states[event.sender_id]
+            return
+
         is_forward_pkg = "forward" in package_name.lower()
 
+        # 2. VALIDASI KETAT: Mencegah exploit paket
         if is_forward_pkg:
-            # Harus berupa pesan forward asli
+            # User paket Forward tapi kirim teks biasa (bukan forward)
             if not event.message.forward:
                 await event.respond(
-                    "❌ **Gagal!** Paket Anda adalah **Forward**.\n\n"
-                    "Silakan **teruskan (forward) pesan asli** dari channel/grup publik Anda ke bot ini agar link/views channel Anda bertambah."
+                    "❌ **Gagal!** Anda berlangganan paket **FORWARD**.\n\n"
+                    "Silakan **teruskan (forward) pesan asli** dari channel/grup publik Anda ke bot ini.\n"
+                    "Sistem Forward berfungsi untuk menambah views dan link asli postingan Anda."
                 )
                 return
-            
+        else:
+            # User paket Regular/Userbot tapi malah forward pesan
+            if event.message.forward:
+                await event.respond(
+                    "❌ **Gagal!** Anda berlangganan paket **REGULAR / USERBOT**.\n\n"
+                    "Harap kirimkan **teks/materi promosi langsung** (bisa teks + foto/video, tapi bukan hasil forward dari channel lain).\n"
+                    "Jika Anda ingin fitur Forward asli, silakan upgrade ke paket Forward."
+                )
+                return
+
+        if is_forward_pkg:
+            # Proses materi forward asli (Native Forward)
             fwd_header = event.message.forward
             fwd_chat_id = None
             fwd_peer_type = None
