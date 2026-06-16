@@ -162,12 +162,16 @@ async def install_handler(event):
 # ─────────────────────────────────────────
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
+    text = (event.text or "").strip()
+    
+    # Abaikan perintah utama agar tidak diproses ganda
+    if text.startswith("/") and not text.lower().startswith("/skip"):
+        return
+
     user_id = event.sender_id
     if user_id not in login_states: return
     state_data = login_states[user_id]
     current_state = state_data.get("state")
-    text = (event.text or "").strip()
-    if text.startswith("/") and text.lower() != "/skip": return
 
     if current_state == "waiting_for_proof":
         if not event.message.photo and not event.message.document:
