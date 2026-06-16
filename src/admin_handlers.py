@@ -793,13 +793,18 @@ def _register_admin_handlers(bot):
     async def import_lpm_command(event):
         if not await _admin_only_check(event): return
         
-        args_str = event.pattern_match.group(1)
-        if not args_str:
-            # Cari di seluruh teks pesan jika pattern_match tidak ada atau kosong
-            args_str = event.text or ""
-            
-        # Bersihkan command dari teks
-        args_str = re.sub(r'^/import_lpm', '', args_str, flags=re.IGNORECASE).strip()
+        args_str = event.pattern_match.group(1) or ""
+        
+        # Cek apakah membalas pesan (reply)
+        reply_text = ""
+        if event.message.is_reply:
+            reply_msg = await event.get_reply_message()
+            if reply_msg and reply_msg.text:
+                reply_text = reply_msg.text
+                
+        # Bersihkan command dari teks args_str jika didapat dari event.text
+        if not args_str and event.text:
+            args_str = re.sub(r'^/import_lpm', '', event.text, flags=re.IGNORECASE).strip()
         
         # Cek apakah ada file terlampir
         file_content = ""
@@ -813,8 +818,8 @@ def _register_admin_handlers(bot):
                 await event.respond(f"❌ Gagal membaca file lampiran: {fe}")
                 return
                 
-        # Gabungkan teks input manual dan isi file
-        combined_text = args_str + "\n" + file_content
+        # Gabungkan teks input manual, isi file, dan teks dari pesan yang direply
+        combined_text = args_str + "\n" + file_content + "\n" + reply_text
         
         # Cari semua username atau link
         usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', combined_text)
