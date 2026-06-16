@@ -171,8 +171,80 @@ async def check_join_status_handler(event):
 # ─────────────────────────────────────────
 # Helper: Buat URL Mini App
 # ─────────────────────────────────────────
+async def handle_user_stats_api(request):
+    try:
+        user_id = request.match_info.get('user_id')
+        if not user_id:
+            return web.json_response({"status": False, "error": "User ID required"}, status=400)
+
+        async with get_db() as db:
+            # Hitung total terkirim sukses milik user ini
+            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
+            total_sent = (await cur.fetchone())[0]
+            
+            # Hitung total gagal
+            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='failed'", (user_id,))
+            total_failed = (await cur.fetchone())[0]
+            
+            # Ambil detail paket aktif
+            cur = await db.execute("""
+                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours, status
+                FROM subscriptions
+                WHERE user_id=? AND status='active'
+                ORDER BY end_date DESC LIMIT 1
+            """, (user_id,))
+            sub = await cur.fetchone()
+            
+            # Ambil status userbot
+            cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
+            ub_row = await cur.fetchone()
+            ub_status = ub_row[0] if ub_row else 'disconnected'
+
+        user_package = 'Tidak Aktif'
+        user_lpm = 0
+        user_days = 0
+        user_interval = 0
+        
+        if sub:
+            user_package = sub[0]
+            user_lpm = sub[1]
+            user_interval = sub[3] or 0.5
+            try:
+                # Perbaikan parsing tanggal: hapus milidetik jika ada
+                clean_date = sub[2].split(".")[0]
+                end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
+                delta = end_dt - datetime.now()
+                user_days = max(0, delta.days)
+                # Jika hari == 0 tapi jam masih ada, anggap 1 hari agar tidak terlihat 'Habis'
+                if user_days == 0 and delta.total_seconds() > 0:
+                    user_days = 1
+            except Exception:
+                user_days = 0
+
+        return web.json_response({
+            "status": True,
+            "data": {
+                "total_sent": total_sent,
+                "total_failed": total_failed,
+                "package_name": user_package,
+                "capacity_lpm": user_lpm,
+                "days_left": user_days,
+                "interval": user_interval,
+                "userbot_status": ub_status
+            }
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+    except Exception as e:
+        logger.error(f"Error handle_user_stats_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
 async def get_web_app_url(user_id: int) -> str:
-    total_broadcast = total_lpm = total_userbots = 0
+    total_sent_user = 0
+    total_lpm_global = 0
+    total_userbots_global = 0
     user_bot_status = 'disconnected'
     user_package = 'Tidak Aktif'
     user_lpm = 0
@@ -180,13 +252,15 @@ async def get_web_app_url(user_id: int) -> str:
     user_interval = 0
     try:
         async with get_db() as db:
-            # Statistik Global
-            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
-            total_broadcast = (await cur.fetchone())[0]
+            # Statistik Personal (untuk angka di box 'Total Terkirim')
+            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
+            total_sent_user = (await cur.fetchone())[0]
+            
+            # Statistik Global (untuk info sistem)
             cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
-            total_lpm = (await cur.fetchone())[0]
+            total_lpm_global = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
-            total_userbots = (await cur.fetchone())[0]
+            total_userbots_global = (await cur.fetchone())[0]
             
             # Status Userbot Spesifik
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
@@ -194,7 +268,7 @@ async def get_web_app_url(user_id: int) -> str:
             if ub_row:
                 user_bot_status = ub_row[0]
             
-            # Paket Aktif (Cek status 'active' dan belum expired)
+            # Paket Aktif (Query lebih simpel & robust)
             cur = await db.execute("""
                 SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours 
                 FROM subscriptions
@@ -211,11 +285,10 @@ async def get_web_app_url(user_id: int) -> str:
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                     delta = end_dt - datetime.now()
                     user_days = max(0, delta.days)
+                    if user_days == 0 and delta.total_seconds() > 0:
+                        user_days = 1
                 except Exception:
                     user_days = 0
-            else:
-                # Debug jika paket tidak ketemu tapi user merasa punya
-                logger.info(f"DEBUG: No active subscription found for user {user_id}")
     except Exception as e:
         logger.error(f"Error build WebApp URL for user {user_id}: {e}")
     
@@ -225,7 +298,7 @@ async def get_web_app_url(user_id: int) -> str:
     
     final_url = (
         f"{MINI_APP_URL.rstrip('/')}/?"
-        f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
+        f"b={total_sent_user}&l={total_lpm_global}&u={total_userbots_global}"
         f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}&int={user_interval}"
     )
     return final_url
@@ -2274,6 +2347,12 @@ async def run_web_server():
     }))
     app.router.add_get('/api/history/{user_id}', handle_history_api)
     app.router.add_options('/api/history/{user_id}', lambda r: web.Response(headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }))
+    app.router.add_get('/api/user-stats/{user_id}', handle_user_stats_api)
+    app.router.add_options('/api/user-stats/{user_id}', lambda r: web.Response(headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"

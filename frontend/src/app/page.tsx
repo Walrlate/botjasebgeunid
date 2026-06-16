@@ -126,6 +126,27 @@ const Dashboard = () => {
     userInterval: 0,
   });
 
+  const fetchUserStats = async (userId: number) => {
+    try {
+      const res = await fetch(`/api/user-stats/${userId}`);
+      const result = await res.json();
+      if (result.status && result.data) {
+        const d = result.data;
+        setStats(prev => ({
+          ...prev,
+          broadcasts: d.total_sent, // Update dengan statistik personal
+          userBotStatus: d.userbot_status,
+          userPackage: d.package_name,
+          userLpm: d.capacity_lpm,
+          userDays: d.days_left,
+          userInterval: d.interval,
+        }));
+      }
+    } catch (err) {
+      console.error("Gagal refresh stats:", err);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const webapp = (window as any).Telegram?.WebApp;
@@ -158,6 +179,15 @@ const Dashboard = () => {
       });
     }
   }, []);
+
+  // Effect untuk Auto-Update Stats (Real-time polling 30 detik)
+  useEffect(() => {
+    if (user?.id) {
+      fetchUserStats(user.id);
+      const intervalId = setInterval(() => fetchUserStats(user.id), 30000);
+      return () => clearInterval(intervalId);
+    }
+  }, [user?.id]);
 
   const triggerHaptic = (style: 'light' | 'medium' | 'heavy' = 'light') => {
     if (typeof window !== 'undefined') {
