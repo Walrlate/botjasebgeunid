@@ -20,12 +20,15 @@ class JasebEngine:
             await self.client.connect()
 
     async def stop(self):
-        await self.client.disconnect()
+        try:
+            if self.client.is_connected():
+                await self.client.disconnect()
+        except: pass
         self.is_running = False
 
-    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', auto_join_leave=True):
+    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly'):
         """
-        GEUNID JARVIS PREMIUM ENGINE (Smart-Tagging & Persistent-Join)
+        GEUNID PREMIUM ENGINE (AUDITED INDENTATION & LOGIC)
         """
         self.is_running = True
         unprocessed_links = group_links.copy()
@@ -46,7 +49,7 @@ class JasebEngine:
             sub_row = await cursor.fetchone()
             package_name = sub_row[0] if sub_row else ""
 
-            # Jarvis Overpower: Smart Branding & Tagging
+            # Branding Otomatis
             if content and not (fwd_chat_id and fwd_msg_id):
                 from src.config import BOT_USERNAME
                 if "regular" in package_name.lower():
@@ -56,31 +59,32 @@ class JasebEngine:
                 if not self.is_running: break
                 
                 try:
-                    # 1. Resolve entity
+                    # 1. Resolve Entity
                     try:
                         entity = await self.client.get_entity(link)
-                    except: continue
+                    except Exception as e:
+                        logger.error(f"Gagal resolve {link}: {e}")
+                        continue
 
-                    # 2. JARVIS PROACTIVE: Check participation before Join
+                    # 2. JARVIS PROACTIVE: Simulasi Manusia (Typing)
                     is_joined = True
                     try:
                         async with self.client.action(entity, 'typing'):
-                            await asyncio.sleep(random.uniform(1.5, 3))
-                    except: is_joined = False
+                            await asyncio.sleep(random.uniform(1, 2))
+                    except: 
+                        is_joined = False
 
                     if not is_joined:
                         await self.client(JoinChannelRequest(entity))
-                        await asyncio.sleep(random.uniform(2, 4))
+                        await asyncio.sleep(random.uniform(2, 3))
 
-                    # 3. JARVIS OVERPOWER: Smart-Tagging (Simulasi interaksi admin grup)
+                    # 3. Smart-Tagging (Dinamis)
                     final_content = content
-                    if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.3:
-                         # 30% chance to add a dynamic tag like #LPM or mention
-                         final_content = f"{final_content}\n#LPM #Promote"
+                    if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
+                        final_content = f"{final_content}\n#LPM #Promote"
 
                     # 4. EXECUTION
                     if fwd_chat_id and fwd_msg_id:
-                        # FORWARD MODE (Killer Feature)
                         from_peer = fwd_chat_id
                         if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
                         elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
@@ -89,14 +93,18 @@ class JasebEngine:
                         msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
                         msg = msg_list[0] if isinstance(msg_list, list) else msg_list
                     else:
-                        # COPY MODE (Stealth HTML)
                         if media_path and os.path.exists(media_path):
                             msg = await self.client.send_file(entity, media_path, caption=final_content, parse_mode='html')
                         else:
                             msg = await self.client.send_message(entity, final_content, parse_mode='html')
                     
-                    # Proof Link Hub
-                    msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else f"https://t.me/{entity.username}/{msg.id}" if hasattr(entity, 'username') and entity.username else "Private/Linked"
+                    # 5. Link Generation (ROBUST)
+                    if hasattr(entity, 'username') and entity.username:
+                        msg_link = f"https://t.me/{entity.username}/{msg.id}"
+                    elif hasattr(msg.peer_id, 'channel_id'):
+                        msg_link = f"https://t.me/c/{msg.peer_id.channel_id}/{msg.id}"
+                    else:
+                        msg_link = "Private/Linked"
                     
                     async with get_db() as db:
                         await db.execute(
@@ -108,24 +116,17 @@ class JasebEngine:
                     success_count += 1
                     unprocessed_links.remove(link)
 
-                    # PROTOKOL PERSISTENT: NO LEAVE GRUP.
-                    sleep_time = random.uniform(25, 45) if delay_mode == 'slowly' else random.uniform(4, 7)
+                    # PERSISTENT PROTOCOL: No Leave.
+                    sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(5, 10)
                     await asyncio.sleep(sleep_time)
 
                 except FloodWaitError as fwe:
-                    logger.warning(f"FloodWait for user {user_id}: {fwe.seconds}s")
                     if fwe.seconds > 300:
                         flood_seconds = fwe.seconds
                         break
                     await asyncio.sleep(fwe.seconds)
                 except Exception as e:
                     logger.error(f"Error {link}: {e}")
-                    async with get_db() as db:
-                        await db.execute(
-                            "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
-                            (user_id, ad_id, 0, 'failed', str(e))
-                        )
-                        await db.commit()
                     failed_count += 1
                     unprocessed_links.remove(link)
             

@@ -1,6 +1,6 @@
 """
-main.py — Core Bot GEUNID JASEB (MASTER VERSION - FINAL AUDIT 100%)
-==================================================================
+main.py — Core Bot GEUNID JASEB (AUDITED BY JARVIS - 100% CLEAN ARCHITECTURE)
+==========================================================================
 """
 
 import asyncio
@@ -28,13 +28,9 @@ from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction, check_transaction_status
 from src.jaseb_engine import JasebEngine
 from src.notifications import (
-    notify_admin_payment_success,
-    notify_client_broadcast_done,
     notify_client_subscription_expiring,
 )
-from src.logic import activate_user_package, start_user_broadcast_logic
-from src.admin_handlers import init_admin_handlers
-from src.client_handlers import init_client_handlers, register_edit_jaseb_btn
+from src.logic import activate_user_package, start_user_broadcast_logic, process_activation
 
 # ─────────────────────────────────────────
 # Konfigurasi Logging
@@ -124,11 +120,12 @@ async def get_web_app_url(user_id: int) -> str:
                 days = max(0, delta.days)
                 if days == 0 and delta.total_seconds() > 0: days = 1
             except: pass
+    import urllib.parse
     params = {"b": succ_user, "l": total_lpm, "u": total_ub, "ub": ub_status, "pkg": pkg_name, "ulpm": cap, "days": days, "int": iv}
     return f"{MINI_APP_URL.rstrip('/')}/?{urllib.parse.urlencode(params)}"
 
 # ─────────────────────────────────────────
-# Handlers Bot
+# Handlers Bot Utama
 # ─────────────────────────────────────────
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
@@ -158,26 +155,9 @@ async def install_handler(event):
     login_states[event.sender_id] = {"state": "waiting_for_phone"}
     await event.respond("📱 **INSTALL ADMIN USERBOT**\n\nMasukkan nomor HP (+628xxx):")
 
-@bot.on(events.NewMessage(pattern=r'/scan\s+(.+)'))
-async def scan_lpm_handler(event):
-    if event.sender_id != ADMIN_ID: return
-    link = event.pattern_match.group(1).strip()
-    async with get_db() as db:
-        cur = await db.execute("SELECT session_name FROM admin_userbots WHERE status='connected' LIMIT 1")
-        row = await cur.fetchone()
-    if row:
-        eng = JasebEngine(f"data/sessions/{row[0]}", API_ID, API_HASH)
-        await eng.start()
-        res = await JasebEngine.verify_lpm_group(eng.client, link)
-        if res.get("success"):
-            async with get_db() as db:
-                await db.execute("INSERT OR IGNORE INTO lpm_lists (group_link, group_id, group_name, member_count, is_active) VALUES (?, ?, ?, ?, 1)", (link, res["group_id"], res["group_name"], res["member_count"]))
-                await db.commit()
-            await event.respond(f"✅ **Grup Valid!**\nNama: {res['group_name']}\nMember: {res['member_count']}")
-        else: await event.respond(f"❌ Gagal: {res.get('error')}")
-        await eng.stop()
-    else: await event.respond("❌ Tidak ada Ubot Admin aktif.")
-
+# ─────────────────────────────────────────
+# State Machine: Input User
+# ─────────────────────────────────────────
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
     user_id = event.sender_id
@@ -191,7 +171,7 @@ async def user_input_handler(event):
         if not event.message.photo and not event.message.document:
             await event.respond("❌ Harap kirimkan **FOTO BUKTI TRANSFER** Anda.")
             return
-        await event.respond("⏳ Mengirim bukti ke admin...")
+        await event.respond("⏳ Mengirim bukti ke admin untuk verifikasi...")
         media = await event.message.download_media(file="data/proofs/")
         trx_id, pkg, amt = state_data["trx_id"], state_data["package_name"], state_data["amount"]
         admin_msg = f"🔔 **BUKTI BARU**\n\n👤 User: `{user_id}`\n📦 Paket: {pkg}\n💰 Nominal: Rp {amt:,}\n🆔 Order: `{trx_id}`"
@@ -212,7 +192,7 @@ async def user_input_handler(event):
         try:
             res = await client.send_code_request(phone)
             login_states[user_id].update({"state": "waiting_for_otp", "phone": phone, "client": client, "hash": res.phone_code_hash})
-            await event.respond("📨 **OTP dikirim!** Masukkan kode:")
+            await event.respond("📨 **OTP dikirim!** Masukkan kode 5 digit:")
         except Exception as e: await event.respond(f"❌ Gagal: {e}"); await clear_login_state(user_id)
 
     elif current_state == "waiting_for_otp":
@@ -291,27 +271,16 @@ async def order_format_parser(event):
     async with get_db() as db:
         await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (target_uid, trx_id, paket, amount))
         await db.commit()
-    await process_successful_payment(trx_id)
+    await process_activation(bot, db, trx_id, load_prices(), login_states)
     await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
-
-async def process_successful_payment(trx_id: str):
-    async with get_db() as db:
-        cur = await db.execute("SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,))
-        row = await cur.fetchone()
-        if not row or row[3] == 'success': return
-        uid, amt, pkg, _ = row
-        new_end = await activate_user_package(db, uid, pkg, amt, load_prices())
-        await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
-        await db.commit()
-    is_ub = "userbot" in pkg.lower()
-    login_states[uid] = {"state": "waiting_for_phone" if is_ub else "waiting_for_ad"}
-    await bot.send_message(uid, f"🎉 **Paket {pkg} Aktif!**\n" + ("🤖 Kirim nomor HP Ubot:" if is_ub else "✍️ Kirim materi iklan:"))
 
 @bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
 async def check_payment_status_handler(event):
     trx_id = event.pattern_match.group(1).decode()
     res = await check_transaction_status(trx_id)
-    if res and res.get("data", {}).get("status") == "success": await process_successful_payment(trx_id); await event.answer("✅ Sukses!", alert=True)
+    if res and res.get("data", {}).get("status") == "success":
+        async with get_db() as db: await process_activation(bot, db, trx_id, load_prices(), login_states)
+        await event.answer("✅ Sukses!", alert=True)
     else: await event.answer("⏳ Menunggu...", alert=True)
 
 # ─────────────────────────────────────────
@@ -329,7 +298,7 @@ async def handle_checkout_api(request):
                 await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (uid, trx_id, pkg, amt))
                 await db.commit()
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
-            await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nPaket: {pkg}\nTotal: Rp {amt:,}\n\nKirim bukti transfer ke bot!")
+            await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke bot!")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
@@ -379,10 +348,7 @@ async def handle_check_status_api(request):
     trx_id = request.match_info.get('trx_id')
     res = await check_transaction_status(trx_id)
     if res and res.get("data", {}).get("status") == "success":
-        async with get_db() as db:
-            cur = await db.execute("SELECT user_id, amount, package_id FROM transactions WHERE trx_id=?", (trx_id,))
-            row = await cur.fetchone()
-            if row: await activate_user_package(db, int(row[0]), row[2], int(row[1]), load_prices())
+        async with get_db() as db: await process_activation(bot, db, trx_id, load_prices(), login_states)
     return web.json_response(res, headers={"Access-Control-Allow-Origin": "*"})
 
 async def start_user_broadcast(user_id: int):
@@ -401,12 +367,7 @@ async def run_jaseb_scheduler():
             if uid not in last_run or (now - last_run[uid]).total_seconds() >= iv * 3600:
                 last_run[uid] = now; asyncio.create_task(start_user_broadcast(uid))
 
-async def main():
-    await init_db(); await bot.start(bot_token=BOT_TOKEN)
-    me = await bot.get_me(); import src.config; src.config.BOT_USERNAME = me.username
-    init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
-    init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
-    asyncio.create_task(run_jaseb_scheduler())
+async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
     app.router.add_post('/api/checkout', handle_checkout_api)
@@ -416,6 +377,13 @@ async def main():
     async def opt(req): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
     for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}']: app.router.add_options(p, opt)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
+
+async def main():
+    await init_db(); await bot.start(bot_token=BOT_TOKEN)
+    me = await bot.get_me(); import src.config; src.config.BOT_USERNAME = me.username
+    init_admin_handlers(bot, login_states, load_prices, None, start_user_broadcast)
+    init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
+    asyncio.create_task(run_jaseb_scheduler()); asyncio.create_task(run_web_server())
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
