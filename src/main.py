@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from aiohttp import web
 
 from telethon import TelegramClient, events, Button
+from telethon.network import ConnectionTcpObfuscated
 from telethon.errors import UserNotParticipantError, FloodWaitError, SessionPasswordNeededError
 from telethon.tl.functions.channels import JoinChannelRequest, GetParticipantRequest
 from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, PeerChannel, PeerUser, PeerChat
@@ -61,7 +62,15 @@ os.makedirs("data/sessions", exist_ok=True)
 os.makedirs("data/proofs", exist_ok=True)
 os.makedirs("data/media", exist_ok=True)
 
-bot = TelegramClient('data/bot_session', API_ID, API_HASH)
+bot = TelegramClient(
+    'data/bot_session', 
+    API_ID, 
+    API_HASH,
+    connection=ConnectionTcpObfuscated,
+    timeout=30,
+    connection_retries=10,
+    retry_delay=5
+)
 login_states = {}
 
 # ─────────────────────────────────────────
@@ -196,7 +205,15 @@ async def user_input_handler(event):
             return
         is_admin = (user_id == ADMIN_ID)
         session = f"admin_{phone[1:]}" if is_admin else f"user_{user_id}"
-        client = TelegramClient(f"data/sessions/{session}", API_ID, API_HASH)
+        client = TelegramClient(
+            f"data/sessions/{session}", 
+            API_ID, 
+            API_HASH,
+            connection=ConnectionTcpObfuscated,
+            timeout=30,
+            connection_retries=10,
+            retry_delay=5
+        )
         await client.connect()
         try:
             res = await client.send_code_request(phone)

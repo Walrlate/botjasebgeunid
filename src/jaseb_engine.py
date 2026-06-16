@@ -3,6 +3,7 @@ import random
 import logging
 import os
 from telethon import TelegramClient
+from telethon.network import ConnectionTcpObfuscated
 from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
 from telethon.tl.types import PeerChannel, PeerUser, PeerChat
 from telethon.errors import FloodWaitError
@@ -16,7 +17,16 @@ logger = logging.getLogger(__name__)
 
 class JasebEngine:
     def __init__(self, user_session_name, api_id, api_hash):
-        self.client = TelegramClient(user_session_name, api_id, api_hash, receive_updates=False)
+        self.client = TelegramClient(
+            user_session_name, 
+            api_id, 
+            api_hash, 
+            receive_updates=False,
+            connection=ConnectionTcpObfuscated,
+            timeout=30,
+            connection_retries=10,
+            retry_delay=5
+        )
         self.is_running = False
 
     async def start(self):
