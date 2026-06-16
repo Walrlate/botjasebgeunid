@@ -171,11 +171,19 @@ async def show_start_menu(event, edit=False):
     
     if edit:
         try:
+            # Coba edit pesan teks biasa terlebih dahulu
             await event.edit(text, buttons=buttons)
             return
-        except Exception as e:
-            try: await event.delete()
-            except: pass
+        except Exception:
+            # Jika gagal (misal pesan lama berisi foto), kirim pesan baru
+            try:
+                if os.path.exists(photo_path):
+                    await bot.send_file(event.chat_id, file=photo_path, caption=text, buttons=buttons)
+                else:
+                    await bot.send_message(event.chat_id, text, buttons=buttons)
+                return
+            except Exception as e2:
+                logger.error(f"Error sending start after edit fail: {e2}")
             
     try:
         if os.path.exists(photo_path):
@@ -398,9 +406,16 @@ async def handle_user_stats_api(request):
         
         # Otorisasi & Validasi Privasi Tingkat Tinggi
         init_data = request.headers.get("x-telegram-init-data", "")
-        verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
         is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
-        if is_production or init_data:
+        
+        # Bypass validasi untuk ADMIN_ID (tidak perlu initData)
+        if uid == ADMIN_ID:
+            pass  # Admin selalu diizinkan
+        elif is_production or init_data:
+            # Di production, wajib ada initData yang valid
+            if not init_data:
+                return web.json_response({"status": False, "error": "Akses Ditolak. Init data tidak ditemukan."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+            verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
             if not verified_user or int(verified_user.get("id", 0)) != uid:
                 return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
                 
@@ -416,7 +431,9 @@ async def handle_user_stats_api(request):
                 if res["days_left"] == 0 and res["seconds_left"] > 0: res["days_left"] = 1
             except: pass
         return web.json_response({"status": True, "data": res}, headers={"Access-Control-Allow-Origin": "*"})
-    except: return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error handle_user_stats_api: {e}")
+        return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_history_api(request):
     try:
@@ -424,15 +441,23 @@ async def handle_history_api(request):
         
         # Otorisasi & Validasi Privasi Tingkat Tinggi
         init_data = request.headers.get("x-telegram-init-data", "")
-        verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
         is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
-        if is_production or init_data:
+        
+        # Bypass validasi untuk ADMIN_ID (tidak perlu initData)
+        if uid == ADMIN_ID:
+            pass  # Admin selalu diizinkan
+        elif is_production or init_data:
+            if not init_data:
+                return web.json_response({"status": False, "error": "Akses Ditolak. Init data tidak ditemukan."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+            verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
             if not verified_user or int(verified_user.get("id", 0)) != uid:
                 return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
                 
         rows = db_get_forward_history(uid)
         return web.json_response({"status": True, "data": [{"group_name": r[0] or "Grup LPM", "msg_link": r[1], "status": r[2], "error_msg": r[3], "sent_at": r[4]} for r in rows]}, headers={"Access-Control-Allow-Origin": "*"})
-    except: return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error handle_history_api: {e}")
+        return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_check_status_api(request):
     trx_id = request.match_info.get('trx_id')

@@ -87,10 +87,13 @@ async def _show_help_main(event):
     if hasattr(event, "edit"):
         try:
             await event.edit(text, buttons=buttons)
-        except Exception as e:
-            try: await event.delete()
-            except: pass
-            await event.respond(text, buttons=buttons)
+        except Exception:
+            # Jika gagal edit (misal pesan sebelumnya adalah foto), kirim pesan baru
+            try:
+                await _bot.send_message(event.chat_id, text, buttons=buttons)
+            except Exception as e2:
+                logger.error(f"Gagal mengirim help: {e2}")
+                await event.respond(text, buttons=buttons)
     else:
         await event.respond(text, buttons=buttons)
 
