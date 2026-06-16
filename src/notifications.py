@@ -63,16 +63,19 @@ async def notify_client_broadcast_start(bot, user_id: int, total_groups: int, pa
 
 
 async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
-                                        failed_count: int, next_broadcast_hours: int):
+                                        failed_count: int, next_broadcast_hours: float):
     """Kirim laporan broadcast ke client setelah siklus selesai."""
     total = success_count + failed_count
     rate = round((success_count / total * 100) if total > 0 else 0, 1)
+    
+    interval_text = f"{int(next_broadcast_hours * 60)} menit" if next_broadcast_hours < 1 else f"{next_broadcast_hours} jam"
+    
     text = (
         "📊 **Laporan Broadcast Jaseb Selesai!**\n\n"
         f"✅ Terkirim: **{success_count} grup**\n"
         f"❌ Gagal: **{failed_count} grup**\n"
         f"📈 Success Rate: **{rate}%**\n\n"
-        f"⏰ Broadcast berikutnya: **{next_broadcast_hours} jam lagi** (otomatis)\n\n"
+        f"⏰ Broadcast berikutnya: **{interval_text} lagi** (otomatis)\n\n"
         "💡 _Ketik /mystatus untuk cek detail atau /edit_jaseb untuk ganti teks._"
     )
     try:

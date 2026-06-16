@@ -521,7 +521,8 @@ async def install_command_handler(event):
 async def user_input_handler(event):
     """Handler utama untuk semua state machine percakapan."""
     text = (event.text or "").strip()
-    if text.startswith("/"):
+    # Izinkan /skip agar bisa diproses di state waiting_for_lpm_request
+    if text.startswith("/") and text.lower() != "/skip":
         return
 
     if event.sender_id not in login_states:
@@ -538,10 +539,14 @@ async def user_input_handler(event):
 
     # ── State: Menunggu jeda broadcast kustom dari client userbot ──
     if current_state == "client_set_interval":
-        if not text.isdigit() or int(text) < 1 or int(text) > 24:
-            await event.respond("❌ Masukkan angka jam yang valid (1-24). Contoh: `2`")
+        try:
+            hours = float(text)
+            if hours < 0.1 or hours > 24:
+                raise ValueError
+        except ValueError:
+            await event.respond("❌ Masukkan angka jam yang valid (contoh: `0.5` untuk 30 menit, `1` untuk 1 jam, dst. Maksimal 24 jam).")
             return
-        hours = int(text)
+            
         async with get_db() as db:
             await db.execute(
                 "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status='active'",
@@ -549,7 +554,9 @@ async def user_input_handler(event):
             )
             await db.commit()
         del login_states[event.sender_id]
-        await event.respond(f"✅ Jeda sebar userbot Anda berhasil diatur menjadi **setiap {hours} jam**.")
+        
+        interval_text = f"{int(hours * 60)} menit" if hours < 1 else f"{hours} jam"
+        await event.respond(f"✅ Jeda sebar userbot Anda berhasil diatur menjadi **setiap {interval_text}**.")
         return
 
     # ── State: Menunggu bukti transfer manual ──
@@ -969,21 +976,35 @@ async def order_format_parser(event):
                 )
                 await db.commit()
 
+            # Tentukan instruksi spesifik paket
+            is_userbot = "userbot" in paket.lower()
+            instruction_pkg = (
+                "🤖 **Setelah bayar, bot akan meminta Nomor HP akun Telegram Anda.**"
+                if is_userbot else
+                "✍️ **Setelah bayar, bot akan meminta Materi Jaseb Anda.**"
+            )
+
             pay_text = (
                 f"✅ **Invoice QRIS Berhasil Dibuat!**\n\n"
                 f"📦 **Paket:** {paket}\n"
                 f"💰 **Total Bayar:** Rp {trx_data['total_amount']:,}\n"
                 f"⏰ **Expired:** {trx_data['expired_at']}\n\n"
-                "Scan QRIS di atas dan klik **🔄 Cek Status Bayar** setelah transfer."
+                f"Scan QRIS di atas dengan OVO / Gopay / Dana / m-Banking.\n\n"
+                f"💡 {instruction_pkg}\n"
+                "Klik **🔄 Cek Status Bayar** setelah transfer."
             )
+            buttons = []
+            payment_url = trx_data.get("payment_url")
+            if payment_url and isinstance(payment_url, str) and payment_url.startswith("http"):
+                buttons.append([Button.url("🔗 Bayar via Browser", payment_url)])
+            
+            buttons.append([Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())])
+
             await bot.send_file(
                 event.chat_id,
                 file=trx_data['qris_url'],
                 caption=pay_text,
-                buttons=[
-                    [Button.url("🔗 Bayar via Browser", trx_data['payment_url'])],
-                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-                ]
+                buttons=buttons
             )
         else:
             await event.respond(f"❌ Gagal buat QRIS. Hubungi admin: {ADMIN_USERNAME}")
@@ -1039,8 +1060,8 @@ async def process_successful_payment(trx_id: str):
         else:
             new_end = now + timedelta(days=days)
             new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-            is_userbot = "userbot" in package_name.lower()
-            default_interval = 2 if is_userbot else 1
+            # Default interval 30 menit (0.5 jam) untuk semua paket
+            default_interval = 0.5
             await db.execute(
                 "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active', default_interval)
@@ -1221,8 +1242,8 @@ async def approve_manual_handler(event):
         else:
             new_end = now + timedelta(days=days)
             new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
-            is_userbot = "userbot" in package_name.lower()
-            default_interval = 2 if is_userbot else 1
+            # Default interval 30 menit (0.5 jam) untuk semua paket
+            default_interval = 0.5
             await db.execute(
                 "INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (u_id, package_name, capacity, now.strftime("%Y-%m-%d %H:%M:%S"), new_end_str, 'active', default_interval)
@@ -2050,38 +2071,50 @@ async def handle_checkout_api(request):
         except Exception as e:
             logger.error(f"Gagal kirim notifikasi order baru ke admin: {e}")
 
+        # Tentukan instruksi spesifik paket
+        is_userbot = "userbot" in pkg_desc.lower()
+        instruction_pkg = (
+            "🤖 **Setelah bayar, bot akan meminta Nomor HP akun Telegram Anda.**"
+            if is_userbot else
+            "✍️ **Setelah bayar, bot akan meminta Materi Jaseb Anda.**"
+        )
+
         # Kirim QRIS ke chat Telegram user
         pay_text = (
             f"✅ **Invoice QRIS Berhasil Dibuat via Mini App!**\n\n"
             f"📦 Paket: **{pkg_desc}**\n"
             f"💰 Total Bayar: **Rp {trx_data['total_amount']:,}**\n"
             f"⏰ Berlaku: {trx_data['expired_at']}\n\n"
-            f"Scan QRIS di atas dengan OVO / Gopay / Dana / m-Banking.\n"
+            f"Scan QRIS di atas dengan OVO / Gopay / Dana / m-Banking.\n\n"
+            f"💡 {instruction_pkg}\n"
             f"Setelah bayar, klik **🔄 Cek Status Bayar** di bawah."
         )
 
         sent = False
+        
+        # Konstruksi tombol secara dinamis
+        buttons = []
+        payment_url = trx_data.get("payment_url")
+        if payment_url and isinstance(payment_url, str) and payment_url.startswith("http"):
+            buttons.append([Button.url("🔗 Bayar via Browser", payment_url)])
+        
+        buttons.append([Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())])
+
         try:
             await bot.send_file(
                 int(user_id),
                 file=trx_data["qris_url"],
                 caption=pay_text,
-                buttons=[
-                    [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
-                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-                ]
+                buttons=buttons
             )
             sent = True
         except Exception as e:
-            logger.error(f"Gagal kirim file QRIS ke chat user {user_id}: {e}")
+            logger.error(f"Gagal kirim file QRIS ke chat user {user_id}: {e}. Data: {trx_data}")
             try:
                 await bot.send_message(
                     int(user_id),
                     pay_text,
-                    buttons=[
-                        [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
-                        [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-                    ]
+                    buttons=buttons
                 )
                 sent = True
             except Exception as e2:

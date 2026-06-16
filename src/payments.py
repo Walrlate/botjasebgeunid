@@ -27,6 +27,7 @@ async def create_qris_transaction(amount, description):
         try:
             async with session.post(url, json=payload, headers=headers) as response:
                 result = await response.json()
+                logger.info(f"KlikQRIS Create Response: {result}")
                 if result.get("status") is True:
                     data = result.get("data", {})
                     # Konversi string total_amount ke integer/float untuk kompatibilitas

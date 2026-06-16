@@ -465,10 +465,14 @@ def _register_admin_handlers(bot):
         elif state == "admin_set_interval":
             target_uid = state_data.get("target_uid")
             text = event.text.strip()
-            if not text.isdigit() or int(text) < 1 or int(text) > 24:
-                await event.respond("❌ Masukkan angka jam yang valid (1-24). Contoh: `2`")
+            try:
+                hours = float(text)
+                if hours < 0.1 or hours > 24:
+                    raise ValueError
+            except ValueError:
+                await event.respond("❌ Masukkan angka jam yang valid (contoh: `0.5` untuk 30 menit, `1` untuk 1 jam, dst. Maksimal 24 jam).")
                 return
-            hours = int(text)
+            
             async with get_db() as db:
                 await db.execute(
                     "UPDATE subscriptions SET broadcast_interval_hours=? WHERE user_id=? AND status IN ('active', 'paused')",
@@ -476,8 +480,10 @@ def _register_admin_handlers(bot):
                 )
                 await db.commit()
             del _login_states[event.sender_id]
+            
+            interval_text = f"{int(hours * 60)} menit" if hours < 1 else f"{hours} jam"
             await event.respond(
-                f"✅ Interval broadcast diatur ke **setiap {hours} jam**.\n"
+                f"✅ Interval broadcast diatur ke **setiap {interval_text}**.\n"
                 f"👤 User: `{target_uid}`"
             )
 

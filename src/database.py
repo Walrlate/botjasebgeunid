@@ -28,7 +28,7 @@ async def init_db():
                 end_date TIMESTAMP,
                 status TEXT DEFAULT 'active',
                 request_lpm TEXT,
-                broadcast_interval_hours INTEGER DEFAULT 2,
+                broadcast_interval_hours REAL DEFAULT 0.5,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
@@ -106,11 +106,12 @@ async def init_db():
         # Safe migration for existing DB — tambahkan kolom baru tanpa drop table
         migrations = [
             "ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT",
-            "ALTER TABLE subscriptions ADD COLUMN broadcast_interval_hours INTEGER DEFAULT 2",
+            "ALTER TABLE subscriptions ADD COLUMN broadcast_interval_hours REAL DEFAULT 0.5",
             "ALTER TABLE lpm_lists ADD COLUMN is_blacklisted BOOLEAN DEFAULT 0",
             "ALTER TABLE user_ads ADD COLUMN fwd_chat_id TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_peer_type TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_msg_id INTEGER",
+            "UPDATE subscriptions SET broadcast_interval_hours = 0.5 WHERE status = 'active'"
         ]
         for migration in migrations:
             try:

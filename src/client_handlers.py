@@ -258,22 +258,24 @@ def _register_handlers(bot):
             f"Scan QRIS di atas dengan OVO / Gopay / Dana / m-Banking.\n"
             f"Setelah bayar, klik **🔄 Cek Status Bayar** di bawah."
         )
+        # Konstruksi tombol secara dinamis
+        buttons = []
+        payment_url = trx_data.get("payment_url")
+        if payment_url and isinstance(payment_url, str) and payment_url.startswith("http"):
+            buttons.append([Button.url("🔗 Bayar via Browser", payment_url)])
+        
+        buttons.append([Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())])
+
         try:
             await _bot.send_file(
                 event.chat_id,
                 file=trx_data["qris_url"],
                 caption=pay_text,
-                buttons=[
-                    [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
-                    [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-                ]
+                buttons=buttons
             )
         except Exception as e:
             logger.error(f"Gagal kirim QRIS image: {e}")
-            await event.respond(pay_text, buttons=[
-                [Button.url("🔗 Bayar via Browser", trx_data["payment_url"])],
-                [Button.inline("🔄 Cek Status Bayar", f"check_{trx_data['transaction_id']}".encode())]
-            ])
+            await event.respond(pay_text, buttons=buttons)
 
     # ─────────────────────────────────────────
     # /mystatus — Cek status jaseb real-time
