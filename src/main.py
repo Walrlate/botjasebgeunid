@@ -180,42 +180,55 @@ async def get_web_app_url(user_id: int) -> str:
     user_interval = 0
     try:
         async with get_db() as db:
+            # Statistik Global
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
             total_broadcast = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
             total_lpm = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
             total_userbots = (await cur.fetchone())[0]
+            
+            # Status Userbot Spesifik
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
-            row = await cur.fetchone()
-            if row:
-                user_bot_status = row[0]
+            ub_row = await cur.fetchone()
+            if ub_row:
+                user_bot_status = ub_row[0]
+            
+            # Paket Aktif (Cek status 'active' dan belum expired)
             cur = await db.execute("""
-                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions
-                WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours 
+                FROM subscriptions
+                WHERE user_id=? AND status='active' AND end_date > datetime('now', 'localtime')
                 ORDER BY end_date DESC LIMIT 1
             """, (user_id,))
-            row = await cur.fetchone()
-            if row:
-                user_package = row[0]
-                user_lpm = row[1]
-                user_interval = row[3] or 0
+            sub_row = await cur.fetchone()
+            if sub_row:
+                user_package = sub_row[0]
+                user_lpm = sub_row[1]
+                user_interval = sub_row[3] or 0.5
                 try:
-                    clean_date = row[2].split(".")[0]
+                    clean_date = sub_row[2].split(".")[0]
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
-                    user_days = max(0, (end_dt - datetime.now()).days)
+                    delta = end_dt - datetime.now()
+                    user_days = max(0, delta.days)
                 except Exception:
                     user_days = 0
+            else:
+                # Debug jika paket tidak ketemu tapi user merasa punya
+                logger.info(f"DEBUG: No active subscription found for user {user_id}")
     except Exception as e:
-        logger.error(f"Error build WebApp URL: {e}")
+        logger.error(f"Error build WebApp URL for user {user_id}: {e}")
+    
     import urllib.parse
     pkg_encoded = urllib.parse.quote(str(user_package))
     ub_status_encoded = urllib.parse.quote(str(user_bot_status))
-    return (
+    
+    final_url = (
         f"{MINI_APP_URL.rstrip('/')}/?"
         f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
         f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}&int={user_interval}"
     )
+    return final_url
 
 
 # ─────────────────────────────────────────

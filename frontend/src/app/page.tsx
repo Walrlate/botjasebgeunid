@@ -35,19 +35,19 @@ const HomeIcon = ({ active }: { active: boolean }) => (
 );
 
 const UserIcon = ({ active }: { active: boolean }) => (
-  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 drop-shadow-[0_2px_8px_rgba(0,122,255,0.25)]' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 shadow-icon' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
     <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
   </svg>
 );
 
 const ToolsIcon = ({ active }: { active: boolean }) => (
-  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 drop-shadow-[0_2px_8px_rgba(0,122,255,0.25)]' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 shadow-icon' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
     <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
   </svg>
 );
 
 const HistoryIcon = ({ active }: { active: boolean }) => (
-  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 drop-shadow-[0_2px_8px_rgba(0,122,255,0.25)]' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+  <svg className={`w-5 h-5 transition-all duration-300 ${active ? 'text-geun-blue scale-110 shadow-icon' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
@@ -80,8 +80,6 @@ const Dashboard = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<'premium' | 'minimalist' | 'flash'>('premium');
   const [wordingCopied, setWordingCopied] = useState(false);
   const [lpmToScan, setLpmToScan] = useState('');
-  const [lpmCopied, setLpmCopied] = useState(false);
-  const [userIdsInput, setUserIdsInput] = useState('');
   
   // State for History
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -260,14 +258,11 @@ const Dashboard = () => {
       : '';
 
     if (selectedPackage.type === 'userbot') {
-      const uidsSection = accountCount > 1 && userIdsInput.trim()
-        ? `\n– List UserID: ${userIdsInput.trim()}`
-        : '';
       return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username: ${getUsername() || '@username'}
 – Durasi userbot: ${selectedPackage.duration}
-– Jumlah Akun: ${accountCount} Akun${uidsSection}
+– Jumlah Akun: ${accountCount} Akun
 – Nomor Telegram: (isi nomor HP akun userbot Anda)
 – Password: (isi password jika ada 2FA, jika tidak kosongkan)
 – Payment: ${paymentText}
@@ -368,7 +363,7 @@ const Dashboard = () => {
         duration: selectedPackage.duration,
         lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
         package_type: selectedPackage.type,
-        request_lpm: selectedPackage.type !== 'userbot' ? userIdsInput : "",
+        request_lpm: "",
         payment_method: selectedPaymentMethod
       };
 
@@ -393,31 +388,6 @@ const Dashboard = () => {
       }
     } catch (err) {
       console.error("Checkout Error:", err);
-      alert("❌ Terjadi kesalahan koneksi.");
-    } finally {
-      setLoadingCheckout(false);
-    }
-  };
-
-  const handleCheckQRISStatusManual = async () => {
-    if (!qrisData) return;
-    triggerHaptic('heavy');
-    setLoadingCheckout(true);
-    try {
-      const res = await fetch(`/api/check-status/${qrisData.transaction_id}`);
-      const data = await res.json();
-      if (data.status) {
-        if (data.payment_status === 'success') {
-          triggerHaptic('heavy');
-          setCheckoutStep('success_screen');
-        } else {
-          alert("⏳ Pembayaran belum terdeteksi.");
-        }
-      } else {
-        alert(`❌ Gagal cek status: ${data.error || 'Terjadi kesalahan sistem.'}`);
-      }
-    } catch (err) {
-      console.error(err);
       alert("❌ Terjadi kesalahan koneksi.");
     } finally {
       setLoadingCheckout(false);
@@ -477,28 +447,31 @@ const Dashboard = () => {
                     <img src="/images/promo_banner.jpg" alt="Promo" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.02]" />
                   </div>
                   <div className="p-5 bg-white border-t border-slate-100">
-                    <p className="text-[10px] font-medium text-slate-500 leading-relaxed">
-                      Nikmati potongan harga spesial hingga <span className="font-extrabold text-geun-blue">35%</span> dan <span className="font-extrabold text-emerald-600">bonus durasi aktif</span>!
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="bg-geun-blue/10 text-geun-blue text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Penawaran Terbatas</span>
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-600 leading-relaxed">
+                      Dapatkan efisiensi promosi maksimal dengan paket Jaseb Autopilot kami.
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="glass-panel rounded-2xl p-4 flex flex-col justify-between shadow-soft">
-                    <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">Total Broadcast</span>
+                    <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">Total Terkirim</span>
                     <div className="flex items-baseline gap-1 mt-1.5">
                       <span className="text-2xl font-bold text-slate-800 tracking-tight">{bData.number}</span>
                       <span className="text-[9.5px] font-bold text-geun-blue tracking-wide">{bData.unit}</span>
                     </div>
                   </div>
                   <div className="glass-panel rounded-2xl p-4 flex flex-col justify-between shadow-soft">
-                    <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">System Status</span>
+                    <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">Status Sistem</span>
                     <div className="flex items-center gap-1.5 mt-2.5">
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                       </span>
-                      <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Active</span>
+                      <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Online</span>
                     </div>
                   </div>
                 </div>
@@ -570,24 +543,28 @@ const Dashboard = () => {
                 <section className="glass-panel rounded-3xl p-5 space-y-4 border border-slate-200/60 shadow-soft">
                   <div className="border-b border-slate-200 pb-3 flex items-center gap-1.5">
                     <svg className="w-5 h-5 text-geun-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                    <h3 className="text-[9.5px] font-bold text-slate-400 uppercase tracking-widest">FAQ</h3>
+                    <h3 className="text-[9.5px] font-bold text-slate-400 uppercase tracking-widest">FAQ — Bantuan Cepat</h3>
                   </div>
                   <div className="space-y-2.5">
-                    <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white/50">
-                      <button onClick={() => { triggerHaptic('light'); setOpenAccordion(openAccordion === 'what_is_jaseb' ? null : 'what_is_jaseb'); }} className="w-full flex items-center justify-between px-4 py-3.5 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                        <span>💡 Apa itu Jasa Sebar (Jaseb)?</span>
-                        <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${openAccordion === 'what_is_jaseb' ? 'rotate-180 text-geun-blue' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path d="M19 9l-7 7-7-7" /></svg>
-                      </button>
-                      <AnimatePresence>
-                        {openAccordion === 'what_is_jaseb' && (
-                          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden border-t border-slate-100 bg-white">
-                            <div className="p-4 text-[9.5px] text-slate-500 space-y-2">
-                              <p><strong>Jasa Sebar (Jaseb)</strong> adalah layanan promosi otomatis di Telegram untuk menyebarkan pesan iklan Anda ke grup LPM secara otomatis 24 jam non-stop.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                    {[
+                      { id: 'q1', q: '💡 Apa itu Jasa Sebar (Jaseb)?', a: 'Layanan promosi otomatis di Telegram untuk menyebarkan pesan iklan Anda ke grup LPM secara otomatis 24 jam non-stop.' },
+                      { id: 'q2', q: '🔄 Apa bedanya Regular vs Forward?', a: 'Regular menyalin teks Anda, sedangkan Forward meneruskan pesan asli dari channel Anda (menambah views).' },
+                      { id: 'q3', q: '🤖 Apa itu Paket Userbot?', a: 'Sistem Stealth Mode yang menggunakan akun Telegram Anda sendiri untuk menyebar iklan agar terlihat lebih organik.' }
+                    ].map((faq) => (
+                      <div key={faq.id} className="border border-slate-100 rounded-2xl overflow-hidden bg-white/50">
+                        <button onClick={() => { triggerHaptic('light'); setOpenAccordion(openAccordion === faq.id ? null : faq.id); }} className="w-full flex items-center justify-between px-4 py-3.5 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                          <span>{faq.q}</span>
+                          <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${openAccordion === faq.id ? 'rotate-180 text-geun-blue' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                        <AnimatePresence>
+                          {openAccordion === faq.id && (
+                            <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden border-t border-slate-100 bg-white">
+                              <div className="p-4 text-[9.5px] text-slate-500">{faq.a}</div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    ))}
                   </div>
                 </section>
               </motion.div>
@@ -649,8 +626,8 @@ const Dashboard = () => {
                 className="space-y-6 pb-20"
               >
                 <div className="text-center space-y-1">
-                  <h2 className="text-lg font-black text-slate-800 tracking-wide uppercase">📋 Riwayat Broadcast</h2>
-                  <p className="text-[10px] text-slate-400 font-semibold">Pantau status penyebaran iklan Anda secara real-time</p>
+                  <h2 className="text-lg font-black text-slate-800 tracking-wide uppercase">📋 Riwayat Jaseb</h2>
+                  <p className="text-[10px] text-slate-400 font-semibold">Pantau pengiriman iklan Anda (Bot & Userbot)</p>
                 </div>
                 <div className="glass-panel rounded-3xl p-5 border border-slate-200/60 shadow-soft">
                   {loadingHistory ? (
@@ -672,7 +649,7 @@ const Dashboard = () => {
                             </span>
                           </div>
                           {item.status === 'success' && item.msg_link ? (
-                            <div className="mt-3 pt-3 border-t border-slate-50"><a href={item.msg_link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[9px] font-black text-geun-blue uppercase">Lihat Pesan ↗</a></div>
+                            <div className="mt-3 pt-3 border-t border-slate-50"><a href={item.msg_link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[9px] font-black text-geun-blue uppercase">Bukti Kirim ↗</a></div>
                           ) : item.status === 'failed' && item.error_msg && (
                             <div className="mt-3 pt-3 border-t border-slate-50"><p className="text-[9px] font-semibold text-rose-500 italic">⚠️ Error: {item.error_msg}</p></div>
                           )}
@@ -705,10 +682,7 @@ const Dashboard = () => {
                   </div>
                   <div><h3 className="text-base font-bold text-slate-800 tracking-wide">{getDisplayName()}</h3><p className="text-xs font-semibold text-slate-400">{getUsername()}</p></div>
                   <div className="h-[1px] bg-slate-200 my-2"></div>
-                  <div className="grid grid-cols-2 gap-3 text-left">
-                    <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/40"><p className="text-[7.5px] text-slate-400 uppercase font-bold tracking-widest">ID Telegram</p><p className="text-xs font-bold text-slate-800 mt-1">{user?.id || '8844645901'}</p></div>
-                    <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/40"><p className="text-[7.5px] text-slate-400 uppercase font-bold tracking-widest">Sesi Sinyal</p><p className="text-xs font-bold text-emerald-600 mt-1">Connected</p></div>
-                  </div>
+                  
                   <div className="space-y-2.5 text-left text-xs">
                     {stats.userPackage.toLowerCase().includes('userbot') ? (
                       <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
@@ -727,7 +701,7 @@ const Dashboard = () => {
                       <span className="font-bold text-slate-700">{stats.userPackage}</span>
                     </div>
 
-                    {stats.userPackage !== 'Tidak Aktif' && (
+                    {stats.userPackage !== 'Tidak Aktif' ? (
                       <div className="grid grid-cols-3 gap-2 mt-1">
                         <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
                           <p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p>
@@ -744,7 +718,17 @@ const Dashboard = () => {
                           </p>
                         </div>
                       </div>
+                    ) : (
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Belum Ada Paket Aktif</p>
+                        <button onClick={() => setActiveTab('home')} className="mt-2 text-geun-blue font-black text-[10px] uppercase">Beli Paket Sekarang →</button>
+                      </div>
                     )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-left mt-2">
+                    <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/40"><p className="text-[7.5px] text-slate-400 uppercase font-bold tracking-widest">ID Telegram</p><p className="text-xs font-bold text-slate-800 mt-1">{user?.id || '-'}</p></div>
+                    <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/40"><p className="text-[7.5px] text-slate-400 uppercase font-bold tracking-widest">Sesi Sinyal</p><p className="text-xs font-bold text-emerald-600 mt-1">Stabil</p></div>
                   </div>
                 </div>
               </motion.div>
