@@ -894,7 +894,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
         await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada akun Admin Pool yang terhubung.")
         return
 
-    await bot.send_message(status_chat_id, f"📢 **Gradual Join dimulai:**\n👤 Total Admin: **{len(admins)}**\n📋 Total LPM Target: **{len(lpm_links)}**")
+    await bot.send_message(status_chat_id, f"📢 **Gradual Join dimulai:**\n👤 Total Admin: **{len(admins)}**\n📋 Total LPM Pool: **{len(lpm_links)}**")
     
     for sess, phone, aid in admins:
         await bot.send_message(status_chat_id, f"⏳ **Memproses akun admin: {phone}...**")
@@ -936,12 +936,12 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
                     continue
                     
             if not to_join:
-                await bot.send_message(status_chat_id, f"✅ Akun {phone} sudah bergabung ke semua grup LPM yang valid.")
+                await bot.send_message(status_chat_id, f"✅ Akun {phone} sudah bergabung ke semua grup LPM yang valid. (Sisa target: 0)")
                 continue
                 
             # Batasi hanya 5 join baru per siklus per akun untuk menghindari ban
             limit_join = min(5, len(to_join))
-            await bot.send_message(status_chat_id, f"🔄 Akun {phone} akan bergabung ke **{limit_join}** grup baru...")
+            await bot.send_message(status_chat_id, f"🔄 Akun {phone} akan bergabung ke **{limit_join}** grup baru...\n🎯 Sisa target LPM belum diikuti akun ini: **{len(to_join)}** grup")
             
             joined_count = 0
             for entity in to_join[:limit_join]:
@@ -956,7 +956,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
                         await bot.send_message(status_chat_id, f"⚠️ Akun {phone} terkena FloodWait. Menghentikan join untuk akun ini.")
                         break
                         
-            await bot.send_message(status_chat_id, f"✅ Akun {phone} berhasil bergabung ke **{joined_count}** grup baru.")
+            await bot.send_message(status_chat_id, f"✅ Akun {phone} berhasil bergabung ke **{joined_count}** grup baru. (Sisa target akun ini: **{len(to_join) - joined_count}**)")
             
         except Exception as e:
             logger.error(f"Error processing admin join for {phone}: {e}")
