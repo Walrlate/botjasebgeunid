@@ -339,7 +339,10 @@ async def order_format_parser(event):
             data[k.strip().lower().replace("–","").strip()] = v.strip()
     m = re.search(r'\d+', data.get("total harga", "0").replace(".", ""))
     amount = int(m.group(0)) if m else 0
-    paket = data.get("paket jaseb", data.get("durasi userbot", "Manual"))
+    if "durasi userbot" in data:
+        paket = f"Jaseb Userbot {data['durasi userbot']}"
+    else:
+        paket = data.get("paket jaseb", "Manual")
     # Aman parse target_uid — fallback ke sender jika kosong atau non-numerik
     try:
         raw_uid = data.get("id telegram", "").strip()
