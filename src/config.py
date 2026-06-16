@@ -31,7 +31,7 @@ BOT_USERNAME = "GeunID_bot"
 MINI_APP_URL = os.getenv('MINI_APP_URL', 'https://geunidjaseb.vercel.app')
 
 # Supabase Enterprise Configuration
-SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://bhbsbpszgucvufudyhmg.supabase.co')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoYnNicHN6Z3VjdnVmdWR5aG1nIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTU5NDI3MCwiZXhwIjoyMDk3MTcwMjcwfQ.QC9AQ6GESjSFa6cbfo7RQ1_4US9aDu17TTxmRNryKW0')
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
 
 
