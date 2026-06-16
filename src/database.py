@@ -6,10 +6,11 @@ async def init_db():
     db_dir = os.path.dirname(DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(DB_PATH, timeout=30) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA synchronous=NORMAL;")
-        # Table for Users
+        
+        # 1. Table Users
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -19,7 +20,7 @@ async def init_db():
             )
         ''')
         
-        # Table for Packages/Subscriptions
+        # 2. Table Subscriptions (Pondasi Langganan)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +36,7 @@ async def init_db():
             )
         ''')
         
-        # Table for User Ads (Materi Jaseb)
+        # 3. Table User Ads (Materi Iklan - Support Native Forward)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS user_ads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,12 +44,15 @@ async def init_db():
                 title TEXT,
                 content TEXT,
                 media_path TEXT,
+                fwd_chat_id TEXT,
+                fwd_peer_type TEXT,
+                fwd_msg_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
         
-        # Table for LPM Lists
+        # 4. Table LPM Lists (Database Grup Global)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS lpm_lists (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,13 +66,13 @@ async def init_db():
             )
         ''')
 
-        # Table for Transaction Tracking (KlikQRIS)
+        # 5. Table Transactions (Tracking Pembayaran)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 trx_id TEXT UNIQUE,
-                package_id INTEGER,
+                package_id TEXT,
                 amount INTEGER,
                 status TEXT DEFAULT 'pending',
                 payment_url TEXT,
@@ -77,7 +81,7 @@ async def init_db():
             )
         ''')
 
-        # Table for Forward Logs (Proof Hub)
+        # 6. Table Forward Logs (Bukti Kirim - Proof Hub)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS forward_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +97,7 @@ async def init_db():
             )
         ''')
 
-        # Table for Multi-Session Userbots
+        # 7. Table Userbots (Client Stealth Mode)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS userbots (
                 user_id INTEGER PRIMARY KEY,
@@ -105,7 +109,7 @@ async def init_db():
             )
         ''')
 
-        # Table for Admin Userbots (Redundancy & Fallback)
+        # 8. Table Admin Userbots (Pool Pengirim & Redundansi)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS admin_userbots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,7 +121,7 @@ async def init_db():
             )
         ''')
 
-        # Safe migration for existing DB
+        # 9. Automated Migrations (Untuk DB lama yang sudah ada)
         migrations = [
             "ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT",
             "ALTER TABLE subscriptions ADD COLUMN broadcast_interval_hours REAL DEFAULT 0.5",
@@ -125,16 +129,13 @@ async def init_db():
             "ALTER TABLE user_ads ADD COLUMN fwd_chat_id TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_peer_type TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_msg_id INTEGER",
-            "UPDATE subscriptions SET broadcast_interval_hours = 0.5 WHERE status = 'active'",
             "ALTER TABLE forward_logs ADD COLUMN ad_id INTEGER",
-            "CREATE TABLE IF NOT EXISTS admin_userbots (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE, session_name TEXT, status TEXT DEFAULT 'connected', cooldown_until TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            "UPDATE subscriptions SET broadcast_interval_hours = 0.5 WHERE status = 'active'"
         ]
         
         for m in migrations:
-            try:
-                await db.execute(m)
-            except Exception:
-                pass
+            try: await db.execute(m)
+            except: pass
             
         await db.commit()
 
