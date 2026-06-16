@@ -1,4 +1,4 @@
 telethon
 python-dotenv
-aiosqlite
 aiohttp
+supabase
