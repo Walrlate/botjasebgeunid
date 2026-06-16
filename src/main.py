@@ -37,7 +37,9 @@ from src.database import (
     db_save_transaction,
     db_get_forward_history,
     db_get_active_users_for_scheduler,
-    db_get_expiring_subscriptions
+    db_get_expiring_subscriptions,
+    db_save_user_ad,
+    db_update_subscription_lpm
 )
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction, check_transaction_status
@@ -338,7 +340,12 @@ async def order_format_parser(event):
     m = re.search(r'\d+', data.get("total harga", "0").replace(".", ""))
     amount = int(m.group(0)) if m else 0
     paket = data.get("paket jaseb", data.get("durasi userbot", "Manual"))
-    target_uid = int(data.get("id telegram", event.sender_id))
+    # Aman parse target_uid — fallback ke sender jika kosong atau non-numerik
+    try:
+        raw_uid = data.get("id telegram", "").strip()
+        target_uid = int(raw_uid) if raw_uid.isdigit() else event.sender_id
+    except Exception:
+        target_uid = event.sender_id
     trx_id = f"MAN-{int(datetime.now().timestamp())}"
     db_save_transaction(target_uid, trx_id, paket, amount, "manual")
     await process_activation(bot, trx_id, load_prices(), login_states)

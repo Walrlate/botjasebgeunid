@@ -331,7 +331,9 @@ const Dashboard = () => {
     try {
       const res = await fetch(`/api/check-status/${trxId}`);
       const data = await res.json();
-      if (data.status && data.payment_status === 'success') {
+      // Response format: {success: true, data: {status: "success"|"pending"}}
+      const paymentStatus = data?.data?.status || data?.payment_status || '';
+      if (data.success && paymentStatus === 'success') {
         triggerHaptic('heavy');
         setCheckoutStep('success_screen');
         return true;
