@@ -688,61 +688,105 @@ def _register_admin_handlers(bot):
             
         status_msg = await event.respond(f"🔍 **Mulai men-scrape dari {target} (limit: {limit} pesan)...**")
         
-        try:
-            entity = await bot.get_entity(target)
-        except Exception as e:
-            await status_msg.edit(f"❌ Gagal menemukan chat {target}: {e}")
+        # Ambil salah satu admin userbot yang aktif
+        from src.database import db_get_active_admin_userbots
+        admins = db_get_active_admin_userbots()
+        
+        if not admins:
+            await status_msg.edit(
+                "❌ **Gagal:** Fitur scraping membutuhkan minimal 1 akun Admin Pool (Userbot) yang terhubung.\n\n"
+                "Silakan hubungkan akun admin terlebih dahulu dengan menggunakan perintah `/install` di bot."
+            )
             return
             
-        found_links = set()
+        # Gunakan admin userbot pertama yang aktif
+        sess, phone, aid = admins[0]
+        from telethon import TelegramClient
+        from telethon.network import ConnectionTcpObfuscated
+        from src.config import API_ID, API_HASH
         
-        try:
-            async for message in bot.iter_messages(entity, limit=limit):
-                msg_text = message.text or ""
-                if not msg_text:
-                    continue
-                # Extract usernames
-                usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', msg_text)
-                for u in usernames:
-                    found_links.add(u)
-                # Extract links
-                links = re.findall(r'(?:https?://)?t\.me/(?:joinchat/[a-zA-Z0-9_\-]+|[a-zA-Z0-9_]{5,32})', msg_text)
-                for l in links:
-                    found_links.add(l)
-        except Exception as e:
-            await status_msg.edit(f"❌ Terjadi kesalahan saat membaca pesan: {e}")
-            return
-            
-        if not found_links:
-            await status_msg.edit(f"❌ Tidak ditemukan username/link grup LPM di {target}.")
-            return
-            
-        total_found = len(found_links)
-        await status_msg.edit(f"📥 **Menemukan {total_found} tautan. Memvalidasi & menyimpan...**\n_(Proses berjalan asinkron, mohon tunggu)_")
-        
-        success_count = 0
-        validated_count = 0
-        
-        for link in found_links:
-            try:
-                # Lewati target itu sendiri agar tidak rekursif
-                if target.lower().replace("@","") in link.lower():
-                    continue
-                validated, gname, mcount = await validate_and_add_lpm(bot, link)
-                if validated:
-                    validated_count += 1
-                success_count += 1
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                logger.error(f"Error scraping link {link}: {e}")
-                
-        await status_msg.edit(
-            f"✅ **SCRAPE SELESAI!**\n{'━'*18}\n\n"
-            f"👤 Target: {target}\n"
-            f"📥 Total link ditemukan: **{total_found}**\n"
-            f"✅ Berhasil ditambahkan: **{success_count}**\n"
-            f"🔍 Terverifikasi detail: **{validated_count}**"
+        client = TelegramClient(
+            f"data/sessions/{sess}",
+            API_ID,
+            API_HASH,
+            receive_updates=False,
+            connection=ConnectionTcpObfuscated,
+            timeout=30,
+            connection_retries=10,
+            retry_delay=5
         )
+        
+        try:
+            await client.connect()
+            if not await client.is_user_authorized():
+                await status_msg.edit(f"❌ **Gagal:** Akun admin pool `{phone}` tidak terotorisasi. Silakan hubungkan ulang dengan `/install`.")
+                await client.disconnect()
+                return
+                
+            try:
+                entity = await client.get_entity(target)
+            except Exception as e:
+                await status_msg.edit(f"❌ Gagal menemukan chat {target}: {e}")
+                await client.disconnect()
+                return
+                
+            found_links = set()
+            
+            try:
+                async for message in client.iter_messages(entity, limit=limit):
+                    msg_text = message.text or ""
+                    if not msg_text:
+                        continue
+                    # Extract usernames
+                    usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', msg_text)
+                    for u in usernames:
+                        found_links.add(u)
+                    # Extract links
+                    links = re.findall(r'(?:https?://)?t\.me/(?:joinchat/[a-zA-Z0-9_\-]+|[a-zA-Z0-9_]{5,32})', msg_text)
+                    for l in links:
+                        found_links.add(l)
+            except Exception as e:
+                await status_msg.edit(f"❌ Terjadi kesalahan saat membaca pesan via Userbot: {e}")
+                await client.disconnect()
+                return
+                
+            if not found_links:
+                await status_msg.edit(f"❌ Tidak ditemukan username/link grup LPM di {target}.")
+                await client.disconnect()
+                return
+                
+            total_found = len(found_links)
+            await status_msg.edit(f"📥 **Menemukan {total_found} tautan. Memvalidasi & menyimpan...**\n_(Proses berjalan asinkron via Userbot, mohon tunggu)_")
+            
+            success_count = 0
+            validated_count = 0
+            
+            for link in found_links:
+                try:
+                    # Lewati target itu sendiri agar tidak rekursif
+                    if target.lower().replace("@","") in link.lower():
+                        continue
+                    validated, gname, mcount = await validate_and_add_lpm(client, link)
+                    if validated:
+                        validated_count += 1
+                    success_count += 1
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    logger.error(f"Error scraping link {link}: {e}")
+                    
+            await status_msg.edit(
+                f"✅ **SCRAPE SELESAI VIA USERBOT!**\n{'━'*26}\n\n"
+                f"👤 Target: {target}\n"
+                f"📥 Total link ditemukan: **{total_found}**\n"
+                f"✅ Berhasil ditambahkan: **{success_count}**\n"
+                f"🔍 Terverifikasi detail: **{validated_count}**"
+            )
+            
+        except Exception as e:
+            await status_msg.edit(f"❌ Terjadi kesalahan koneksi sesi admin userbot: {e}")
+        finally:
+            if client.is_connected():
+                await client.disconnect()
 
     # ─── IMPORT LPM ───
     @bot.on(events.NewMessage(pattern=r'/import_lpm(?:\s+(.+))?'))
