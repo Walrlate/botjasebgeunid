@@ -253,26 +253,32 @@ async def get_web_app_url(user_id: int) -> str:
     user_days = 0
     user_interval = 0.5
     try:
+        user_id = int(user_id)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         async with get_db() as db:
+            # Statistik Personal
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
             total_sent_user = (await cur.fetchone())[0]
             
+            # Statistik Global
             cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
             total_lpm_global = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
             total_userbots_global = (await cur.fetchone())[0]
             
+            # Status Userbot Spesifik
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
             ub_row = await cur.fetchone()
             if ub_row:
                 user_bot_status = ub_row[0]
             
+            # Paket Aktif (Konsisten menggunakan now_str)
             cur = await db.execute("""
                 SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours 
                 FROM subscriptions
-                WHERE user_id=? AND status='active' AND end_date > datetime('now', 'localtime')
+                WHERE user_id=? AND status='active' AND end_date > ?
                 ORDER BY end_date DESC LIMIT 1
-            """, (user_id,))
+            """, (user_id, now_str))
             sub_row = await cur.fetchone()
             if sub_row:
                 user_package = sub_row[0]
