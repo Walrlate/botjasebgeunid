@@ -130,11 +130,11 @@ async def init_db():
             "CREATE TABLE IF NOT EXISTS admin_userbots (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE, session_name TEXT, status TEXT DEFAULT 'connected', cooldown_until TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
         ]
         
-        for migration in migrations:
+        for m in migrations:
             try:
-                await db.execute(migration)
+                await db.execute(m)
             except Exception:
-                pass  # Kolom sudah ada, skip
+                pass
             
         await db.commit()
 
