@@ -203,6 +203,7 @@ async def handle_user_stats_api(request):
         user_package = 'Tidak Aktif'
         user_lpm = 0
         user_days = 0
+        user_seconds_left = 0
         user_interval = 0
         
         if sub:
@@ -210,14 +211,12 @@ async def handle_user_stats_api(request):
             user_lpm = sub[1]
             user_interval = sub[3] or 0.5
             try:
-                # Perbaikan parsing tanggal: hapus milidetik jika ada
+                # Perbaikan parsing tanggal
                 clean_date = sub[2].split(".")[0]
                 end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                 delta = end_dt - datetime.now()
+                user_seconds_left = max(0, int(delta.total_seconds()))
                 user_days = max(0, delta.days)
-                # Jika hari == 0 tapi jam masih ada, anggap 1 hari agar tidak terlihat 'Habis'
-                if user_days == 0 and delta.total_seconds() > 0:
-                    user_days = 1
             except Exception:
                 user_days = 0
 
@@ -229,6 +228,7 @@ async def handle_user_stats_api(request):
                 "package_name": user_package,
                 "capacity_lpm": user_lpm,
                 "days_left": user_days,
+                "seconds_left": user_seconds_left,
                 "interval": user_interval,
                 "userbot_status": ub_status
             }

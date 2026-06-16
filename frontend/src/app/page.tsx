@@ -123,6 +123,7 @@ const Dashboard = () => {
     userPackage: 'Tidak Aktif',
     userLpm: 0,
     userDays: 0,
+    userSecondsLeft: 0,
     userInterval: 0,
   });
 
@@ -134,17 +135,29 @@ const Dashboard = () => {
         const d = result.data;
         setStats(prev => ({
           ...prev,
-          broadcasts: d.total_sent, // Update dengan statistik personal
+          broadcasts: d.total_sent,
           userBotStatus: d.userbot_status,
           userPackage: d.package_name,
           userLpm: d.capacity_lpm,
           userDays: d.days_left,
+          userSecondsLeft: d.seconds_left,
           userInterval: d.interval,
         }));
       }
     } catch (err) {
       console.error("Gagal refresh stats:", err);
     }
+  };
+
+  const formatRemainingTime = (seconds: number, days: number) => {
+    if (seconds <= 0) return "Expired";
+    if (seconds > 86400) return `${days} Hari`;
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) return `${hours}j ${minutes}m`;
+    return `${minutes} Menit`;
   };
 
   useEffect(() => {
@@ -737,9 +750,11 @@ const Dashboard = () => {
                           <p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p>
                           <p className="font-bold text-geun-blue text-[10px] mt-0.5">{stats.userLpm} LPM</p>
                         </div>
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
-                          <p className="text-[7.5px] text-slate-400 font-bold uppercase">Masa Aktif</p>
-                          <p className="font-bold text-emerald-600 text-[10px] mt-0.5">{stats.userDays} Hari</p>
+                        <div className={`p-2 rounded-xl border text-center transition-all duration-500 ${stats.userSeconds_left < 21600 ? 'bg-rose-50 border-rose-200 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
+                          <p className={`text-[7.5px] font-bold uppercase ${stats.userSeconds_left < 21600 ? 'text-rose-500' : 'text-slate-400'}`}>Masa Aktif</p>
+                          <p className={`font-bold text-[10px] mt-0.5 ${stats.userSeconds_left < 21600 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {formatRemainingTime(stats.userSecondsLeft, stats.userDays)}
+                          </p>
                         </div>
                         <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
                           <p className="text-[7.5px] text-slate-400 font-bold uppercase">Jadwal</p>
