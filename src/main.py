@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from aiohttp import web
 
 from telethon import TelegramClient, events, Button
-from telethon.errors import UserNotParticipantError, FloodWaitError
+from telethon.errors import UserNotParticipantError, FloodWaitError, SessionPasswordNeededError
 from telethon.tl.functions.channels import JoinChannelRequest, GetParticipantRequest
 from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonCallback, PeerChannel, PeerUser, PeerChat
 from telethon.extensions import html
@@ -23,7 +23,21 @@ from src.config import (
     API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, 
     CHANNEL_USERNAME, ADMIN_USERNAME, MINI_APP_URL, BOT_USERNAME
 )
-from src.database import init_db, get_db
+from src.database import (
+    init_db,
+    db_ensure_user,
+    db_get_active_subscription_status,
+    db_get_success_forward_logs_count,
+    db_get_lpm_lists_count,
+    db_get_active_userbots_count,
+    db_get_userbot_status,
+    db_save_admin_userbot,
+    db_save_userbot,
+    db_save_transaction,
+    db_get_forward_history,
+    db_get_active_users_for_scheduler,
+    db_get_expiring_subscriptions
+)
 from src.ui_styles import EMOJI_UI, format_menu_text
 from src.payments import create_qris_transaction, check_transaction_status
 from src.jaseb_engine import JasebEngine
@@ -94,34 +108,23 @@ async def check_join_status_handler(event):
 
 async def get_web_app_url(user_id: int) -> str:
     user_id = int(user_id)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    async with get_db() as db:
-        cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
-        succ_user = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
-        total_lpm = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
-        total_ub = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
-        ub_row = await cur.fetchone()
-        ub_status = ub_row[0] if ub_row else 'disconnected'
-        cur = await db.execute("""
-            SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions 
-            WHERE user_id=? AND status='active' AND TRIM(end_date) > ? 
-            ORDER BY end_date DESC LIMIT 1
-        """, (user_id, now_str))
-        sub_row = await cur.fetchone()
-        pkg_name = sub_row[0] if sub_row else "Tidak Aktif"
-        cap = sub_row[1] if sub_row else 0
-        iv = float(sub_row[3] or 0.5) if sub_row else 0.5
-        days = 0
-        if sub_row:
-            try:
-                end_dt = datetime.strptime(sub_row[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
-                delta = end_dt - datetime.now()
-                days = max(0, delta.days)
-                if days == 0 and delta.total_seconds() > 0: days = 1
-            except: pass
+    succ_user = db_get_success_forward_logs_count(user_id)
+    total_lpm = db_get_lpm_lists_count()
+    total_ub = db_get_active_userbots_count()
+    ub_status = db_get_userbot_status(user_id)
+    
+    sub_row = db_get_active_subscription_status(user_id)
+    pkg_name = sub_row[0] if sub_row else "Tidak Aktif"
+    cap = sub_row[1] if sub_row else 0
+    iv = float(sub_row[3] or 0.5) if sub_row else 0.5
+    days = 0
+    if sub_row:
+        try:
+            end_dt = datetime.strptime(sub_row[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
+            delta = end_dt - datetime.now()
+            days = max(0, delta.days)
+            if days == 0 and delta.total_seconds() > 0: days = 1
+        except: pass
     import urllib.parse
     params = {"b": succ_user, "l": total_lpm, "u": total_ub, "ub": ub_status, "pkg": pkg_name, "ulpm": cap, "days": days, "int": iv}
     return f"{MINI_APP_URL.rstrip('/')}/?{urllib.parse.urlencode(params)}"
@@ -206,13 +209,20 @@ async def user_input_handler(event):
             client = state_data["client"]
             await client.sign_in(state_data["phone"], text, phone_code_hash=state_data["hash"])
             await _save_userbot_session(event, client, state_data["phone"])
-        except Exception as e: await event.respond(f"❌ OTP Salah: {e}")
+        except SessionPasswordNeededError:
+            login_states[user_id].update({"state": "waiting_for_password"})
+            await event.respond("🔒 **AKUN ANDA MENGGUNAKAN 2FA!**\n\nMasukkan password verifikasi 2-langkah akun Telegram Anda:")
+        except Exception as e: await event.respond(f"❌ OTP Salah atau Gagal: {e}")
+
+    elif current_state == "waiting_for_password":
+        try:
+            client = state_data["client"]
+            await client.sign_in(password=text)
+            await _save_userbot_session(event, client, state_data["phone"])
+        except Exception as e: await event.respond(f"❌ Password Salah atau Gagal: {e}")
 
     elif current_state == "waiting_for_ad":
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        async with get_db() as db:
-            cur = await db.execute("SELECT package_name FROM subscriptions WHERE user_id=? AND status='active' AND TRIM(end_date) > ? ORDER BY end_date DESC LIMIT 1", (user_id, now_str))
-            sub = await cur.fetchone()
+        sub = db_get_active_subscription_status(user_id)
         if not sub: await event.respond("❌ Paket tidak aktif."); del login_states[user_id]; return
         is_fwd = "forward" in sub[0].lower()
         if is_fwd and not event.message.forward:
@@ -221,34 +231,29 @@ async def user_input_handler(event):
             await event.respond("❌ Paket REGULAR dilarang forward."); return
         await event.respond("⏳ Menyimpan materi iklan..."); content = html.unparse(event.message.message or "", event.message.entities or [])
         media = await event.message.download_media(file="data/media/") if event.message.media else ""
-        async with get_db() as db:
-            await db.execute("DELETE FROM user_ads WHERE user_id=?", (user_id,))
-            await db.execute("INSERT INTO user_ads (user_id, title, content, media_path) VALUES (?, 'Iklan Utama', ?, ?)", (user_id, content, media))
-            await db.commit()
+        db_save_user_ad(user_id, content, media)
         login_states[user_id]["state"] = "waiting_for_lpm_request"
         await event.respond("✅ Materi Tersimpan! Kirim daftar link LPM kustom atau ketik `/skip`:")
-
+ 
     elif current_state == "waiting_for_lpm_request":
         lpm_list_str = ""
         if text.lower() != "/skip":
             links = re.findall(r'(?:https?://)?(?:t\.me/|@)?([a-zA-Z0-9_]{5,32}|joinchat/[a-zA-Z0-9_\-]+)', text)
             if not links: await event.respond("❌ Kirim daftar LPM atau /skip."); return
             lpm_list_str = " ".join([f"@{l}" if not ("t.me" in l or "joinchat" in l) else l for l in links[:10]])
-        async with get_db() as db:
-            await db.execute("UPDATE subscriptions SET request_lpm=? WHERE user_id=? AND status='active'", (lpm_list_str or None, user_id))
-            await db.commit()
+        db_update_subscription_lpm(user_id, lpm_list_str)
         del login_states[user_id]
         await event.respond("🎉 **Pendaftaran Selesai!** Bot mulai menyebar sekarang.")
         asyncio.create_task(start_user_broadcast(user_id))
-
+ 
 async def _save_userbot_session(event, client, phone):
     user_id = event.sender_id
     is_admin = (user_id == ADMIN_ID)
     session = f"admin_{phone.replace('+','')}" if is_admin else f"user_{user_id}"
-    async with get_db() as db:
-        if is_admin: await db.execute("INSERT OR REPLACE INTO admin_userbots (phone_number, session_name, status) VALUES (?, ?, 'connected')", (phone, session))
-        else: await db.execute("INSERT OR REPLACE INTO userbots (user_id, phone_number, session_name, status) VALUES (?, ?, ?, 'connected')", (user_id, phone, session))
-        await db.commit()
+    if is_admin:
+        db_save_admin_userbot(phone, session)
+    else:
+        db_save_userbot(user_id, phone, session)
     await client.disconnect()
     if not is_admin:
         login_states[user_id] = {"state": "waiting_for_ad"}
@@ -274,10 +279,8 @@ async def order_format_parser(event):
     paket = data.get("paket jaseb", data.get("durasi userbot", "Manual"))
     target_uid = int(data.get("id telegram", event.sender_id))
     trx_id = f"MAN-{int(datetime.now().timestamp())}"
-    async with get_db() as db:
-        await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (target_uid, trx_id, paket, amount))
-        await db.commit()
-    await process_activation(bot, db, trx_id, load_prices(), login_states)
+    db_save_transaction(target_uid, trx_id, paket, amount, "manual")
+    await process_activation(bot, trx_id, load_prices(), login_states)
     await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
 
 @bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
@@ -285,7 +288,7 @@ async def check_payment_status_handler(event):
     trx_id = event.pattern_match.group(1).decode()
     res = await check_transaction_status(trx_id)
     if res and res.get("data", {}).get("status") == "success":
-        async with get_db() as db: await process_activation(bot, db, trx_id, load_prices(), login_states)
+        await process_activation(bot, trx_id, load_prices(), login_states)
         await event.answer("✅ Sukses!", alert=True)
     else: await event.answer("⏳ Menunggu...", alert=True)
 
@@ -300,17 +303,13 @@ async def handle_checkout_api(request):
         uid, amt, pkg, method = int(data['user_id']), int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
         if method == 'manual':
             trx_id = f"MAN-{int(datetime.now().timestamp())}"
-            async with get_db() as db:
-                await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (uid, trx_id, pkg, amt))
-                await db.commit()
+            db_save_transaction(uid, trx_id, pkg, amt, "manual")
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
             await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke bot!")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
-            async with get_db() as db:
-                await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, ?, 'pending')", (uid, trx['transaction_id'], pkg, amt, trx['payment_url']))
-                await db.commit()
+            db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'])
             return web.json_response({"status": True, "data": trx}, headers={"Access-Control-Allow-Origin": "*"})
     except: pass
     return web.json_response({"status": False}, status=400, headers={"Access-Control-Allow-Origin": "*"})
@@ -318,19 +317,10 @@ async def handle_checkout_api(request):
 async def handle_user_stats_api(request):
     try:
         uid = int(request.match_info['user_id'])
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        async with get_db() as db:
-            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (uid,))
-            succ = (await cur.fetchone())[0]
-            cur = await db.execute("""
-                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions 
-                WHERE user_id=? AND status='active' AND TRIM(end_date) > ? 
-                ORDER BY end_date DESC LIMIT 1
-            """, (uid, now_str))
-            sub = await cur.fetchone()
-            cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (uid,))
-            ub = await cur.fetchone()
-        res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub[0] if ub else "disconnected"}
+        succ = db_get_success_forward_logs_count(uid)
+        sub = db_get_active_subscription_status(uid)
+        ub_status = db_get_userbot_status(uid)
+        res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub_status}
         if sub:
             try:
                 end_dt = datetime.strptime(sub[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
@@ -344,9 +334,7 @@ async def handle_user_stats_api(request):
 async def handle_history_api(request):
     try:
         uid = int(request.match_info['user_id'])
-        async with get_db() as db:
-            cur = await db.execute("SELECT l.group_name, f.msg_link, f.status, f.error_msg, f.sent_at FROM forward_logs f LEFT JOIN lpm_lists l ON f.group_id = l.group_id WHERE f.user_id=? ORDER BY f.sent_at DESC LIMIT 50", (uid,))
-            rows = await cur.fetchall()
+        rows = db_get_forward_history(uid)
         return web.json_response({"status": True, "data": [{"group_name": r[0] or "Grup LPM", "msg_link": r[1], "status": r[2], "error_msg": r[3], "sent_at": r[4]} for r in rows]}, headers={"Access-Control-Allow-Origin": "*"})
     except: return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
@@ -354,20 +342,18 @@ async def handle_check_status_api(request):
     trx_id = request.match_info.get('trx_id')
     res = await check_transaction_status(trx_id)
     if res and res.get("data", {}).get("status") == "success":
-        async with get_db() as db: await process_activation(bot, db, trx_id, load_prices(), login_states)
+        await process_activation(bot, trx_id, load_prices(), login_states)
     return web.json_response(res, headers={"Access-Control-Allow-Origin": "*"})
 
 async def start_user_broadcast(user_id: int):
-    async with get_db() as db: await run_broadcast_cycle(bot, db, user_id, API_ID, API_HASH)
+    await run_broadcast_cycle(bot, user_id, API_ID, API_HASH)
 
 async def run_jaseb_scheduler():
     last_run = {}
     while True:
         await asyncio.sleep(60)
-        now = datetime.now(); now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        async with get_db() as db:
-            cur = await db.execute("SELECT DISTINCT user_id, broadcast_interval_hours FROM subscriptions WHERE status='active' AND TRIM(end_date) > ?", (now_str,))
-            users = await cur.fetchall()
+        now = datetime.now()
+        users = db_get_active_users_for_scheduler()
         for uid, iv_h in users:
             iv = float(iv_h or 0.5)
             if uid not in last_run or (now - last_run[uid]).total_seconds() >= iv * 3600:
@@ -378,11 +364,7 @@ async def run_expiry_reminder():
         try:
             await asyncio.sleep(3600 * 6)
             now = datetime.now()
-            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            limit_str = (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-            async with get_db() as db:
-                cur = await db.execute("SELECT user_id, package_name, end_date FROM subscriptions WHERE status='active' AND TRIM(end_date) BETWEEN ? AND ?", (now_str, limit_str))
-                exp = await cur.fetchall()
+            exp = db_get_expiring_subscriptions(24)
             for u, p, e in exp:
                 try:
                     end_dt = datetime.strptime(e.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")

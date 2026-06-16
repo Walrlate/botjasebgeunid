@@ -11,7 +11,12 @@ from datetime import datetime
 from telethon import events, Button
 
 from src.config import ADMIN_ID, ADMIN_USERNAME
-from src.database import get_db
+from src.database import (
+    db_get_active_subscription_id,
+    db_get_active_subscription_status,
+    db_get_success_forward_logs_count,
+    db_get_userbot_status
+)
 from src.payments import create_qris_transaction
 from src.ui_styles import EMOJI_UI, format_menu_text
 
@@ -44,10 +49,7 @@ def _register_handlers(bot):
     @bot.on(events.NewMessage(pattern='/edit_jaseb'))
     async def edit_jaseb_command_handler(event):
         uid = int(event.sender_id)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        async with get_db() as db:
-            cur = await db.execute("SELECT id FROM subscriptions WHERE user_id=? AND status='active' AND TRIM(end_date) > ? ORDER BY end_date DESC LIMIT 1", (uid, now_str))
-            sub = await cur.fetchone()
+        sub = db_get_active_subscription_id(uid)
         if not sub: await event.respond("❌ Anda tidak memiliki paket aktif."); return
         _login_states[uid] = {"state": "waiting_for_ad"}
         await event.respond("✍️ **Kirim teks/materi jaseb baru Anda:**\n(Teks, Foto+Caption, atau Forward)")
@@ -69,15 +71,9 @@ async def _show_help_main(event):
 
 async def _show_mystatus(event, user_id: int):
     user_id = int(user_id)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    async with get_db() as db:
-        cur = await db.execute("SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions WHERE user_id=? AND status='active' AND TRIM(end_date) > ? ORDER BY end_date DESC LIMIT 1", (user_id, now_str))
-        sub = await cur.fetchone()
-        cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
-        total_sent = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
-        ub_row = await cur.fetchone()
-        ub_status = ub_row[0] if ub_row else "disconnected"
+    sub = db_get_active_subscription_status(user_id)
+    total_sent = db_get_success_forward_logs_count(user_id)
+    ub_status = db_get_userbot_status(user_id)
 
     if not sub:
         text = "📊 **Status Jaseb**\n\n❌ Tidak ada paket aktif."

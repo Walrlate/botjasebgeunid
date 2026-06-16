@@ -6,7 +6,11 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
 from telethon.tl.types import PeerChannel, PeerUser, PeerChat
 from telethon.errors import FloodWaitError
-from src.database import get_db
+from src.database import (
+    db_get_user_ad_by_id,
+    db_get_active_subscription_status,
+    db_insert_forward_log
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,100 +40,92 @@ class JasebEngine:
         failed_count = 0
         flood_seconds = 0
 
-        async with get_db() as db:
-            cursor = await db.execute("SELECT content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id FROM user_ads WHERE id = ?", (ad_id,))
-            ad = await cursor.fetchone()
-            if not ad:
-                self.is_running = False
-                return {"success": False, "error": "Ad not found"}
-            
-            content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id = ad
- 
-            cursor = await db.execute("SELECT package_name FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY end_date DESC LIMIT 1", (user_id,))
-            sub_row = await cursor.fetchone()
-            package_name = sub_row[0] if sub_row else ""
+        ad = db_get_user_ad_by_id(ad_id)
+        if not ad:
+            self.is_running = False
+            return {"success": False, "error": "Ad not found"}
+        
+        content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id = ad
 
-            # Branding Otomatis
-            if content and not (fwd_chat_id and fwd_msg_id):
-                from src.config import BOT_USERNAME
-                if "regular" in package_name.lower():
-                    content = f"{content}\n\n• Promoted by @{BOT_USERNAME}"
- 
-            for link in group_links:
-                if not self.is_running: break
-                
+        sub_row = db_get_active_subscription_status(user_id)
+        package_name = sub_row[0] if sub_row else ""
+
+        # Branding Otomatis
+        if content and not (fwd_chat_id and fwd_msg_id):
+            from src.config import BOT_USERNAME
+            if "regular" in package_name.lower():
+                content = f"{content}\n\n• Promoted by @{BOT_USERNAME}"
+
+        for link in group_links:
+            if not self.is_running: break
+            
+            try:
+                # 1. Resolve Entity
                 try:
-                    # 1. Resolve Entity
-                    try:
-                        entity = await self.client.get_entity(link)
-                    except Exception as e:
-                        logger.error(f"Gagal resolve {link}: {e}")
-                        continue
-
-                    # 2. JARVIS PROACTIVE: Simulasi Manusia (Typing)
-                    is_joined = True
-                    try:
-                        async with self.client.action(entity, 'typing'):
-                            await asyncio.sleep(random.uniform(1, 2))
-                    except: 
-                        is_joined = False
-
-                    if not is_joined:
-                        await self.client(JoinChannelRequest(entity))
-                        await asyncio.sleep(random.uniform(2, 3))
-
-                    # 3. Smart-Tagging (Dinamis)
-                    final_content = content
-                    if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
-                        final_content = f"{final_content}\n#LPM #Promote"
-
-                    # 4. EXECUTION
-                    if fwd_chat_id and fwd_msg_id:
-                        from_peer = fwd_chat_id
-                        if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
-                        elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
-                        elif fwd_peer_type == 'chat': from_peer = PeerChat(int(fwd_chat_id))
-                        
-                        msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
-                        msg = msg_list[0] if isinstance(msg_list, list) else msg_list
-                    else:
-                        if media_path and os.path.exists(media_path):
-                            msg = await self.client.send_file(entity, media_path, caption=final_content, parse_mode='html')
-                        else:
-                            msg = await self.client.send_message(entity, final_content, parse_mode='html')
-                    
-                    # 5. Link Generation (ROBUST)
-                    if hasattr(entity, 'username') and entity.username:
-                        msg_link = f"https://t.me/{entity.username}/{msg.id}"
-                    elif hasattr(msg.peer_id, 'channel_id'):
-                        msg_link = f"https://t.me/c/{msg.peer_id.channel_id}/{msg.id}"
-                    else:
-                        msg_link = "Private/Linked"
-                    
-                    async with get_db() as db:
-                        await db.execute(
-                            "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
-                            (user_id, ad_id, entity.id, msg_link, 'success')
-                        )
-                        await db.commit()
-                    
-                    success_count += 1
-                    unprocessed_links.remove(link)
-
-                    # PERSISTENT PROTOCOL: No Leave.
-                    sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(5, 10)
-                    await asyncio.sleep(sleep_time)
-
-                except FloodWaitError as fwe:
-                    if fwe.seconds > 300:
-                        flood_seconds = fwe.seconds
-                        break
-                    await asyncio.sleep(fwe.seconds)
+                    entity = await self.client.get_entity(link)
                 except Exception as e:
-                    logger.error(f"Error {link}: {e}")
-                    failed_count += 1
-                    unprocessed_links.remove(link)
-            
+                    logger.error(f"Gagal resolve {link}: {e}")
+                    continue
+
+                # 2. JARVIS PROACTIVE: Simulasi Manusia (Typing)
+                is_joined = True
+                try:
+                    async with self.client.action(entity, 'typing'):
+                        await asyncio.sleep(random.uniform(1, 2))
+                except: 
+                    is_joined = False
+
+                if not is_joined:
+                    await self.client(JoinChannelRequest(entity))
+                    await asyncio.sleep(random.uniform(2, 3))
+
+                # 3. Smart-Tagging (Dinamis)
+                final_content = content
+                if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
+                    final_content = f"{final_content}\n#LPM #Promote"
+
+                # 4. EXECUTION
+                if fwd_chat_id and fwd_msg_id:
+                    from_peer = fwd_chat_id
+                    if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
+                    elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
+                    elif fwd_peer_type == 'chat': from_peer = PeerChat(int(fwd_chat_id))
+                    
+                    msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
+                    msg = msg_list[0] if isinstance(msg_list, list) else msg_list
+                else:
+                    if media_path and os.path.exists(media_path):
+                        msg = await self.client.send_file(entity, media_path, caption=final_content, parse_mode='html')
+                    else:
+                        msg = await self.client.send_message(entity, final_content, parse_mode='html')
+                
+                # 5. Link Generation (ROBUST)
+                if hasattr(entity, 'username') and entity.username:
+                    msg_link = f"https://t.me/{entity.username}/{msg.id}"
+                elif hasattr(msg.peer_id, 'channel_id'):
+                    msg_link = f"https://t.me/c/{msg.peer_id.channel_id}/{msg.id}"
+                else:
+                    msg_link = "Private/Linked"
+                
+                db_insert_forward_log(user_id, ad_id, entity.id, msg_link, 'success')
+                
+                success_count += 1
+                unprocessed_links.remove(link)
+
+                # PERSISTENT PROTOCOL: No Leave.
+                sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(5, 10)
+                await asyncio.sleep(sleep_time)
+
+            except FloodWaitError as fwe:
+                if fwe.seconds > 300:
+                    flood_seconds = fwe.seconds
+                    break
+                await asyncio.sleep(fwe.seconds)
+            except Exception as e:
+                logger.error(f"Error {link}: {e}")
+                failed_count += 1
+                unprocessed_links.remove(link)
+        
         self.is_running = False
         return {"success": True, "success_count": success_count, "failed_count": failed_count, "unprocessed_links": unprocessed_links, "floodwait_seconds": flood_seconds}
 

@@ -12,6 +12,19 @@ import os
 import random
 from datetime import datetime, timedelta
 from telethon.tl.types import PeerChannel, PeerUser, PeerChat
+from src.database import (
+    db_get_transaction,
+    db_get_active_subscription_id_and_end,
+    db_update_subscription_dates,
+    db_add_subscription,
+    db_update_transaction_status,
+    db_get_active_subscription_broadcast_details,
+    db_get_latest_user_ad_id,
+    db_get_active_lpm_lists,
+    db_get_userbot_session_and_status,
+    db_get_active_admin_userbots,
+    db_cooldown_admin_userbot
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +60,7 @@ def get_capacity_from_package(package_name: str) -> int:
 # Core: Aktivasi Paket (Mutlak & Aman)
 # ─────────────────────────────────────────
 
-async def process_activation(bot, db, trx_id: str, prices: dict, login_states: dict):
+async def process_activation(bot, trx_id: str, prices: dict, login_states: dict):
     """
     Proses aktivasi paket tunggal yang aman dari duplikasi.
     Digunakan oleh Bot Callback, API Web, dan Admin Paste Format.
@@ -56,8 +69,7 @@ async def process_activation(bot, db, trx_id: str, prices: dict, login_states: d
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     
     # 1. Lock transaksi agar tidak diproses 2x (Idempotency)
-    cur = await db.execute("SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,))
-    row = await cur.fetchone()
+    row = db_get_transaction(trx_id)
     
     if not row:
         return False, "Transaksi tidak ditemukan."
@@ -71,13 +83,7 @@ async def process_activation(bot, db, trx_id: str, prices: dict, login_states: d
     cap = get_capacity_from_package(pkg_name)
     
     # 3. Update atau Insert Subskripsi
-    # Gunakan TRIM untuk memastikan perbandingan string tanggal akurat
-    cur = await db.execute("""
-        SELECT id, end_date FROM subscriptions 
-        WHERE user_id=? AND status='active' AND TRIM(end_date) > ?
-        ORDER BY end_date DESC LIMIT 1
-    """, (uid, now_str))
-    active_sub = await cur.fetchone()
+    active_sub = db_get_active_subscription_id_and_end(uid)
     
     if active_sub:
         # MODE PERPANJANG
@@ -88,18 +94,14 @@ async def process_activation(bot, db, trx_id: str, prices: dict, login_states: d
         except:
             base_date = now
         new_end = (base_date + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        await db.execute("UPDATE subscriptions SET end_date=?, capacity_lpm=?, package_name=? WHERE id=?", (new_end, cap, pkg_name, sub_id))
+        db_update_subscription_dates(sub_id, new_end, cap, pkg_name)
     else:
         # MODE BARU
         new_end = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        await db.execute("""
-            INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours)
-            VALUES (?, ?, ?, ?, ?, 'active', 0.5)
-        """, (uid, pkg_name, cap, now_str, new_end))
+        db_add_subscription(uid, pkg_name, cap, now_str, new_end)
     
     # 4. Tandai transaksi sukses
-    await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
-    await db.commit()
+    db_update_transaction_status(trx_id, "success")
     
     # 5. Set alur bot selanjutnya (Minta Materi / Minta HP)
     is_ubot = "userbot" in pkg_name.lower()
@@ -130,29 +132,21 @@ async def process_activation(bot, db, trx_id: str, prices: dict, login_states: d
 # Core: Orkestrasi Broadcast (Multi-Admin)
 # ─────────────────────────────────────────
 
-async def run_broadcast_cycle(bot, db, user_id: int, api_id, api_hash):
+async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
     """
     Eksekusi satu siklus broadcast. Menangani pemilihan pool admin atau ubot pembeli.
     """
     from src.jaseb_engine import JasebEngine
     from src.notifications import notify_client_broadcast_done
     
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
     # 1. Ambil Langganan
-    cur = await db.execute("""
-        SELECT package_name, capacity_lpm, request_lpm, broadcast_interval_hours 
-        FROM subscriptions WHERE user_id=? AND status='active' AND TRIM(end_date) > ? 
-        ORDER BY end_date DESC LIMIT 1
-    """, (user_id, now_str))
-    sub = await cur.fetchone()
+    sub = db_get_active_subscription_broadcast_details(user_id)
     if not sub: return
     
     pkg, cap, req_lpm, iv = sub
     
     # 2. Ambil Iklan
-    cur = await db.execute("SELECT id FROM user_ads WHERE user_id=? ORDER BY created_at DESC LIMIT 1", (user_id,))
-    ad = await cur.fetchone()
+    ad = db_get_latest_user_ad_id(user_id)
     if not ad:
         try: await bot.send_message(user_id, "⚠️ Iklan Anda kosong. Gunakan /edit_jaseb.");
         except: pass
@@ -163,20 +157,24 @@ async def run_broadcast_cycle(bot, db, user_id: int, api_id, api_hash):
     links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
     sisa = max(0, cap - len(links))
     if sisa > 0:
-        cur = await db.execute("SELECT group_link FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0 ORDER BY member_count DESC LIMIT ?", (sisa,))
-        rows = await cur.fetchall()
-        links.extend([r[0] for r in rows])
+        links.extend(db_get_active_lpm_lists(sisa))
 
     if "userbot" in pkg.lower():
         # JALUR USERBOT PEMBELI
-        cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (user_id,))
-        ub = await cur.fetchone()
+        ub = db_get_userbot_session_and_status(user_id)
         if ub and ub[1] == 'connected':
             eng = JasebEngine(f"data/sessions/{ub[0]}", api_id, api_hash)
             try:
                 await eng.start()
                 res = await eng.broadcast_with_stealth(user_id, ad_id, links, 'slowly')
                 await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5)
+            except Exception as e:
+                logger.error(f"Gagal broadcast userbot pembeli {user_id}: {e}")
+                from src.database import db_update_userbot_status
+                db_update_userbot_status(user_id, 'disconnected')
+                try:
+                    await bot.send_message(user_id, "⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot Anda terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
+                except: pass
             finally:
                 await eng.stop()
         else:
@@ -184,12 +182,7 @@ async def run_broadcast_cycle(bot, db, user_id: int, api_id, api_hash):
             except: pass
     else:
         # JALUR POOL ADMIN (FALLBACK)
-        cur = await db.execute("""
-            SELECT session_name, phone_number, id FROM admin_userbots 
-            WHERE status='connected' AND (cooldown_until IS NULL OR TRIM(cooldown_until) < ?) 
-            ORDER BY RANDOM()
-        """, (now_str,))
-        admins = await cur.fetchall()
+        admins = db_get_active_admin_userbots()
         
         if not admins:
             logger.error(f"Pool Kosong untuk user {user_id}")
@@ -211,8 +204,7 @@ async def run_broadcast_cycle(bot, db, user_id: int, api_id, api_hash):
                 
                 if res.get("floodwait_seconds", 0) > 300:
                     until = (datetime.now() + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
-                    await db.execute("UPDATE admin_userbots SET cooldown_until=? WHERE id=?", (until, aid))
-                    await db.commit()
+                    db_cooldown_admin_userbot(aid, until)
                     continue
                 break
             except: continue

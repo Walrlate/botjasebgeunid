@@ -12,7 +12,14 @@ from datetime import datetime, timedelta
 from telethon import events, Button
 
 from src.config import ADMIN_ID, ADMIN_USERNAME
-from src.database import get_db
+from src.database import (
+    db_get_admin_stats,
+    db_update_transaction_status,
+    db_get_admin_userbot_session,
+    db_delete_admin_userbot,
+    db_get_active_subscriptions_list,
+    db_get_admin_userbots
+)
 from src.ui_styles import EMOJI_UI, format_menu_text
 
 logger = logging.getLogger(__name__)
@@ -66,16 +73,7 @@ def _register_admin_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"admin_stats"))
     async def admin_stats_handler(event):
         if not await _admin_only_check(event): return
-        async with get_db() as db:
-            # Stats logic
-            cur = await db.execute("SELECT COUNT(*) FROM users")
-            total_users = (await cur.fetchone())[0]
-            cur = await db.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE status='success'")
-            total_revenue = (await cur.fetchone())[0]
-            cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
-            total_sent = (await cur.fetchone())[0]
-            cur = await db.execute("SELECT COUNT(*) FROM admin_userbots WHERE status='connected'")
-            total_admin_ub = (await cur.fetchone())[0]
+        total_users, total_revenue, total_sent, total_admin_ub = db_get_admin_stats()
 
         text = (
             f"📊 **STATISTIK ADMIN GEUNID**\n{'━'*22}\n\n"
@@ -94,17 +92,14 @@ def _register_admin_handlers(bot):
         if not await _admin_only_check(event): return
         trx_id = event.pattern_match.group(1).decode()
         from src.logic import process_activation
-        async with get_db() as db:
-            await process_activation(bot, db, trx_id, _load_prices(), _login_states)
+        await process_activation(bot, trx_id, _load_prices(), _login_states)
         await event.edit(f"✅ **TRANSAKSI {trx_id} DISETUJUI!**")
 
     @bot.on(events.CallbackQuery(pattern=b"reject_man_(.+)"))
     async def reject_manual_handler(event):
         if not await _admin_only_check(event): return
         trx_id = event.pattern_match.group(1).decode()
-        async with get_db() as db:
-            await db.execute("UPDATE transactions SET status='rejected' WHERE trx_id=?", (trx_id,))
-            await db.commit()
+        db_update_transaction_status(trx_id, "rejected")
         await event.edit(f"❌ **TRANSAKSI {trx_id} DITOLAK!**")
 
     # ═══════════════════════════════════════════
@@ -119,17 +114,13 @@ def _register_admin_handlers(bot):
     async def admin_disconnect_pool_callback(event):
         if not await _admin_only_check(event): return
         aid = int(event.pattern_match.group(1).decode())
-        async with get_db() as db:
-            cur = await db.execute("SELECT session_name FROM admin_userbots WHERE id=?", (aid,))
-            row = await cur.fetchone()
-            if row:
-                sess = row[0]
-                await db.execute("DELETE FROM admin_userbots WHERE id=?", (aid,))
-                await db.commit()
-                path = f"data/sessions/{sess}.session"
-                if os.path.exists(path):
-                    try: os.remove(path)
-                    except: pass
+        sess = db_get_admin_userbot_session(aid)
+        if sess:
+            db_delete_admin_userbot(aid)
+            path = f"data/sessions/{sess}.session"
+            if os.path.exists(path):
+                try: os.remove(path)
+                except: pass
         await event.answer("✅ Admin Ubot dihapus.", alert=True)
         await _show_ubots(event)
 
@@ -159,10 +150,7 @@ async def _show_admin_panel(event):
     await event.edit(text, buttons=buttons)
 
 async def _show_billing(event):
-    async with get_db() as db:
-        cur = await db.execute("SELECT user_id, package_name, end_date FROM subscriptions WHERE status='active' ORDER BY end_date ASC LIMIT 10")
-        subs = await cur.fetchall()
-    
+    subs = db_get_active_subscriptions_list(10)
     if not subs:
         await event.edit("❌ Tidak ada billing aktif.", buttons=[[Button.inline("⬅️ Kembali", b"admin_main")]])
         return
@@ -173,10 +161,7 @@ async def _show_billing(event):
     await event.edit(text, buttons=[[Button.inline("⬅️ Kembali", b"admin_main")]])
 
 async def _show_ubots(event):
-    async with get_db() as db:
-        cur = await db.execute("SELECT id, phone_number, status, cooldown_until FROM admin_userbots")
-        admins = await cur.fetchall()
-    
+    admins = db_get_admin_userbots()
     text = "🤖 **MANAJEMEN ADMIN POOL**\n\n"
     buttons = []
     if not admins:
