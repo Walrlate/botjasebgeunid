@@ -64,10 +64,35 @@ async def _show_help_main(event):
     from src.main import get_web_app_url
     from telethon.tl.types import KeyboardButtonWebView
     url = await get_web_app_url(event.sender_id)
-    text = format_menu_text("📖 BANTUAN GEUNID", "Pilih menu bantuan di bawah:")
-    buttons = [[KeyboardButtonWebView(text="🛒 Buka Mini App", url=url)], [Button.inline("📊 Status Saya", b"my_status")], [Button.inline("⬅️ Kembali", b"start")]]
-    if hasattr(event, "edit"): await event.edit(text, buttons=buttons)
-    else: await event.respond(text, buttons=buttons)
+    text = (
+        "📖 **PANDUAN & BANTUAN GEUNID JASEB**\n\n"
+        "Cara mudah menggunakan bot ini:\n\n"
+        "1️⃣ **Aktivasi Paket**\n"
+        "• Klik tombol **Launch GEUNID JASEB** di menu utama.\n"
+        "• Pilih paket yang kamu mau dan selesaikan pembayaran (bisa QRIS otomatis atau Transfer Manual).\n\n"
+        "2️⃣ **Sambungkan Akun (Userbot)**\n"
+        "• Kirim nomor HP akun Telegram kamu (+628xxx).\n"
+        "• Masukkan kode OTP yang dikirim Telegram (dan password 2FA kamu jika ada).\n\n"
+        "3️⃣ **Kirim Materi Promosi**\n"
+        "• Kirim materi iklan kamu (bisa teks biasa, foto + teks, atau forward pesan).\n"
+        "• Kirim daftar link grup LPM kustom kamu, atau ketik `/skip` untuk memakai ratusan grup LPM bawaan bot.\n\n"
+        "4️⃣ **Kelola & Cek Status**\n"
+        "• Masuk ke menu **Status Saya** untuk melihat log pengiriman, edit materi iklan, atau melakukan sebar ulang.\n\n"
+        "Hubungi Admin di @Geun_ID jika butuh bantuan tambahan."
+    )
+    buttons = [
+        [KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)],
+        [Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali", b"start")]
+    ]
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons)
+        except Exception as e:
+            try: await event.delete()
+            except: pass
+            await event.respond(text, buttons=buttons)
+    else:
+        await event.respond(text, buttons=buttons)
 
 async def _show_mystatus(event, user_id: int):
     user_id = int(user_id)
