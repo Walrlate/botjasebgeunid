@@ -188,6 +188,7 @@ const Dashboard = () => {
         userPackage: pkg,
         userLpm: ulpm,
         userDays: days,
+        userSecondsLeft: 0, // Inisialisasi default
         userInterval: interval,
       });
     }
