@@ -54,47 +54,75 @@ class JasebEngine:
                 if not self.is_running: break
                 
                 try:
-                    entity = await self.client.get_entity(link)
+                    # 1. Resolve entity target
+                    try:
+                        entity = await self.client.get_entity(link)
+                    except Exception as e:
+                        logger.warning(f"Grup/Link tidak valid atau hantu: {link} ({e})")
+                        continue
 
-                    if auto_join_leave:
-                        await self.client(JoinChannelRequest(entity))
-                        await asyncio.sleep(random.uniform(2, 4))
+                    # 2. PROAKTIF: Simulasi aktivitas manusia (Typing)
+                    # Jika gagal action, biasanya karena belum join atau diblokir
+                    is_joined = True
+                    try:
+                        async with self.client.action(entity, 'typing'):
+                            await asyncio.sleep(random.uniform(2, 5))
+                    except Exception:
+                        is_joined = False
 
-                    async with self.client.action(entity, 'typing'):
-                        await asyncio.sleep(random.uniform(3, 7))
+                    # 3. SMART JOIN: Hanya join jika terdeteksi belum masuk grup
+                    if not is_joined:
+                        try:
+                            logger.info(f"Jarvis: Akun belum berada di grup {link}. Mencoba Join...")
+                            await self.client(JoinChannelRequest(entity))
+                            await asyncio.sleep(random.uniform(3, 6))
+                        except Exception as join_err:
+                            logger.error(f"Jarvis: Gagal Join ke {link}. Grup mungkin private atau ubot dibanned. Error: {join_err}")
+                            async with get_db() as db:
+                                await db.execute(
+                                    "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                                    (user_id, ad_id, 0, 'failed', f"Gagal Join: {str(join_err)}")
+                                )
+                                await db.commit()
+                            failed_count += 1
+                            unprocessed_links.remove(link)
+                            continue
 
-                        if fwd_chat_id and fwd_msg_id:
-                            # METODE NATIVE FORWARD (Paket Forward)
-                            from_peer = fwd_chat_id
-                            if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
-                            elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
-                            elif fwd_peer_type == 'chat': from_peer = PeerChat(int(fwd_chat_id))
-                            
-                            msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
-                            msg = msg_list[0] if isinstance(msg_list, list) else msg_list
+                    # 4. EKSEKUSI PENGIRIMAN
+                    if fwd_chat_id and fwd_msg_id:
+                        # METODE NATIVE FORWARD (Paket Forward - Killer Feature: Auto Views)
+                        from_peer = fwd_chat_id
+                        if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
+                        elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
+                        elif fwd_peer_type == 'chat': from_peer = PeerChat(int(fwd_chat_id))
+                        
+                        msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
+                        msg = msg_list[0] if isinstance(msg_list, list) else msg_list
+                    else:
+                        # METODE COPY-PASTE HTML (Paket Regular & Userbot - Stealth Mode)
+                        if media_path:
+                            msg = await self.client.send_file(entity, media_path, caption=content, parse_mode='html')
                         else:
-                            # METODE COPY-PASTE HTML (Paket Regular & Userbot)
-                            if media_path:
-                                msg = await self.client.send_file(entity, media_path, caption=content, parse_mode='html')
-                            else:
-                                msg = await self.client.send_message(entity, content, parse_mode='html')
-                        
-                        msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else "Private/Linked"
-                        
-                        async with get_db() as db:
-                            await db.execute(
-                                "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
-                                (user_id, ad_id, entity.id, msg_link, 'success')
-                            )
-                            await db.commit()
+                            msg = await self.client.send_message(entity, content, parse_mode='html')
+                    
+                    # 5. GENERATE BUKTI KIRIM (PROOF HUB)
+                    msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else f"https://t.me/{entity.username}/{msg.id}" if hasattr(entity, 'username') and entity.username else "Private/Linked"
+                    
+                    async with get_db() as db:
+                        await db.execute(
+                            "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                            (user_id, ad_id, entity.id, msg_link, 'success')
+                        )
+                        await db.commit()
                     
                     success_count += 1
                     unprocessed_links.remove(link)
+                    logger.info(f"Jarvis: Sukses menyebar ke {link}")
 
-                    if auto_join_leave:
-                        await self.client(LeaveChannelRequest(entity))
+                    # 6. PROTOKOL PERSISTENT: TIDAK ADA LEAVE GRUP. 
+                    # Akun menetap agar siklus berikutnya langsung kirim tanpa join lagi.
                     
-                    sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(3, 5)
+                    sleep_time = random.uniform(20, 40) if delay_mode == 'slowly' else random.uniform(3, 6)
                     await asyncio.sleep(sleep_time)
 
                 except FloodWaitError as fwe:
