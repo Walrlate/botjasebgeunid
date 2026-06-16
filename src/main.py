@@ -172,27 +172,30 @@ async def check_join_status_handler(event):
 # Helper: Buat URL Mini App
 # ─────────────────────────────────────────
 async def handle_user_stats_api(request):
+    user_id = None
     try:
-        user_id = request.match_info.get('user_id')
-        if not user_id:
+        raw_user_id = request.match_info.get('user_id')
+        if not raw_user_id:
             return web.json_response({"status": False, "error": "User ID required"}, status=400)
+        user_id = int(raw_user_id)
 
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         async with get_db() as db:
-            # Hitung total terkirim sukses milik user ini
+            # Statistik personal sukses
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
             total_sent = (await cur.fetchone())[0]
             
-            # Hitung total gagal
+            # Statistik personal gagal
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='failed'", (user_id,))
             total_failed = (await cur.fetchone())[0]
             
-            # Ambil detail paket aktif
+            # Paket Aktif (Gunakan perbandingan waktu dari Python agar sinkron)
             cur = await db.execute("""
                 SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours, status
                 FROM subscriptions
-                WHERE user_id=? AND status='active'
+                WHERE user_id=? AND status='active' AND end_date > ?
                 ORDER BY end_date DESC LIMIT 1
-            """, (user_id,))
+            """, (user_id, now_str))
             sub = await cur.fetchone()
             
             # Ambil status userbot
@@ -204,14 +207,13 @@ async def handle_user_stats_api(request):
         user_lpm = 0
         user_days = 0
         user_seconds_left = 0
-        user_interval = 0
+        user_interval = 0.5
         
         if sub:
             user_package = sub[0]
             user_lpm = sub[1]
-            user_interval = sub[3] or 0.5
+            user_interval = float(sub[3] or 0.5)
             try:
-                # Perbaikan parsing tanggal
                 clean_date = sub[2].split(".")[0]
                 end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                 delta = end_dt - datetime.now()
@@ -238,7 +240,7 @@ async def handle_user_stats_api(request):
             "Access-Control-Allow-Headers": "Content-Type"
         })
     except Exception as e:
-        logger.error(f"Error handle_user_stats_api: {e}")
+        logger.error(f"Error handle_user_stats_api for user {user_id}: {e}")
         return web.json_response({"status": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 async def get_web_app_url(user_id: int) -> str:
@@ -249,26 +251,22 @@ async def get_web_app_url(user_id: int) -> str:
     user_package = 'Tidak Aktif'
     user_lpm = 0
     user_days = 0
-    user_interval = 0
+    user_interval = 0.5
     try:
         async with get_db() as db:
-            # Statistik Personal (untuk angka di box 'Total Terkirim')
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (user_id,))
             total_sent_user = (await cur.fetchone())[0]
             
-            # Statistik Global (untuk info sistem)
             cur = await db.execute("SELECT COUNT(*) FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0")
             total_lpm_global = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM userbots WHERE status='connected'")
             total_userbots_global = (await cur.fetchone())[0]
             
-            # Status Userbot Spesifik
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (user_id,))
             ub_row = await cur.fetchone()
             if ub_row:
                 user_bot_status = ub_row[0]
             
-            # Paket Aktif (Query lebih simpel & robust)
             cur = await db.execute("""
                 SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours 
                 FROM subscriptions
@@ -279,14 +277,12 @@ async def get_web_app_url(user_id: int) -> str:
             if sub_row:
                 user_package = sub_row[0]
                 user_lpm = sub_row[1]
-                user_interval = sub_row[3] or 0.5
+                user_interval = float(sub_row[3] or 0.5)
                 try:
                     clean_date = sub_row[2].split(".")[0]
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                     delta = end_dt - datetime.now()
                     user_days = max(0, delta.days)
-                    if user_days == 0 and delta.total_seconds() > 0:
-                        user_days = 1
                 except Exception:
                     user_days = 0
     except Exception as e:
@@ -733,7 +729,13 @@ async def user_input_handler(event):
             fwd_header = event.message.forward
             fwd_chat_id = None
             fwd_peer_type = None
-            fwd_msg_id = fwd_header.channel_post or fwd_header.from_message_id
+            
+            # Gunakan getattr untuk keamanan atribut pada objek Forward (MessageFwdHeader)
+            fwd_msg_id = getattr(fwd_header, 'channel_post', None) or getattr(fwd_header, 'saved_from_msg_id', None)
+            
+            # Jika masih kosong (forward dari user privasi), gunakan ID pesan yang masuk ke bot sebagai fallback
+            if not fwd_msg_id:
+                fwd_msg_id = event.message.id
 
             if fwd_header.from_id:
                 peer = fwd_header.from_id
@@ -747,11 +749,16 @@ async def user_input_handler(event):
                     fwd_chat_id = peer.chat_id
                     fwd_peer_type = 'chat'
             
-            if not fwd_chat_id and fwd_header.chat_id:
-                fwd_chat_id = fwd_header.chat_id
-                fwd_peer_type = 'chat'
+            # Tambahan pengecekan chat_id/from_name jika from_id tersembunyi
+            if not fwd_chat_id:
+                if hasattr(fwd_header, 'chat_id') and fwd_header.chat_id:
+                    fwd_chat_id = fwd_header.chat_id
+                    fwd_peer_type = 'chat'
+                elif hasattr(fwd_header, 'from_name') and fwd_header.from_name:
+                    fwd_chat_id = fwd_header.from_name
+                    fwd_peer_type = 'username'
 
-            if not fwd_chat_id or not fwd_msg_id:
+            if not fwd_chat_id:
                 await event.respond("❌ **Gagal!** Tidak bisa membaca info asal forward. Pastikan meneruskan dari Channel publik.")
                 return
 
@@ -1839,13 +1846,14 @@ async def run_lpm_scrape_validation_task(admin_id: int, usernames: list, engine)
 async def start_user_broadcast(user_id: int):
     """Mulai broadcast jaseb otomatis untuk satu user."""
     logger.info(f"Memulai broadcast untuk user_id: {user_id}")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with get_db() as db:
         cur = await db.execute("""
             SELECT package_name, capacity_lpm, request_lpm, broadcast_interval_hours
             FROM subscriptions
-            WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+            WHERE user_id=? AND status='active' AND end_date > ?
             ORDER BY end_date DESC LIMIT 1
-        """, (user_id,))
+        """, (user_id, now_str))
         sub = await cur.fetchone()
         if not sub:
             logger.warning(f"Tidak ada sub aktif untuk user {user_id}")
@@ -1961,6 +1969,7 @@ async def run_jaseb_scheduler():
             now = datetime.now()
 
             async with get_db() as db:
+                # Ambil hanya user yang subskripsinya aktif dan belum kadaluarsa
                 cur = await db.execute("""
                     SELECT DISTINCT user_id, broadcast_interval_hours
                     FROM subscriptions
@@ -1968,12 +1977,18 @@ async def run_jaseb_scheduler():
                 """)
                 active_users = await cur.fetchall()
 
+            if not active_users:
+                continue
+
             for user_id, interval_hours in active_users:
-                interval = interval_hours or 2
+                # Gunakan 0.5 (30 menit) sebagai fallback default
+                interval = float(interval_hours or 0.5)
                 last_time = last_broadcast.get(user_id)
 
-                if last_time is None or (now - last_time).total_seconds() >= interval * 3600:
+                # Cek apakah interval waktu sudah terpenuhi
+                if last_time is None or (now - last_time).total_seconds() >= (interval * 3600):
                     last_broadcast[user_id] = now
+                    logger.info(f"Triggering automatic broadcast for user {user_id} (Interval: {interval}h)")
                     asyncio.create_task(start_user_broadcast(user_id))
 
         except Exception as e:

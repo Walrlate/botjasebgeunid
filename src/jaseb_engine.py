@@ -91,7 +91,7 @@ class JasebEngine:
                                 from_peer = int(fwd_chat_id) if fwd_chat_id.isdigit() else fwd_chat_id
 
                             # Lakukan forward secara native
-                            msg_list = await self.client.forward_messages(entity, messages=fwd_msg_id, from_peer=from_peer)
+                            msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
                             msg = msg_list[0] if isinstance(msg_list, list) else msg_list
                         else:
                             # METODE COPY-PASTE HTML (Paket Regular & Userbot)
@@ -104,10 +104,12 @@ class JasebEngine:
                         msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else "Private/Linked"
                         
                         # Simpan log sukses
-                        await db.execute(
-                            "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status) VALUES (?, ?, ?, ?, ?)",
-                            (user_id, ad_id, entity.id, msg_link, 'success')
-                        )
+                        async with get_db() as db:
+                            await db.execute(
+                                "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                                (user_id, ad_id, entity.id, msg_link, 'success')
+                            )
+                            await db.commit()
                     
                     logger.info(f"Successfully sent to {link}")
 
@@ -118,32 +120,32 @@ class JasebEngine:
                     
                     # 4. Handle Delay Mode
                     if delay_mode == 'slowly':
-                        # Jeda panjang tiap pengiriman grup (Slowly)
                         sleep_time = random.uniform(30, 60)
-                        logger.info(f"Delay slowly: Sleeping for {sleep_time:.2f}s before next group")
-                        await asyncio.sleep(sleep_time)
                     else:
-                        # Jeda instan minimal (Instant)
                         sleep_time = random.uniform(3, 5)
-                        logger.info(f"Delay instant: Sleeping for {sleep_time:.2f}s before next group")
-                        await asyncio.sleep(sleep_time)
+                    await asyncio.sleep(sleep_time)
 
                 except FloodWaitError as fwe:
-                    # Penanganan anti-ban / limit floodwait otomatis
-                    logger.warning(f"Telegram FloodWait triggered! Must sleep for {fwe.seconds}s")
-                    await db.execute(
-                        "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg) VALUES (?, ?, ?, ?, ?)",
-                        (user_id, ad_id, 0, 'failed', f"FloodWait: Harap tunggu {fwe.seconds} detik")
-                    )
+                    logger.warning(f"Telegram FloodWait triggered for user {user_id}! Must sleep for {fwe.seconds}s")
+                    async with get_db() as db:
+                        await db.execute(
+                            "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                            (user_id, ad_id, 0, 'failed', f"FloodWait: {fwe.seconds}s")
+                        )
+                        await db.commit()
+                    
+                    if fwe.seconds > 300: # Jika lebih dari 5 menit, hentikan loop user ini
+                        logger.error(f"Stopping broadcast for user {user_id} due to long FloodWait")
+                        break
                     await asyncio.sleep(fwe.seconds)
                 except Exception as e:
                     logger.error(f"Failed to send to {link}: {e}")
-                    await db.execute(
-                        "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg) VALUES (?, ?, ?, ?, ?)",
-                        (user_id, ad_id, 0, 'failed', str(e))
-                    )
-                
-                await db.commit()
+                    async with get_db() as db:
+                        await db.execute(
+                            "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                            (user_id, ad_id, 0, 'failed', str(e))
+                        )
+                        await db.commit()
             
             # Jika menggunakan mode 'instant', jeda panjang dilakukan di akhir seluruh siklus putaran grup
             if self.is_running and delay_mode == 'instant':
