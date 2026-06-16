@@ -75,10 +75,9 @@ def load_prices():
 def get_package_duration_days(package_name: str, amount: int) -> int:
     prices = load_prices()
     if not prices: return 30
-    amount = int(amount)
     for category in ['regular', 'forward', 'userbot']:
         for item in prices.get(category, []):
-            if int(item.get('promoPrice', 0)) == amount or int(item.get('price', 0)) == amount:
+            if int(item.get('promoPrice', 0)) == int(amount):
                 dur = item.get('duration', '')
                 m = re.search(r'(\d+)', dur)
                 days = int(m.group(1)) if m else 30
@@ -217,32 +216,8 @@ async def _save_userbot_session(event, client, phone):
     await event.respond("✅ Userbot Berhasil Terhubung!")
 
 # ─────────────────────────────────────────
-# Order Parser & Activation
+# Order Activation
 # ─────────────────────────────────────────
-@bot.on(events.NewMessage(incoming=True))
-async def order_format_parser(event):
-    if event.sender_id in login_states: return
-    text = event.text or ""
-    if "𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦" not in text and "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" not in text: return
-    lines = text.split("\n")
-    data = {}
-    for line in lines:
-        if ":" in line:
-            k, v = line.split(":", 1)
-            data[k.strip().lower().replace("–","").strip()] = v.strip()
-    
-    amount = 0
-    m = re.search(r'\d+', data.get("total harga", "0").replace(".", "").replace(",", ""))
-    if m: amount = int(m.group(0))
-    paket = data.get("paket jaseb", data.get("durasi userbot", "Paket Manual"))
-    import time
-    trx_id = f"MAN-{int(time.time())}"
-    async with get_db() as db:
-        await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (event.sender_id, trx_id, paket, amount))
-        await db.commit()
-    await process_successful_payment(trx_id)
-    await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
-
 async def process_successful_payment(trx_id: str):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with get_db() as db:
@@ -263,14 +238,13 @@ async def process_successful_payment(trx_id: str):
             await db.execute("INSERT INTO subscriptions (user_id, package_name, capacity_lpm, start_date, end_date, status, broadcast_interval_hours) VALUES (?, ?, ?, ?, ?, 'active', 0.5)", (uid, pkg, cap, now_str, new_end))
         await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
         await db.commit()
-    
     is_ub = "userbot" in pkg.lower()
     msg = "🎉 **Akses Jaseb Aktif!**\n\n" + ("🤖 Kirim nomor HP untuk Ubot:" if is_ub else "✍️ Kirim materi iklan Anda:")
     login_states[uid] = {"state": "waiting_for_phone" if is_ub else "waiting_for_ad"}
     await bot.send_message(uid, msg)
 
 # ─────────────────────────────────────────
-# API Endpoints
+# API Handlers
 # ─────────────────────────────────────────
 async def handle_prices_api(request):
     return web.json_response(load_prices(), headers={"Access-Control-Allow-Origin": "*"})
@@ -288,7 +262,6 @@ async def handle_checkout_api(request):
             login_states[user_id] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amount, "package_name": pkg}
             await bot.send_message(user_id, f"📥 **INSTRUKSI MANUAL**\n\nPaket: {pkg}\nTotal: Rp {amount:,}\n\n**KIRIM BUKTI TRANSFER SEKARANG!**")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
-        
         trx = await create_qris_transaction(amount, pkg)
         if trx:
             async with get_db() as db:
@@ -309,7 +282,6 @@ async def handle_user_stats_api(request):
             sub = await cur.fetchone()
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (uid,))
             ub = await cur.fetchone()
-        
         res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub[0] if ub else "disconnected"}
         if sub:
             end_dt = datetime.strptime(sub[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
@@ -347,14 +319,12 @@ async def start_user_broadcast(user_id: int):
         ad = await cur.fetchone()
         if not ad: return
         ad_id = ad[0]
-    
     links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
     sisa = max(0, cap - len(links))
     if sisa > 0:
         async with get_db() as db:
             cur = await db.execute("SELECT group_link FROM lpm_lists WHERE is_active=1 AND is_blacklisted=0 ORDER BY member_count DESC LIMIT ?", (sisa,))
             links.extend(r[0] for r in await cur.fetchall())
-
     if "userbot" in pkg.lower():
         async with get_db() as db:
             cur = await db.execute("SELECT session_name, status FROM userbots WHERE user_id=?", (user_id,))
@@ -409,8 +379,6 @@ async def run_jaseb_scheduler():
 async def main():
     await init_db()
     await bot.start(bot_token=BOT_TOKEN)
-    from src.admin_handlers import init_admin_handlers
-    from src.client_handlers import init_client_handlers, register_edit_jaseb_btn
     init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
     init_client_handlers(bot, login_states, load_prices)
     register_edit_jaseb_btn(bot, login_states)
@@ -422,11 +390,21 @@ async def main():
     app.router.add_get('/api/user-stats/{user_id}', handle_user_stats_api)
     app.router.add_get('/api/history/{user_id}', handle_history_api)
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
-    for route in list(app.router.routes()):
-        app.router.add_options(route.resource.canonical, lambda r: web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"}))
+    
+    # MANUAL SAFE OPTIONS PER PATH
+    async def options_handler(request):
+        return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
+    
+    app.router.add_options('/api/prices', options_handler)
+    app.router.add_options('/api/checkout', options_handler)
+    app.router.add_options('/api/user-stats/{user_id}', options_handler)
+    app.router.add_options('/api/history/{user_id}', options_handler)
+    app.router.add_options('/api/check-status/{trx_id}', options_handler)
+
     port = int(os.environ.get("PORT", 8080))
     runner = web.AppRunner(app); await runner.setup(); site = web.TCPSite(runner, '0.0.0.0', port); await site.start()
-    
     await bot.run_until_disconnected()
 
-if __name__ == '__main__': asyncio.run(main())
+if __name__ == '__main__':
+    try: asyncio.run(main())
+    except KeyboardInterrupt: pass
