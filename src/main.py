@@ -155,14 +155,14 @@ async def show_start_menu(event, edit=False):
         lpm_text = "ratusan grup LPM"
         
     text = (
-        f"🌟 **GEUNID JASEB — ENTERPRISE AUTO BROADCAST** 🌟\n\n"
-        f"Solusi sebar iklan otomatis pintar ke **{lpm_text}** Telegram secara real-time!\n\n"
-        f"⚡ **FITUR KILLER & KEUNGGULAN GEUNID:**\n"
-        f"• 🚀 **Multi-Userbot Support**: Jalankan promosi 24/7 otomatis menggunakan banyak akun userbot secara simultan.\n"
-        f"• 🎯 **Stealth Bypass Engine**: Algoritma jeda acak cerdas (anti-spam & aman dari banned).\n"
-        f"• 📊 **Real-time Mini App**: Dashboard modern untuk kelola materi dan pantau log pengiriman secara langsung.\n"
-        f"• 💳 **Pembayaran QRIS 24/7**: QRIS otomatis dengan verifikasi instan kurang dari 5 detik.\n\n"
-        f"Silakan buka Mini App di bawah untuk mengelola iklan dan melacak status Anda!"
+        f"Halo! Selamat datang di **GEUNID JASEB**.\n\n"
+        f"Di sini kamu bisa sebar iklan ke **{lpm_text}** Telegram secara otomatis, terjadwal, dan real-time lewat akun userbot kamu sendiri.\n\n"
+        f"Keunggulan GEUNID:\n"
+        f"• Bisa pakai banyak akun userbot sekaligus (Multi-Userbot)\n"
+        f"• Aman dari banned dengan jeda waktu otomatis (Stealth Mode)\n"
+        f"• Kelola materi iklan dan pantau statistik pengiriman lewat Mini App\n"
+        f"• Pembayaran otomatis pakai QRIS yang aktif 24 jam\n\n"
+        f"Silakan buka Mini App di bawah untuk mulai mengelola iklan dan melacak status kamu!"
     )
     
     buttons = [[KeyboardButtonWebView(text="🚀 Buka Mini App", url=url)]]
