@@ -177,28 +177,39 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
-              <div className="flex justify-between items-center text-slate-500">
-                <span>Harga Paket:</span>
-                <span className="font-semibold text-slate-700">Rp {basePrice.toLocaleString('id-ID')}</span>
-              </div>
-              {selectedPaymentMethod === 'qris' && (
+            {selectedPaymentMethod !== null ? (
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
                 <div className="flex justify-between items-center text-slate-500">
-                  <span>Biaya Layanan QRIS ({qrisPercent}%):</span>
-                  <span className="font-semibold text-slate-700">Rp {qrisFee.toLocaleString('id-ID')}</span>
+                  <span>Harga Paket:</span>
+                  <span className="font-semibold text-slate-700">Rp {basePrice.toLocaleString('id-ID')}</span>
                 </div>
-              )}
-              {selectedPaymentMethod === 'manual' && (
-                <div className="flex justify-between items-center text-slate-500">
-                  <span>Biaya Admin Manual:</span>
-                  <span className="font-bold text-emerald-600">Rp 0 (Bebas Biaya)</span>
+                {selectedPaymentMethod === 'qris' && (
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Biaya Layanan QRIS ({qrisPercent}%):</span>
+                    <span className="font-semibold text-slate-700">Rp {qrisFee.toLocaleString('id-ID')}</span>
+                  </div>
+                )}
+                {selectedPaymentMethod === 'manual' && (
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Biaya Admin Manual:</span>
+                    <span className="font-bold text-emerald-600">Rp 0 (Bebas Biaya)</span>
+                  </div>
+                )}
+                <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
+                  <span className="font-extrabold text-slate-700">Total Tagihan:</span>
+                  <span className="font-black text-geun-blue text-sm">Rp {totalPrice.toLocaleString('id-ID')}</span>
                 </div>
-              )}
-              <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
-                <span className="font-extrabold text-slate-700">Total Tagihan:</span>
-                <span className="font-black text-geun-blue text-sm">Rp {totalPrice.toLocaleString('id-ID')}</span>
+                {selectedPaymentMethod === 'qris' && (
+                  <p className="text-[9px] text-slate-400 leading-normal mt-1 italic text-center border-t border-slate-200/50 pt-2">
+                    * Catatan: Provider KlikQRIS mungkin menyesuaikan nominal kecil (seperti kode unik) pada langkah berikutnya untuk keperluan verifikasi otomatis.
+                  </p>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="bg-slate-50/50 p-4 py-5 rounded-2xl border border-dashed border-slate-200 text-center text-[10px] text-slate-400 font-extrabold uppercase tracking-wide">
+                ℹ️ Silakan pilih metode pembayaran untuk melihat rincian
+              </div>
+            )}
 
             <button
               disabled={!selectedPaymentMethod || loadingCheckout}
