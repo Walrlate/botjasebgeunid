@@ -465,8 +465,20 @@ async def _show_mystatus(event, user_id: int):
             days_left = 0
 
         ad_status = "✅ Ada" if ad else "❌ Belum dikirim (ketik /edit_jaseb)"
-        ub_icon = "🟢" if ub_status == "connected" else "🔴"
-        interval_label = f"Setiap {interval_hours} jam" if interval_hours else "Setiap 2 jam"
+        
+        # Format interval label (jam -> menit jika < 1)
+        if interval_hours and interval_hours < 1:
+            interval_label = f"Setiap {int(interval_hours * 60)} menit"
+        else:
+            interval_label = f"Setiap {interval_hours or 2} jam"
+
+        # Logika status koneksi yang lebih cerdas
+        is_userbot_package = "userbot" in pkg_name.lower()
+        if is_userbot_package:
+            ub_icon = "🟢" if ub_status == "connected" else "🔴"
+            connection_text = f"{ub_icon} **Status Userbot:** {ub_status.capitalize()}"
+        else:
+            connection_text = "⚡ **Sistem Pengirim:** Bot GeunID (Aktif)"
 
         text = (
             f"📊 **Status Jaseb Real-time**\n{'━'*22}\n\n"
@@ -476,7 +488,7 @@ async def _show_mystatus(event, user_id: int):
             f"⏳ **Sisa:** {days_left} hari\n"
             f"⏰ **Jadwal Sebar:** {interval_label}\n\n"
             f"✍️ **Teks Jaseb:** {ad_status}\n"
-            f"{ub_icon} **Userbot:** {ub_status.capitalize()}\n\n"
+            f"{connection_text}\n\n"
             f"📈 **Statistik Pengiriman:**\n"
             f"  ✅ Berhasil: {total_sent} grup\n"
             f"  ❌ Gagal: {total_failed} grup"

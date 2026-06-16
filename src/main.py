@@ -177,6 +177,7 @@ async def get_web_app_url(user_id: int) -> str:
     user_package = 'Tidak Aktif'
     user_lpm = 0
     user_days = 0
+    user_interval = 0
     try:
         async with get_db() as db:
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE status='success'")
@@ -190,7 +191,7 @@ async def get_web_app_url(user_id: int) -> str:
             if row:
                 user_bot_status = row[0]
             cur = await db.execute("""
-                SELECT package_name, capacity_lpm, end_date FROM subscriptions
+                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions
                 WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
                 ORDER BY end_date DESC LIMIT 1
             """, (user_id,))
@@ -198,6 +199,7 @@ async def get_web_app_url(user_id: int) -> str:
             if row:
                 user_package = row[0]
                 user_lpm = row[1]
+                user_interval = row[3] or 0
                 try:
                     clean_date = row[2].split(".")[0]
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
@@ -212,7 +214,7 @@ async def get_web_app_url(user_id: int) -> str:
     return (
         f"{MINI_APP_URL.rstrip('/')}/?"
         f"b={total_broadcast}&l={total_lpm}&u={total_userbots}"
-        f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}"
+        f"&ub={ub_status_encoded}&pkg={pkg_encoded}&ulpm={user_lpm}&days={user_days}&int={user_interval}"
     )
 
 

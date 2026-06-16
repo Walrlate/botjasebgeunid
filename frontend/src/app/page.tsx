@@ -125,6 +125,7 @@ const Dashboard = () => {
     userPackage: 'Tidak Aktif',
     userLpm: 0,
     userDays: 0,
+    userInterval: 0,
   });
 
   useEffect(() => {
@@ -145,6 +146,7 @@ const Dashboard = () => {
       const pkg = params.get('pkg') || 'Tidak Aktif';
       const ulpm = parseInt(params.get('ulpm') || '0', 10);
       const days = parseInt(params.get('days') || '0', 10);
+      const interval = parseFloat(params.get('int') || '0');
 
       setStats({
         broadcasts: b,
@@ -154,6 +156,7 @@ const Dashboard = () => {
         userPackage: pkg,
         userLpm: ulpm,
         userDays: days,
+        userInterval: interval,
       });
     }
   }, []);
@@ -707,15 +710,39 @@ const Dashboard = () => {
                     <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/40"><p className="text-[7.5px] text-slate-400 uppercase font-bold tracking-widest">Sesi Sinyal</p><p className="text-xs font-bold text-emerald-600 mt-1">Connected</p></div>
                   </div>
                   <div className="space-y-2.5 text-left text-xs">
+                    {stats.userPackage.toLowerCase().includes('userbot') ? (
+                      <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <span className="font-semibold text-slate-500">Status Userbot:</span>
+                        <span className={`font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 rounded-full ${stats.userBotStatus === 'connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{stats.userBotStatus === 'connected' ? 'Connected' : 'Disconnected'}</span>
+                      </div>
+                    ) : stats.userPackage !== 'Tidak Aktif' ? (
+                      <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <span className="font-semibold text-slate-500">Sistem Pengirim:</span>
+                        <span className="font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 rounded-full bg-blue-100 text-geun-blue">Bot GeunID (Aktif)</span>
+                      </div>
+                    ) : null}
+                    
                     <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="font-semibold text-slate-500">Status Userbot:</span>
-                      <span className={`font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 rounded-full ${stats.userBotStatus === 'connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{stats.userBotStatus === 'connected' ? 'Connected' : 'Disconnected'}</span>
+                      <span className="font-semibold text-slate-500">Paket Aktif:</span>
+                      <span className="font-bold text-slate-700">{stats.userPackage}</span>
                     </div>
-                    <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100"><span className="font-semibold text-slate-500">Paket Aktif:</span><span className="font-bold text-slate-700">{stats.userPackage}</span></div>
+
                     {stats.userPackage !== 'Tidak Aktif' && (
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center"><p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p><p className="font-bold text-geun-blue text-xs mt-0.5">{stats.userLpm} LPM</p></div>
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center"><p className="text-[7.5px] text-slate-400 font-bold uppercase">Masa Aktif</p><p className="font-bold text-emerald-600 text-xs mt-0.5">{stats.userDays} Hari</p></div>
+                      <div className="grid grid-cols-3 gap-2 mt-1">
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p>
+                          <p className="font-bold text-geun-blue text-[10px] mt-0.5">{stats.userLpm} LPM</p>
+                        </div>
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase">Masa Aktif</p>
+                          <p className="font-bold text-emerald-600 text-[10px] mt-0.5">{stats.userDays} Hari</p>
+                        </div>
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase">Jadwal</p>
+                          <p className="font-bold text-slate-700 text-[10px] mt-0.5">
+                            {stats.userInterval < 1 ? `${Math.round(stats.userInterval * 60)} mnt` : `${stats.userInterval} jam`}
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>

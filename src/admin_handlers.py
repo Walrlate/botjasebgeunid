@@ -728,6 +728,12 @@ async def _show_client_billing_detail(event, uid: int):
         except Exception:
             days_left = 0
 
+        # Format interval label
+        if interval and interval < 1:
+            interval_label = f"{int(interval * 60)} menit"
+        else:
+            interval_label = f"{interval or 2} jam"
+
         status_str = "⏸ JEDA" if status == "paused" else "✅ AKTIF"
 
         text = (
@@ -740,7 +746,7 @@ async def _show_client_billing_detail(event, uid: int):
             f"📅 Mulai: {start_date[:10] if start_date else '-'}\n"
             f"📅 Habis: {end_date[:10]}\n"
             f"⏳ Sisa: **{days_left} hari**\n"
-            f"⏰ Interval: {interval or 2} jam\n"
+            f"⏰ Interval: {interval_label}\n"
             f"📤 Total Terkirim: {sent_count} pesan"
         )
         
