@@ -30,7 +30,7 @@ from src.jaseb_engine import JasebEngine
 from src.notifications import (
     notify_client_subscription_expiring,
 )
-from src.logic import activate_user_package, start_user_broadcast_logic, process_activation
+from src.logic import process_activation, run_broadcast_cycle
 
 # ─────────────────────────────────────────
 # Konfigurasi Logging
@@ -352,7 +352,7 @@ async def handle_check_status_api(request):
     return web.json_response(res, headers={"Access-Control-Allow-Origin": "*"})
 
 async def start_user_broadcast(user_id: int):
-    async with get_db() as db: await start_user_broadcast_logic(bot, db, user_id, API_ID, API_HASH)
+    async with get_db() as db: await run_broadcast_cycle(bot, db, user_id, API_ID, API_HASH)
 
 async def run_jaseb_scheduler():
     last_run = {}
