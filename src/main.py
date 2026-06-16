@@ -46,7 +46,7 @@ from src.notifications import (
     notify_client_subscription_expiring,
 )
 from src.logic import process_activation, run_broadcast_cycle, get_package_duration_days
-from src.admin_handlers import init_admin_handlers
+from src.admin_handlers import init_admin_handlers, handle_setprice_input
 from src.client_handlers import init_client_handlers, register_edit_jaseb_btn
 
 # ─────────────────────────────────────────
@@ -216,7 +216,8 @@ async def user_input_handler(event):
     text = (event.text or "").strip()
     
     # Abaikan perintah utama agar tidak diproses ganda
-    if text.startswith("/") and not text.lower().startswith("/skip"):
+    # Kecuali /skip dan /same yang dipakai dalam state machine
+    if text.startswith("/") and not text.lower().startswith("/skip") and not text.lower().startswith("/same"):
         return
 
     user_id = event.sender_id
@@ -301,6 +302,10 @@ async def user_input_handler(event):
         del login_states[user_id]
         await event.respond("🎉 **Pendaftaran Selesai!** Bot mulai menyebar sekarang.")
         asyncio.create_task(start_user_broadcast(user_id))
+
+    elif current_state.startswith("setprice_"):
+        # Delegasikan ke admin_handlers untuk pengelolaan harga
+        await handle_setprice_input(event, state_data)
  
 async def _save_userbot_session(event, client, phone):
     user_id = event.sender_id
