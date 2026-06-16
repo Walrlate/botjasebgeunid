@@ -386,7 +386,24 @@ async def run_web_server():
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 async def main():
-    await init_db(); await bot.start(bot_token=BOT_TOKEN)
+    await init_db()
+    
+    # Retry loop untuk menghindari 'database is locked' pada rolling deployment di Railway
+    retries = 6
+    while retries > 0:
+        try:
+            await bot.start(bot_token=BOT_TOKEN)
+            break
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "locked" in err_msg or "lock" in err_msg:
+                logger.warning(f"⚠️ Berkas sesi Telegram (.session) sedang dikunci oleh proses lain. Mencoba kembali dalam 10 detik... (Sisa percobaan: {retries})")
+                await asyncio.sleep(10)
+                retries -= 1
+            else:
+                raise e
+    else:
+        raise RuntimeError("❌ Gagal menginisialisasi sesi Telegram karena berkas terkunci oleh proses lain secara permanen.")
     me = await bot.get_me(); import src.config; src.config.BOT_USERNAME = me.username
     init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
     init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
