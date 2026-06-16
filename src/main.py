@@ -2189,6 +2189,54 @@ async def handle_check_status_api(request):
             "Access-Control-Allow-Headers": "Content-Type"
         })
 
+async def handle_history_api(request):
+    try:
+        user_id = request.match_info['user_id']
+        if request.method == "OPTIONS":
+            return web.Response(headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            })
+
+        async with get_db() as db:
+            cur = await db.execute("""
+                SELECT l.group_name, f.msg_link, f.status, f.error_msg, f.sent_at
+                FROM forward_logs f
+                LEFT JOIN lpm_lists l ON f.group_id = l.group_id
+                WHERE f.user_id=? 
+                ORDER BY f.sent_at DESC 
+                LIMIT 50
+            """, (user_id,))
+            rows = await cur.fetchall()
+            
+        history = []
+        for row in rows:
+            history.append({
+                "group_name": row[0] or "Grup LPM",
+                "msg_link": row[1],
+                "status": row[2],
+                "error_msg": row[3],
+                "sent_at": row[4]
+            })
+
+        return web.json_response({
+            "status": True,
+            "data": history
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
+    except Exception as e:
+        logger.error(f"Error handle_history_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
@@ -2205,6 +2253,12 @@ async def run_web_server():
     }))
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
     app.router.add_options('/api/check-status/{trx_id}', lambda r: web.Response(headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    }))
+    app.router.add_get('/api/history/{user_id}', handle_history_api)
+    app.router.add_options('/api/history/{user_id}', lambda r: web.Response(headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
