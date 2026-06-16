@@ -147,25 +147,12 @@ async def show_start_menu(event, edit=False):
         return
     url = await get_web_app_url(event.sender_id)
     
-    from src.database import db_get_lpm_lists_count
-    try:
-        total_lpm = db_get_lpm_lists_count()
-        lpm_text = f"{total_lpm} grup LPM" if total_lpm > 0 else "ratusan grup LPM"
-    except:
-        lpm_text = "ratusan grup LPM"
-        
     text = (
         f"Halo! Selamat datang di **GEUNID JASEB**.\n\n"
-        f"Di sini kamu bisa sebar iklan ke **{lpm_text}** Telegram secara otomatis, terjadwal, dan real-time lewat akun userbot kamu sendiri.\n\n"
-        f"Keunggulan GEUNID:\n"
-        f"• Bisa pakai banyak akun userbot sekaligus (Multi-Userbot)\n"
-        f"• Aman dari banned dengan jeda waktu otomatis (Stealth Mode)\n"
-        f"• Kelola materi iklan dan pantau statistik pengiriman lewat Mini App\n"
-        f"• Pembayaran otomatis pakai QRIS yang aktif 24 jam\n\n"
-        f"Silakan buka Mini App di bawah untuk mulai mengelola iklan dan melacak status kamu!"
+        f"Untuk mulai memesan paket dan mengelola iklan kamu, silakan klik tombol **🚀 Launch GEUNID JASEB** di bawah ini atau tekan tombol biru di sudut kiri bawah layar kamu."
     )
     
-    buttons = [[KeyboardButtonWebView(text="🚀 Buka Mini App", url=url)]]
+    buttons = [[KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)]]
     if event.sender_id == ADMIN_ID:
         buttons.append([
             KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"),
