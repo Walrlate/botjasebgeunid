@@ -751,9 +751,9 @@ const Dashboard = () => {
                           <p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p>
                           <p className="font-bold text-geun-blue text-[10px] mt-0.5">{stats.userLpm} LPM</p>
                         </div>
-                        <div className={`p-2 rounded-xl border text-center transition-all duration-500 ${stats.userSeconds_left < 21600 ? 'bg-rose-50 border-rose-200 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
-                          <p className={`text-[7.5px] font-bold uppercase ${stats.userSeconds_left < 21600 ? 'text-rose-500' : 'text-slate-400'}`}>Masa Aktif</p>
-                          <p className={`font-bold text-[10px] mt-0.5 ${stats.userSeconds_left < 21600 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <div className={`p-2 rounded-xl border text-center transition-all duration-500 ${stats.userSecondsLeft < 21600 ? 'bg-rose-50 border-rose-200 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
+                          <p className={`text-[7.5px] font-bold uppercase ${stats.userSecondsLeft < 21600 ? 'text-rose-500' : 'text-slate-400'}`}>Masa Aktif</p>
+                          <p className={`font-bold text-[10px] mt-0.5 ${stats.userSecondsLeft < 21600 ? 'text-rose-600' : 'text-emerald-600'}`}>
                             {formatRemainingTime(stats.userSecondsLeft, stats.userDays)}
                           </p>
                         </div>
