@@ -80,6 +80,23 @@ async def _show_help_main(event):
         "• Masuk ke menu **Status Saya** untuk melihat log pengiriman, edit materi iklan, atau melakukan sebar ulang.\n\n"
         "Hubungi Admin di @Geun_ID jika butuh bantuan tambahan."
     )
+    
+    # Cek apakah pengakses adalah Admin
+    if event.sender_id == ADMIN_ID:
+        text += (
+            "\n\n⚡ **PANDUAN PERINTAH ADMIN (Hanya Anda)**\n"
+            f"{'━'*22}\n"
+            "• `/admin` - Membuka Panel Admin interaktif (Kelola harga, billing, LPM pool, dll).\n"
+            "• `/setprice` - Kelola & edit harga paket secara langsung.\n"
+            "• `/lpm` - Kelola pool grup LPM (Lihat list, tambah, hapus, blacklist).\n"
+            "• `/billing` - Kelola langganan aktif user (Perpanjang, cabut, ubah interval, lpm cap).\n"
+            "• `/ubots` - Kelola akun Telegram di Admin Pool.\n"
+            "• `/clientubots` - Kelola status userbot pembeli (Disconnect paksa, hapus sesi).\n"
+            "• `/scrape_lpm <@target> [limit]` - Scrape username/link LPM massal dari channel referensi.\n"
+            "• `/import_lpm <list>` - Impor massal username/link LPM dari teks secara langsung.\n"
+            "• `/join_pool` - Sinkronisasi gradual join bertahap untuk semua Admin Pool agar aman dari ban."
+        )
+
     buttons = [
         [KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)],
         [Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali", b"start")]
@@ -88,7 +105,11 @@ async def _show_help_main(event):
         try:
             await event.edit(text, buttons=buttons)
         except Exception:
-            # Jika gagal edit (misal pesan sebelumnya adalah foto), kirim pesan baru
+            # Jika gagal edit (misal pesan lama adalah foto, atau teks admin terlalu panjang), 
+            # hapus pesan lama agar chat bersih dan kirim pesan teks baru.
+            try:
+                await event.delete()
+            except: pass
             try:
                 await _bot.send_message(event.chat_id, text, buttons=buttons)
             except Exception as e2:

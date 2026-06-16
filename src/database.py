@@ -651,3 +651,281 @@ def db_get_admin_stats():
     except Exception as e:
         logger.error(f"Error in db_get_admin_stats: {e}")
         return (0, 0, 0, 0)
+
+
+# ─────────────────────────────────────────
+# ADMIN: MANAJEMEN LPM POOL
+# ─────────────────────────────────────────
+
+def db_get_lpm_lists_paginated(offset: int = 0, limit: int = 10, active_only: bool = True):
+    """Ambil daftar LPM dengan paginasi untuk admin."""
+    try:
+        supabase = get_supabase()
+        q = supabase.table("lpm_lists").select("id, group_link, group_name, member_count, is_active, is_blacklisted")
+        if active_only:
+            q = q.eq("is_active", True).eq("is_blacklisted", False)
+        res = q.order("member_count", desc=True).range(offset, offset + limit - 1).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_lpm_lists_paginated: {e}")
+        return []
+
+def db_add_lpm_entry(group_link: str, group_name: str = "", member_count: int = 0) -> bool:
+    """Tambahkan LPM baru ke pool."""
+    try:
+        supabase = get_supabase()
+        # Normalisasi link
+        link = group_link.strip().lstrip("@")
+        if not link.startswith("https://t.me/") and not link.startswith("http"):
+            link = f"https://t.me/{link}"
+        supabase.table("lpm_lists").upsert({
+            "group_link": link,
+            "group_name": group_name or link,
+            "member_count": member_count,
+            "is_active": True,
+            "is_blacklisted": False
+        }, on_conflict="group_link").execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_add_lpm_entry: {e}")
+        return False
+
+def db_bulk_add_lpm_entries(links: list) -> int:
+    """Tambahkan banyak LPM sekaligus, return jumlah yang berhasil."""
+    count = 0
+    for raw in links:
+        link = raw.strip().lstrip("@")
+        if not link:
+            continue
+        if not link.startswith("https://t.me/") and not link.startswith("http"):
+            link = f"https://t.me/{link}"
+        if db_add_lpm_entry(link):
+            count += 1
+    return count
+
+def db_delete_lpm_entry(lpm_id: int) -> bool:
+    """Hapus LPM dari pool berdasarkan ID."""
+    try:
+        supabase = get_supabase()
+        supabase.table("lpm_lists").delete().eq("id", lpm_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_delete_lpm_entry: {e}")
+        return False
+
+def db_toggle_lpm_status(lpm_id: int, is_active: bool) -> bool:
+    """Aktifkan atau nonaktifkan LPM berdasarkan ID."""
+    try:
+        supabase = get_supabase()
+        supabase.table("lpm_lists").update({"is_active": is_active}).eq("id", lpm_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_toggle_lpm_status: {e}")
+        return False
+
+def db_blacklist_lpm(lpm_id: int) -> bool:
+    """Blacklist LPM (tandai tidak aktif permanen)."""
+    try:
+        supabase = get_supabase()
+        supabase.table("lpm_lists").update({"is_blacklisted": True, "is_active": False}).eq("id", lpm_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_blacklist_lpm: {e}")
+        return False
+
+def db_clear_all_lpm() -> bool:
+    """Hapus semua LPM dari pool (berbahaya!)."""
+    try:
+        supabase = get_supabase()
+        supabase.table("lpm_lists").delete().neq("id", 0).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_clear_all_lpm: {e}")
+        return False
+
+
+# ─────────────────────────────────────────
+# ADMIN: MANAJEMEN BILLING (SUBSCRIPTIONS)
+# ─────────────────────────────────────────
+
+def db_get_all_subscriptions_detail(limit: int = 20):
+    """Ambil semua langganan aktif dengan detail lengkap untuk admin."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now().isoformat()
+        res = supabase.table("subscriptions")\
+            .select("id, user_id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .order("end_date", desc=False)\
+            .limit(limit)\
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_all_subscriptions_detail: {e}")
+        return []
+
+def db_get_subscription_by_user(user_id: int):
+    """Ambil langganan aktif satu user dengan detail lengkap."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now().isoformat()
+        res = supabase.table("subscriptions")\
+            .select("id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .order("end_date", desc=True)\
+            .limit(1)\
+            .execute()
+        if res.data:
+            return res.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error in db_get_subscription_by_user: {e}")
+        return None
+
+def db_extend_subscription(user_id: int, days: int) -> bool:
+    """Perpanjang langganan aktif user sejumlah hari."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now().isoformat()
+        res = supabase.table("subscriptions")\
+            .select("id, end_date")\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .order("end_date", desc=True)\
+            .limit(1)\
+            .execute()
+        if not res.data:
+            return False
+        sub = res.data[0]
+        old_end = sub["end_date"]
+        try:
+            old_dt = datetime.fromisoformat(old_end.replace("Z", "+00:00").split("+")[0])
+        except:
+            old_dt = datetime.now()
+        new_end = (old_dt + timedelta(days=days)).isoformat()
+        supabase.table("subscriptions").update({"end_date": new_end}).eq("id", sub["id"]).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_extend_subscription: {e}")
+        return False
+
+def db_set_subscription_interval(user_id: int, interval_hours: float) -> bool:
+    """Ubah interval broadcast langganan aktif user."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now().isoformat()
+        supabase.table("subscriptions")\
+            .update({"broadcast_interval_hours": interval_hours})\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_set_subscription_interval: {e}")
+        return False
+
+def db_revoke_subscription(user_id: int) -> bool:
+    """Cabut langganan aktif user (set status expired)."""
+    try:
+        supabase = get_supabase()
+        supabase.table("subscriptions")\
+            .update({"status": "expired", "end_date": datetime.now().isoformat()})\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_revoke_subscription: {e}")
+        return False
+
+def db_set_subscription_lpm_capacity(user_id: int, capacity: int) -> bool:
+    """Ubah kapasitas LPM langganan aktif user."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now().isoformat()
+        supabase.table("subscriptions")\
+            .update({"capacity_lpm": capacity})\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_set_subscription_lpm_capacity: {e}")
+        return False
+
+
+# ─────────────────────────────────────────
+# ADMIN: MANAJEMEN USERBOT PEMBELI
+# ─────────────────────────────────────────
+
+def db_get_all_client_userbots(limit: int = 20):
+    """Ambil semua userbot pembeli untuk admin."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("userbots")\
+            .select("user_id, phone_number, status, created_at")\
+            .order("created_at", desc=True)\
+            .limit(limit)\
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_all_client_userbots: {e}")
+        return []
+
+def db_admin_disconnect_client_userbot(user_id: int) -> bool:
+    """Admin paksa disconnect userbot pembeli."""
+    try:
+        supabase = get_supabase()
+        supabase.table("userbots").update({"status": "disconnected"}).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_admin_disconnect_client_userbot: {e}")
+        return False
+
+def db_admin_delete_client_userbot(user_id: int) -> tuple:
+    """Hapus userbot pembeli, return session_name untuk hapus file .session."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("userbots").select("session_name").eq("user_id", user_id).execute()
+        session = res.data[0]["session_name"] if res.data else ""
+        supabase.table("userbots").delete().eq("user_id", user_id).execute()
+        return True, session
+    except Exception as e:
+        logger.error(f"Error in db_admin_delete_client_userbot: {e}")
+        return False, ""
+
+def db_get_lpm_entry(lpm_id: int):
+    """Ambil detail LPM berdasarkan ID."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("lpm_lists").select("id, group_link, group_name, member_count").eq("id", lpm_id).execute()
+        if res.data:
+            return res.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error in db_get_lpm_entry: {e}")
+        return None
+
+def db_update_lpm_details(lpm_id: int, group_name: str = None, member_count: int = None) -> bool:
+    """Update judul LPM (group_name) dan/atau jumlah member."""
+    try:
+        supabase = get_supabase()
+        data = {}
+        if group_name is not None:
+            data["group_name"] = group_name
+        if member_count is not None:
+            data["member_count"] = member_count
+        if not data:
+            return False
+        supabase.table("lpm_lists").update(data).eq("id", lpm_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_lpm_details: {e}")
+        return False
+

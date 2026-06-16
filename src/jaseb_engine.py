@@ -42,7 +42,7 @@ class JasebEngine:
 
     async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly'):
         """
-        GEUNID PREMIUM ENGINE (AUDITED INDENTATION & LOGIC)
+        GEUNID ANTI-BAN BROADCAST ENGINE
         """
         self.is_running = True
         unprocessed_links = group_links.copy()
@@ -66,6 +66,18 @@ class JasebEngine:
             if "regular" in package_name.lower():
                 content = f"{content}\n\n• Promoted by @{BOT_USERNAME}"
 
+        # Fetch joined dialogs to cache memberships and avoid JoinChannelRequest
+        joined_ids = set()
+        try:
+            async for dialog in self.client.iter_dialogs(limit=200):
+                if dialog.is_group or dialog.is_channel:
+                    joined_ids.add(dialog.entity.id)
+        except Exception as e:
+            logger.error(f"Gagal mengambil daftar grup terdaftar (iter_dialogs): {e}")
+
+        joins_this_cycle = 0
+        max_joins_per_cycle = 5
+
         for link in group_links:
             if not self.is_running: break
             
@@ -77,24 +89,34 @@ class JasebEngine:
                     logger.error(f"Gagal resolve {link}: {e}")
                     continue
 
-                # 2. JARVIS PROACTIVE: Simulasi Manusia (Typing)
-                is_joined = True
+                # 2. ANTI-BAN MEMBERSHIP PROTOCOL
+                is_in_group = entity.id in joined_ids
+                if not is_in_group:
+                    # Batasi jumlah join baru per siklus agar akun tidak diblokir Telegram (Spam Join Abuse Protection)
+                    if joins_this_cycle >= max_joins_per_cycle:
+                        logger.info(f"Batas join baru tercapai ({max_joins_per_cycle}). Menunda join {link} untuk siklus berikutnya.")
+                        continue
+                        
+                    logger.info(f"Userbot belum bergabung ke {link}. Mencoba bergabung...")
+                    await self.client(JoinChannelRequest(entity))
+                    joined_ids.add(entity.id)
+                    joins_this_cycle += 1
+                    # Jeda waktu aman setelah bergabung ke grup baru
+                    await asyncio.sleep(random.uniform(15, 25))
+
+                # 3. JARVIS PROACTIVE: Simulasi Manusia (Typing) jika sudah bergabung
                 try:
                     async with self.client.action(entity, 'typing'):
-                        await asyncio.sleep(random.uniform(1, 2))
-                except: 
-                    is_joined = False
+                        await asyncio.sleep(random.uniform(2, 4))
+                except Exception as e:
+                    logger.debug(f"Gagal mensimulasikan typing: {e}")
 
-                if not is_joined:
-                    await self.client(JoinChannelRequest(entity))
-                    await asyncio.sleep(random.uniform(2, 3))
-
-                # 3. Smart-Tagging (Dinamis)
+                # 4. Smart-Tagging (Dinamis)
                 final_content = content
                 if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
                     final_content = f"{final_content}\n#LPM #Promote"
 
-                # 4. EXECUTION
+                # 5. EXECUTION
                 if fwd_chat_id and fwd_msg_id:
                     from_peer = fwd_chat_id
                     if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
@@ -109,7 +131,7 @@ class JasebEngine:
                     else:
                         msg = await self.client.send_message(entity, final_content, parse_mode='html')
                 
-                # 5. Link Generation (ROBUST)
+                # 6. Link Generation (ROBUST)
                 if hasattr(entity, 'username') and entity.username:
                     msg_link = f"https://t.me/{entity.username}/{msg.id}"
                 elif hasattr(msg.peer_id, 'channel_id'):
@@ -127,6 +149,7 @@ class JasebEngine:
                 await asyncio.sleep(sleep_time)
 
             except FloodWaitError as fwe:
+                logger.warning(f"Terkena FloodWait selama {fwe.seconds} detik.")
                 if fwe.seconds > 300:
                     flood_seconds = fwe.seconds
                     break

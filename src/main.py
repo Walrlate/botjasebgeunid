@@ -305,8 +305,8 @@ async def user_input_handler(event):
         await event.respond("🎉 **Pendaftaran Selesai!** Bot mulai menyebar sekarang.")
         asyncio.create_task(start_user_broadcast(user_id))
 
-    elif current_state.startswith("setprice_"):
-        # Delegasikan ke admin_handlers untuk pengelolaan harga
+    elif current_state.startswith("setprice_") or current_state.startswith("admin_"):
+        # Delegasikan ke admin_handlers untuk pengelolaan harga/admin
         await handle_setprice_input(event, state_data)
  
 async def _save_userbot_session(event, client, phone):
@@ -525,7 +525,7 @@ async def main():
     retries = 6
     while retries > 0:
         try:
-            await bot.start(bot_token=BOT_TOKEN)
+            await bot.start(bot_token=BOT_TOKEN)  # type: ignore
             break
         except Exception as e:
             err_msg = str(e).lower()
