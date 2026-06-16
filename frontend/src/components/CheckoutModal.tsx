@@ -74,7 +74,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 }) => {
   if (!isModalOpen || !selectedPackage) return null;
 
-  const currentPrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
+  const basePrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
+  const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+  const totalPrice = basePrice + qrisFee;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -89,13 +91,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={() => setIsModalOpen(false)}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+        className="absolute inset-0 bg-slate-900/60"
       />
       <motion.div
         initial={{ y: "100%" }}
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
-        transition={{ type: "spring", damping: 25, stiffness: 220 }}
+        transition={{ type: "tween", ease: "easeOut", duration: 0.25 }}
         className="w-full max-w-md bg-white border-t border-slate-200/80 rounded-t-[32px] p-6 pb-8 space-y-5 shadow-2xl relative z-10 max-h-[85%] overflow-y-auto"
       >
         <div className="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-1"></div>
@@ -172,9 +174,27 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center text-xs">
-              <span className="font-semibold text-slate-500">Total Tagihan:</span>
-              <span className="font-black text-geun-dark text-sm">Rp {currentPrice.toLocaleString('id-ID')}</span>
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-500">
+                <span>Harga Paket:</span>
+                <span className="font-semibold text-slate-700">Rp {basePrice.toLocaleString('id-ID')}</span>
+              </div>
+              {selectedPaymentMethod === 'qris' && (
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>Biaya Layanan QRIS (0.7%):</span>
+                  <span className="font-semibold text-slate-700">Rp {qrisFee.toLocaleString('id-ID')}</span>
+                </div>
+              )}
+              {selectedPaymentMethod === 'manual' && (
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>Biaya Admin Manual:</span>
+                  <span className="font-bold text-emerald-600">Rp 0 (Bebas Biaya)</span>
+                </div>
+              )}
+              <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
+                <span className="font-extrabold text-slate-700">Total Tagihan:</span>
+                <span className="font-black text-geun-blue text-sm">Rp {totalPrice.toLocaleString('id-ID')}</span>
+              </div>
             </div>
 
             <button
@@ -244,10 +264,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <label className="text-[9px] font-bold text-geun-muted uppercase">Format Pesanan:</label>
               <div className="relative">
                 <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-slate-200 font-mono text-[9.5px] leading-relaxed text-slate-700 shadow-inner">
-                  <p className="font-bold text-geun-blue">🛎 𝗙𝗢𝗥𝗠𝗔𝗧 {selectedPackage.type.toUpperCase()}</p>
+                  <p className="font-bold text-geun-blue">🛎 👑 𝗙𝗢𝗥𝗠𝗔𝗧 {selectedPackage.type.toUpperCase()}</p>
                   {manualTrxData?.transaction_id && <p>– ID Order: {manualTrxData.transaction_id}</p>}
                   <p>– ID Telegram: {user?.id}</p>
-                  <p>– Total Harga: Rp {currentPrice.toLocaleString('id-ID')}</p>
+                  <p>– Total Harga: Rp {totalPrice.toLocaleString('id-ID')}</p>
                 </div>
                 <button onClick={handleCopyOrderFormat} className="absolute top-3 right-3 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase shadow-sm">Salin</button>
               </div>

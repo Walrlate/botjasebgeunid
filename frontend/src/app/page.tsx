@@ -279,9 +279,12 @@ const Dashboard = () => {
       ? 'Transfer Manual'
       : 'Belum Memilih';
     
-    const currentPrice = selectedPackage.type === 'userbot'
+    const basePrice = selectedPackage.type === 'userbot'
       ? selectedPackage.price * accountCount
       : selectedPackage.price;
+      
+    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+    const finalAmount = basePrice + qrisFee;
 
     const trxIdLine = manualTrxData?.transaction_id
       ? `\n– ID Order: ${manualTrxData.transaction_id}`
@@ -296,7 +299,7 @@ const Dashboard = () => {
 – Nomor Telegram: (isi nomor HP akun userbot Anda)
 – Password: (isi password jika ada 2FA, jika tidak kosongkan)
 – Payment: ${paymentText}
-– Total Harga: Rp ${currentPrice.toLocaleString('id-ID')}`;
+– Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
     } else {
       return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
@@ -305,7 +308,7 @@ const Dashboard = () => {
 – Paket jaseb: JASEB ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM
 – Payment: ${paymentText}
 – Request Lpm: (isi @lpm1 @lpm2, kalau gaada kosongin/hapus)
-– Total Harga: Rp ${currentPrice.toLocaleString('id-ID')}`;
+– Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
     }
   };
 
@@ -370,9 +373,12 @@ const Dashboard = () => {
     if (!selectedPackage) return;
 
     setLoadingCheckout(true);
-    const currentPrice = selectedPackage.type === 'userbot'
+    const basePrice = selectedPackage.type === 'userbot'
       ? selectedPackage.price * accountCount
       : selectedPackage.price;
+
+    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+    const finalAmount = basePrice + qrisFee;
 
     const packName = selectedPackage.type === 'userbot'
       ? `Jaseb Userbot ${selectedPackage.duration}`
@@ -385,7 +391,7 @@ const Dashboard = () => {
         first_name: user.first_name || "",
         last_name: user.last_name || "",
         package_name: packName,
-        amount: currentPrice,
+        amount: finalAmount,
         duration: selectedPackage.duration,
         lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
         package_type: selectedPackage.type,

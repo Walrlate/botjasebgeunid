@@ -16,7 +16,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ user, getDisplayName, getUsername }) => {
   return (
-    <header className="flex justify-between items-center px-5 py-4 border-b border-slate-200/50 bg-[#F4F6F9]/65 backdrop-blur-xl sticky top-0 z-40">
+    <header className="flex justify-between items-center px-5 py-4 border-b border-slate-200/50 bg-[#F4F6F9] sticky top-0 z-40">
       <div className="relative z-10">
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-geun-blue shadow-[0_0_8px_rgba(0,122,255,0.4)] animate-pulse"></span>

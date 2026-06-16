@@ -33,7 +33,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, handleTabChange }) => {
   return (
-    <nav className="absolute bottom-6 left-4 right-4 h-16 bg-white/70 backdrop-blur-xl border border-slate-200/80 rounded-3xl flex items-center justify-around px-2 shadow-premium z-40">
+    <nav className="absolute bottom-6 left-4 right-4 h-16 bg-white border border-slate-200/80 rounded-3xl flex items-center justify-around px-2 shadow-premium z-40">
       <button onClick={() => handleTabChange('home')} className={`flex flex-col items-center justify-center w-12 h-12 transition-spring relative ${activeTab === 'home' ? 'scale-105' : 'text-slate-400'}`}>
         <HomeIcon active={activeTab === 'home'} />
         {activeTab === 'home' && <span className="absolute bottom-1 w-1.5 h-1.5 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
