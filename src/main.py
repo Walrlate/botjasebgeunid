@@ -272,11 +272,11 @@ async def get_web_app_url(user_id: int) -> str:
             if ub_row:
                 user_bot_status = ub_row[0]
             
-            # Paket Aktif (Konsisten menggunakan now_str)
+            # Paket Aktif (Logika Robust: Konversi Python Time -> TRIM DB Time)
             cur = await db.execute("""
                 SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours 
                 FROM subscriptions
-                WHERE user_id=? AND status='active' AND end_date > ?
+                WHERE user_id=? AND status='active' AND TRIM(end_date) > ?
                 ORDER BY end_date DESC LIMIT 1
             """, (user_id, now_str))
             sub_row = await cur.fetchone()
@@ -285,10 +285,13 @@ async def get_web_app_url(user_id: int) -> str:
                 user_lpm = sub_row[1]
                 user_interval = float(sub_row[3] or 0.5)
                 try:
-                    clean_date = sub_row[2].split(".")[0]
+                    clean_date = sub_row[2].split(".")[0].strip()
                     end_dt = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
                     delta = end_dt - datetime.now()
                     user_days = max(0, delta.days)
+                    # Sisa beberapa jam tetap tampilkan sebagai aktif
+                    if user_days == 0 and delta.total_seconds() > 0:
+                        user_days = 1
                 except Exception:
                     user_days = 0
     except Exception as e:
@@ -396,18 +399,19 @@ async def _show_start_menu(event, is_callback: bool = False):
 # ─────────────────────────────────────────
 @bot.on(events.CallbackQuery(data=b"profile"))
 async def profile_handler(event):
-    user_id = event.sender_id
+    user_id = int(event.sender_id)
     sender = await event.get_sender()
     full_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip()
     username = f"@{sender.username}" if sender.username else f"ID: {sender.id}"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     async with get_db() as db:
         cur = await db.execute("""
             SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours
             FROM subscriptions
-            WHERE user_id=? AND status='active' AND end_date > datetime('now','localtime')
+            WHERE user_id=? AND status='active' AND TRIM(end_date) > ?
             ORDER BY end_date DESC LIMIT 1
-        """, (user_id,))
+        """, (user_id, now_str))
         sub = await cur.fetchone()
         cur = await db.execute("SELECT status, phone_number FROM userbots WHERE user_id=?", (user_id,))
         ub_row = await cur.fetchone()
@@ -419,16 +423,21 @@ async def profile_handler(event):
     if sub:
         pkg_name, capacity, end_date, interval = sub
         try:
-            clean_end = end_date.split(".")[0]
+            clean_end = end_date.split(".")[0].strip()
             end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
             days_left = max(0, (end_dt - datetime.now()).days)
+            if days_left == 0 and (end_dt - datetime.now()).total_seconds() > 0:
+                days_left = 1
         except Exception:
             days_left = 0
+        
+        interval_label = f"{int(interval * 60)} menit" if interval < 1 else f"{interval} jam"
+        
         pkg_info = (
             f"• **Paket:** {pkg_name}\n"
             f"• **Kapasitas:** {capacity} LPM\n"
             f"• **Sisa:** {days_left} hari\n"
-            f"• **Jadwal Sebar:** Setiap {interval or 2} jam\n"
+            f"• **Jadwal Sebar:** Setiap {interval_label}\n"
             f"• **Total Terkirim:** {total_sent} pesan"
         )
     else:
@@ -2319,8 +2328,14 @@ async def handle_check_status_api(request):
         })
 
 async def handle_history_api(request):
+    user_id = None
     try:
-        user_id = request.match_info['user_id']
+        raw_user_id = request.match_info.get('user_id')
+        if not raw_user_id:
+            return web.json_response({"status": False, "error": "User ID required"}, status=400)
+            
+        # PAKSA INTEGER agar filter database bekerja sempurna
+        user_id = int(raw_user_id)
         if request.method == "OPTIONS":
             return web.Response(headers={
                 "Access-Control-Allow-Origin": "*",

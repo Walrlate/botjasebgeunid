@@ -124,4 +124,4 @@ async def init_db():
         await db.commit()
 
 def get_db():
-    return aiosqlite.connect(DB_PATH)
+    return aiosqlite.connect(DB_PATH, timeout=30)
