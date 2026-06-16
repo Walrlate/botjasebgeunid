@@ -141,27 +141,71 @@ async def get_web_app_url(user_id: int) -> str:
 # ─────────────────────────────────────────
 # Handlers Bot Utama
 # ─────────────────────────────────────────
-@bot.on(events.NewMessage(pattern='/start'))
-async def start_handler(event):
+async def show_start_menu(event, edit=False):
     await clear_login_state(event.sender_id)
+    if not await check_channel_join(event):
+        return
     url = await get_web_app_url(event.sender_id)
-    text = format_menu_text("GEUNID-JASEB", "Solusi sebar iklan otomatis di ribuan grup LPM.")
+    
+    from src.database import db_get_lpm_lists_count
+    try:
+        total_lpm = db_get_lpm_lists_count()
+        lpm_text = f"{total_lpm} grup LPM" if total_lpm > 0 else "ratusan grup LPM"
+    except:
+        lpm_text = "ratusan grup LPM"
+        
+    text = (
+        f"🌟 **GEUNID JASEB — ENTERPRISE AUTO BROADCAST** 🌟\n\n"
+        f"Solusi sebar iklan otomatis pintar ke **{lpm_text}** Telegram secara real-time!\n\n"
+        f"⚡ **FITUR KILLER & KEUNGGULAN GEUNID:**\n"
+        f"• 🚀 **Multi-Userbot Support**: Jalankan promosi 24/7 otomatis menggunakan banyak akun userbot secara simultan.\n"
+        f"• 🎯 **Stealth Bypass Engine**: Algoritma jeda acak cerdas (anti-spam & aman dari banned).\n"
+        f"• 📊 **Real-time Mini App**: Dashboard modern untuk kelola materi dan pantau log pengiriman secara langsung.\n"
+        f"• 💳 **Pembayaran QRIS 24/7**: QRIS otomatis dengan verifikasi instan kurang dari 5 detik.\n\n"
+        f"Silakan buka Mini App di bawah untuk mengelola iklan dan melacak status Anda!"
+    )
+    
     buttons = [[KeyboardButtonWebView(text="🚀 Buka Mini App", url=url)]]
     if event.sender_id == ADMIN_ID:
-        buttons.append([KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"), KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots")])
-    else: buttons.append([KeyboardButtonCallback(text="📊 My Status", data=b"my_status")])
-    await event.respond(text, buttons=buttons)
+        buttons.append([
+            KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"),
+            KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots")
+        ])
+        buttons.append([
+            KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
+        ])
+    else:
+        buttons.append([
+            KeyboardButtonCallback(text="📊 Status Saya", data=b"my_status"),
+            KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
+        ])
+        
+    photo_path = "data/GEUNIDJASEB.jpg"
+    
+    if edit:
+        try:
+            await event.edit(text, buttons=buttons)
+            return
+        except Exception as e:
+            try: await event.delete()
+            except: pass
+            
+    try:
+        if os.path.exists(photo_path):
+            await bot.send_file(event.chat_id, file=photo_path, caption=text, buttons=buttons)
+        else:
+            await event.respond(text, buttons=buttons)
+    except Exception as e:
+        logger.error(f"Error sending photo start: {e}")
+        await event.respond(text, buttons=buttons)
+
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    await show_start_menu(event, edit=False)
 
 @bot.on(events.CallbackQuery(data=b"start"))
 async def callback_start_handler(event):
-    await clear_login_state(event.sender_id)
-    url = await get_web_app_url(event.sender_id)
-    text = format_menu_text("GEUNID-JASEB", "Sistem sebar iklan otomatis.")
-    buttons = [[KeyboardButtonWebView(text="🚀 Buka Mini App", url=url)]]
-    if event.sender_id == ADMIN_ID:
-        buttons.append([KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"), KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots")])
-    else: buttons.append([KeyboardButtonCallback(text="📊 My Status", data=b"my_status")])
-    await event.edit(text, buttons=buttons)
+    await show_start_menu(event, edit=True)
 
 @bot.on(events.NewMessage(pattern='/install'))
 async def install_handler(event):
