@@ -16,5 +16,6 @@
     { "id": "ub_15d", "duration": "15 Hari", "lpm": 0, "originalPrice": 25000, "promoPrice": 13900 },
     { "id": "ub_30d", "duration": "30 Hari", "lpm": 0, "originalPrice": 35000, "promoPrice": 19900 },
     { "id": "ub_60d", "duration": "60 Hari", "lpm": 0, "originalPrice": 70000, "promoPrice": 37900 }
-  ]
+  ],
+  "qris_tax_percent": 0.7
 }

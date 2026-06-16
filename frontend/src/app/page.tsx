@@ -232,6 +232,7 @@ const Dashboard = () => {
   };
 
   const [pricingData, setPricingData] = useState<Record<'regular' | 'forward' | 'userbot', PackageItem[]>>(pricesData as any);
+  const qrisTaxPercent = (pricingData as any).qris_tax_percent !== undefined ? (pricingData as any).qris_tax_percent : 0.7;
 
   useEffect(() => {
     const fetchPrices = async () => {
@@ -283,7 +284,7 @@ const Dashboard = () => {
       ? selectedPackage.price * accountCount
       : selectedPackage.price;
       
-    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * (qrisTaxPercent / 100)) : 0;
     const finalAmount = basePrice + qrisFee;
 
     const trxIdLine = manualTrxData?.transaction_id
@@ -377,7 +378,7 @@ const Dashboard = () => {
       ? selectedPackage.price * accountCount
       : selectedPackage.price;
 
-    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+    const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * (qrisTaxPercent / 100)) : 0;
     const finalAmount = basePrice + qrisFee;
 
     const packName = selectedPackage.type === 'userbot'
@@ -508,6 +509,7 @@ const Dashboard = () => {
             getOrderFormatText={getOrderFormatText}
             user={user}
             triggerHaptic={triggerHaptic}
+            qrisTaxPercent={qrisTaxPercent}
           />
         </AnimatePresence>
 

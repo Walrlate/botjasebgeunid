@@ -50,6 +50,7 @@ interface CheckoutModalProps {
   getOrderFormatText: () => string;
   user: TelegramUser | null;
   triggerHaptic: (style?: 'light' | 'medium' | 'heavy') => void;
+  qrisTaxPercent?: number;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -71,11 +72,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   getOrderFormatText,
   user,
   triggerHaptic,
+  qrisTaxPercent,
 }) => {
   if (!isModalOpen || !selectedPackage) return null;
 
   const basePrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
-  const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * 0.007) : 0;
+  const qrisPercent = qrisTaxPercent !== undefined ? qrisTaxPercent : 0.7;
+  const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * (qrisPercent / 100)) : 0;
   const totalPrice = basePrice + qrisFee;
 
   const formatTime = (seconds: number) => {
@@ -181,7 +184,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
               {selectedPaymentMethod === 'qris' && (
                 <div className="flex justify-between items-center text-slate-500">
-                  <span>Biaya Layanan QRIS (0.7%):</span>
+                  <span>Biaya Layanan QRIS ({qrisPercent}%):</span>
                   <span className="font-semibold text-slate-700">Rp {qrisFee.toLocaleString('id-ID')}</span>
                 </div>
               )}

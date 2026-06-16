@@ -530,6 +530,21 @@ def _register_admin_handlers(bot):
         text = _format_price_list_text(prices)
         await event.edit(text, buttons=[[Button.inline("⬅️ Kembali", b"sp_main")]], parse_mode="md")
 
+    @bot.on(events.CallbackQuery(data=b"sp_edit_qris_tax"))
+    async def sp_edit_qris_tax_callback(event):
+        if not await _admin_only_check(event): return
+        prices = _load_prices_json()
+        qris_tax = prices.get("qris_tax_percent", 0.7)
+        _login_states[event.sender_id] = {
+            "state": "setprice_edit_qris_tax"
+        }
+        await event.edit(
+            "⚡ **EDIT PAJAK KLIKQRIS**\n\n"
+            f"Pajak Saat Ini: **{qris_tax}%**\n\n"
+            "Ketik persentase pajak baru (angka desimal/float menggunakan titik, contoh: `0.7` atau `1.5`):",
+            buttons=[[Button.inline("❌ Batal", b"sp_main")]]
+        )
+
     @bot.on(events.CallbackQuery(pattern=b"sp_type_(.+)"))
     async def setprice_type_callback(event):
         if not await _admin_only_check(event): return
@@ -1010,6 +1025,27 @@ async def handle_admin_input(event, state_data: dict):
             await event.respond("❌ Gagal mengubah jumlah member LPM.")
 
     # ──────────────── SETPRICE STATES ────────────────
+    elif state == "setprice_edit_qris_tax":
+        try:
+            clean_text = text.replace(",", ".")
+            val = float(clean_text)
+            if val < 0: raise ValueError
+        except ValueError:
+            await event.respond("❌ Masukkan angka desimal/float non-negatif. Contoh: `0.7` atau `1.5` atau `0`:")
+            return
+        prices = _load_prices_json()
+        prices["qris_tax_percent"] = val
+        if _save_prices_json(prices):
+            del _login_states[user_id]
+            await event.respond(
+                f"✅ **Pajak KlikQRIS berhasil diubah!**\n\n"
+                f"🔄 Nilai baru: **{val}%**\n\n"
+                "✨ Mini App auto-update!",
+                buttons=[[Button.inline("💰 Menu Harga", b"sp_main")]]
+            )
+        else:
+            await event.respond("❌ Gagal menyimpan data.")
+
     elif state.startswith("setprice_edit_"):
         field = state.replace("setprice_edit_", "")
         await _handle_setprice_field_edit(event, state_data, field, text)
@@ -1310,16 +1346,20 @@ async def _show_lpm_list(event, offset: int = 0):
 
 
 async def _show_setprice_menu(event):
+    prices = _load_prices_json()
+    qris_tax = prices.get("qris_tax_percent", 0.7)
     text = (
         "💰 **MANAJEMEN HARGA GEUNID**\n\n"
         "Pilih tipe paket yang ingin dikelola:\n\n"
         "• Edit harga, durasi, LPM, bonus per paket\n"
         "• Tambah paket baru\n"
-        "• Hapus paket"
+        "• Hapus paket\n\n"
+        f"⚡ **Pajak KlikQRIS Saat Ini:** `{qris_tax}%`"
     )
     buttons = [
         [Button.inline("📢 Regular", b"sp_type_regular"), Button.inline("📤 Forward", b"sp_type_forward")],
         [Button.inline("🤖 Userbot", b"sp_type_userbot")],
+        [Button.inline(f"⚡ Set Pajak QRIS ({qris_tax}%)", b"sp_edit_qris_tax")],
         [Button.inline("📋 Lihat Semua Pricelist", b"sp_view")],
         [Button.inline("⬅️ Kembali ke Admin", b"admin_main")]
     ]
