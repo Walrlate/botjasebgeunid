@@ -79,3 +79,9 @@ Digunakan untuk mengecek apakah pengguna sudah melakukan pembayaran ke QRIS ters
 ## 🔒 Callback / Webhook Configuration
 KlikQRIS akan mengirimkan notifikasi asinkron (callback) dalam format JSON ke server bot Anda segera setelah pembeli melakukan pembayaran. 
 Pastikan server bot Anda mengekspos endpoint callback dan memproses datanya untuk langsung mengaktifkan masa tenggang langganan pengguna di database `subscriptions`.
+
+---
+
+> [!NOTE]
+> Dokumentasi ini diperbarui untuk merefleksikan arsitektur database Supabase Enterprise yang baru.
+
