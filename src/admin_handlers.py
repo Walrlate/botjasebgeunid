@@ -774,30 +774,60 @@ async def _show_client_billing_detail(event, uid: int):
 
 
 async def _show_ubots(event):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with get_db() as db:
+        # 1. Ambil Admin Ubots (Pool)
+        cur = await db.execute("SELECT id, phone_number, status, cooldown_until, session_name FROM admin_userbots ORDER BY status DESC")
+        admin_ubots = await cur.fetchall()
+        
+        # 2. Ambil Client Ubots (Stealth)
         cur = await db.execute("""
             SELECT ub.user_id, u.username, u.full_name, ub.phone_number, ub.status
             FROM userbots ub
             LEFT JOIN users u ON ub.user_id = u.user_id
-            ORDER BY ub.status DESC
+            ORDER BY ub.status DESC LIMIT 20
         """)
-        ubots = await cur.fetchall()
+        client_ubots = await cur.fetchall()
 
-    if not ubots:
-        text = "🤖 Belum ada userbot yang terdaftar."
-        buttons = [[Button.inline("⬅️ Panel Admin", b"admin_main")]]
+    lines = ["🤖 **MANAJEMEN USERBOT**\n"]
+    buttons = []
+    
+    # Bagian Admin Pool
+    lines.append("🛡️ **Admin Pool (Pool Pengirim):**")
+    if not admin_ubots:
+        lines.append("  _Belum ada nomor admin terhubung._")
     else:
-        lines = [f"🤖 **DAFTAR USERBOT ({len(ubots)} terdaftar)**\n"]
-        buttons = []
-        for uid, uname, fname, phone, status in ubots:
+        for aid, phone, status, cooldown, session in admin_ubots:
+            icon = "🟢" if status == "connected" else "🔴"
+            status_text = status.capitalize()
+            
+            # Cek status cooldown FloodWait
+            if cooldown:
+                try:
+                    c_dt = datetime.strptime(cooldown.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                    if c_dt > datetime.now():
+                        icon = "⏳"
+                        remaining = int((c_dt - datetime.now()).total_seconds() / 60)
+                        status_text = f"FloodWait ({remaining}m)"
+                except: pass
+                
+            lines.append(f"  {icon} {phone} | {status_text}")
+            if status == "connected":
+                buttons.append([Button.inline(f"🔌 Putuskan Admin {phone[-4:]}", f"admin_dc_pool_{aid}".encode())])
+    
+    lines.append("\n👤 **Client Ubots (Stealth Mode):**")
+    if not client_ubots:
+        lines.append("  _Belum ada client yang login._")
+    else:
+        for uid, uname, fname, phone, status in client_ubots:
             icon = "🟢" if status == "connected" else "🔴"
             name_str = f"@{uname}" if uname else (fname or str(uid))
-            lines.append(f"{icon} {name_str} | {phone or '-'} | {status}")
+            lines.append(f"  {icon} {name_str} | {status}")
             if status == "connected":
-                buttons.append([Button.inline(f"🔌 Putuskan {name_str}", f"admin_dc_ubot_{uid}".encode())])
+                buttons.append([Button.inline(f"🔌 Putuskan Client {uid}", f"admin_dc_ubot_{uid}".encode())])
 
-        buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
-        text = "\n".join(lines)
+    buttons.append([Button.inline("⬅️ Panel Admin", b"admin_main")])
+    text = "\n".join(lines)
 
     if hasattr(event, "edit") and isinstance(event, events.CallbackQuery.Event):
         try:
@@ -806,6 +836,27 @@ async def _show_ubots(event):
         except Exception:
             pass
     await event.respond(text, buttons=buttons)
+
+
+@bot.on(events.CallbackQuery(pattern=b"admin_dc_pool_(\\d+)"))
+async def admin_disconnect_pool_callback(event):
+    if not await _admin_only_check(event): return
+    aid = int(event.pattern_match.group(1).decode())
+    async with get_db() as db:
+        cur = await db.execute("SELECT session_name FROM admin_userbots WHERE id=?", (aid,))
+        row = await cur.fetchone()
+        if row:
+            session_name = row[0]
+            await db.execute("DELETE FROM admin_userbots WHERE id=?", (aid,))
+            await db.commit()
+            
+            path = f"data/sessions/{session_name}.session"
+            if os.path.exists(path):
+                try: os.remove(path)
+                except: pass
+    
+    await event.answer("✅ Ubot Admin dihapus dari pool.", alert=True)
+    await _show_ubots(event)
 
 
 async def _show_price_categories(event):

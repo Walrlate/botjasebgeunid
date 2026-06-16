@@ -104,8 +104,20 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
-        
-        # Safe migration for existing DB — tambahkan kolom baru tanpa drop table
+
+        # Table for Admin Userbots (Redundancy & Fallback)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS admin_userbots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone_number TEXT UNIQUE,
+                session_name TEXT,
+                status TEXT DEFAULT 'connected',
+                cooldown_until TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Safe migration for existing DB
         migrations = [
             "ALTER TABLE subscriptions ADD COLUMN request_lpm TEXT",
             "ALTER TABLE subscriptions ADD COLUMN broadcast_interval_hours REAL DEFAULT 0.5",
@@ -113,9 +125,10 @@ async def init_db():
             "ALTER TABLE user_ads ADD COLUMN fwd_chat_id TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_peer_type TEXT",
             "ALTER TABLE user_ads ADD COLUMN fwd_msg_id INTEGER",
-            "UPDATE subscriptions SET broadcast_interval_hours = 0.5 WHERE status = 'active'"
+            "UPDATE subscriptions SET broadcast_interval_hours = 0.5 WHERE status = 'active'",
+            "ALTER TABLE forward_logs ADD COLUMN ad_id INTEGER",
+            "CREATE TABLE IF NOT EXISTS admin_userbots (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE, session_name TEXT, status TEXT DEFAULT 'connected', cooldown_until TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
         ]
-        for migration in migrations:
             try:
                 await db.execute(migration)
             except Exception:

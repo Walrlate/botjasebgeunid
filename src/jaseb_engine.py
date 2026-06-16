@@ -24,73 +24,52 @@ class JasebEngine:
 
     async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', auto_join_leave=True):
         """
-        GEUNID Premium Broadcast Engine (Stealth Mode)
-        
-        Menerapkan ilmu otomasi terbaik:
-        1. Auto-Join & Leave: Otomatis masuk grup target, kirim iklan, lalu langsung keluar agar chat bersih.
-        2. Ritme Jeda (Anti-Flood 429):
-           - 'slowly': Jeda aman 30-60 detik tiap pengiriman ke 1 grup.
-           - 'instant': Kirim cepat antar grup (3-5 detik), jeda panjang setelah seluruh grup selesai.
-        3. FloodWait Resilience: Otomatis tidur jika terkena pembatasan rate limit Telegram.
+        GEUNID Premium Broadcast Engine (Stealth Mode) dengan Auto-Fallback Support
         """
         self.is_running = True
+        unprocessed_links = group_links.copy()
+        success_count = 0
+        failed_count = 0
+        flood_seconds = 0
+
         async with get_db() as db:
-            # Ambil konten iklan beserta info forward jika ada
+            # Ambil konten iklan
             cursor = await db.execute("SELECT content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id FROM user_ads WHERE id = ?", (ad_id,))
             ad = await cursor.fetchone()
             if not ad:
-                logger.error(f"Ad {ad_id} not found")
                 self.is_running = False
-                return False
+                return {"success": False, "error": "Ad not found"}
             
             content, media_path, fwd_chat_id, fwd_peer_type, fwd_msg_id = ad
  
-            # Ambil package_name untuk mendeteksi apakah Regular
-            cursor = await db.execute("""
-                SELECT package_name FROM subscriptions 
-                WHERE user_id = ? AND status = 'active'
-                ORDER BY end_date DESC LIMIT 1
-            """, (user_id,))
+            # Ambil package_name untuk watermark
+            cursor = await db.execute("SELECT package_name FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY end_date DESC LIMIT 1", (user_id,))
             sub_row = await cursor.fetchone()
             package_name = sub_row[0] if sub_row else ""
- 
-            # Tambahkan watermark jika paket Regular
             if package_name and "regular" in package_name.lower() and content:
                 from src.config import BOT_USERNAME
                 content = f"{content}\n\n• Promote Auto by @{BOT_USERNAME}"
  
             for link in group_links:
-                if not self.is_running:
-                    break
+                if not self.is_running: break
                 
                 try:
-                    # Resolve entity
                     entity = await self.client.get_entity(link)
 
-                    # 1. Auto-Join if enabled
                     if auto_join_leave:
-                        logger.info(f"Auto-joining target group: {link}")
                         await self.client(JoinChannelRequest(entity))
-                        await asyncio.sleep(random.uniform(2, 4)) # Jeda aman setelah join
+                        await asyncio.sleep(random.uniform(2, 4))
 
-                    # 2. Stealth typing simulation
                     async with self.client.action(entity, 'typing'):
-                        await asyncio.sleep(random.uniform(3, 7)) # Jeda simulasi mengetik manusiawi
+                        await asyncio.sleep(random.uniform(3, 7))
 
                         if fwd_chat_id and fwd_msg_id:
                             # METODE NATIVE FORWARD (Paket Forward)
-                            if fwd_peer_type == 'username':
-                                from_peer = fwd_chat_id
-                            elif fwd_peer_type == 'channel':
-                                from_peer = PeerChannel(int(fwd_chat_id))
-                            elif fwd_peer_type == 'user':
-                                from_peer = PeerUser(int(fwd_chat_id))
-                            elif fwd_peer_type == 'chat':
-                                from_peer = PeerChat(int(fwd_chat_id))
-                            else:
-                                from_peer = int(fwd_chat_id) if fwd_chat_id.isdigit() else fwd_chat_id
-
-                            # Lakukan forward secara native
+                            from_peer = fwd_chat_id
+                            if fwd_peer_type == 'channel': from_peer = PeerChannel(int(fwd_chat_id))
+                            elif fwd_peer_type == 'user': from_peer = PeerUser(int(fwd_chat_id))
+                            elif fwd_peer_type == 'chat': from_peer = PeerChat(int(fwd_chat_id))
+                            
                             msg_list = await self.client.forward_messages(entity, messages=int(fwd_msg_id), from_peer=from_peer)
                             msg = msg_list[0] if isinstance(msg_list, list) else msg_list
                         else:
@@ -100,10 +79,8 @@ class JasebEngine:
                             else:
                                 msg = await self.client.send_message(entity, content, parse_mode='html')
                         
-                        # Buat link pesan (Proof Hub)
                         msg_link = f"https://t.me/c/{str(msg.peer_id.channel_id)}/{msg.id}" if hasattr(msg.peer_id, 'channel_id') else "Private/Linked"
                         
-                        # Simpan log sukses
                         async with get_db() as db:
                             await db.execute(
                                 "INSERT INTO forward_logs (user_id, ad_id, group_id, msg_link, status, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
@@ -111,31 +88,19 @@ class JasebEngine:
                             )
                             await db.commit()
                     
-                    logger.info(f"Successfully sent to {link}")
+                    success_count += 1
+                    unprocessed_links.remove(link)
 
-                    # 3. Auto-Leave if enabled to keep client chat list clean
                     if auto_join_leave:
-                        logger.info(f"Auto-leaving target group: {link}")
                         await self.client(LeaveChannelRequest(entity))
                     
-                    # 4. Handle Delay Mode
-                    if delay_mode == 'slowly':
-                        sleep_time = random.uniform(30, 60)
-                    else:
-                        sleep_time = random.uniform(3, 5)
+                    sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(3, 5)
                     await asyncio.sleep(sleep_time)
 
                 except FloodWaitError as fwe:
-                    logger.warning(f"Telegram FloodWait triggered for user {user_id}! Must sleep for {fwe.seconds}s")
-                    async with get_db() as db:
-                        await db.execute(
-                            "INSERT INTO forward_logs (user_id, ad_id, group_id, status, error_msg, sent_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
-                            (user_id, ad_id, 0, 'failed', f"FloodWait: {fwe.seconds}s")
-                        )
-                        await db.commit()
-                    
-                    if fwe.seconds > 300: # Jika lebih dari 5 menit, hentikan loop user ini
-                        logger.error(f"Stopping broadcast for user {user_id} due to long FloodWait")
+                    logger.warning(f"FloodWait triggered for user {user_id}! Must sleep for {fwe.seconds}s")
+                    if fwe.seconds > 300: # Jika limit > 5 menit, trigger fallback
+                        flood_seconds = fwe.seconds
                         break
                     await asyncio.sleep(fwe.seconds)
                 except Exception as e:
@@ -146,15 +111,17 @@ class JasebEngine:
                             (user_id, ad_id, 0, 'failed', str(e))
                         )
                         await db.commit()
+                    failed_count += 1
+                    unprocessed_links.remove(link)
             
-            # Jika menggunakan mode 'instant', jeda panjang dilakukan di akhir seluruh siklus putaran grup
-            if self.is_running and delay_mode == 'instant':
-                cycle_delay = random.uniform(900, 1800) # Jeda siklus 15 - 30 menit
-                logger.info(f"Instant round completed. Sleeping for {cycle_delay:.2f}s before next cycle start")
-                await asyncio.sleep(cycle_delay)
-        
         self.is_running = False
-        return True
+        return {
+            "success": True, 
+            "success_count": success_count, 
+            "failed_count": failed_count, 
+            "unprocessed_links": unprocessed_links,
+            "floodwait_seconds": flood_seconds
+        }
 
     def toggle_stop(self):
         self.is_running = False
