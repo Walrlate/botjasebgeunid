@@ -1,6 +1,6 @@
 """
-main.py — Core Bot GEUNID JASEB (MASTER VERSION - CLEAN SYNC)
-==========================================================
+main.py — Core Bot GEUNID JASEB (MASTER VERSION - FINAL AUDIT 100%)
+==================================================================
 """
 
 import asyncio
@@ -124,12 +124,11 @@ async def get_web_app_url(user_id: int) -> str:
                 days = max(0, delta.days)
                 if days == 0 and delta.total_seconds() > 0: days = 1
             except: pass
-    import urllib.parse
     params = {"b": succ_user, "l": total_lpm, "u": total_ub, "ub": ub_status, "pkg": pkg_name, "ulpm": cap, "days": days, "int": iv}
     return f"{MINI_APP_URL.rstrip('/')}/?{urllib.parse.urlencode(params)}"
 
 # ─────────────────────────────────────────
-# Handlers Bot Utama
+# Handlers Bot
 # ─────────────────────────────────────────
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
@@ -157,7 +156,7 @@ async def callback_start_handler(event):
 async def install_handler(event):
     if event.sender_id != ADMIN_ID: return
     login_states[event.sender_id] = {"state": "waiting_for_phone"}
-    await event.respond("📱 **INSTALL ADMIN USERBOT**\n\nMasukkan nomor HP yang ingin dijadikan pool pengirim (format: `+628xxx`):")
+    await event.respond("📱 **INSTALL ADMIN USERBOT**\n\nMasukkan nomor HP (+628xxx):")
 
 @bot.on(events.NewMessage(pattern=r'/scan\s+(.+)'))
 async def scan_lpm_handler(event):
@@ -179,9 +178,6 @@ async def scan_lpm_handler(event):
         await eng.stop()
     else: await event.respond("❌ Tidak ada Ubot Admin aktif.")
 
-# ─────────────────────────────────────────
-# State Machine: Input User
-# ─────────────────────────────────────────
 @bot.on(events.NewMessage)
 async def user_input_handler(event):
     user_id = event.sender_id
@@ -195,7 +191,7 @@ async def user_input_handler(event):
         if not event.message.photo and not event.message.document:
             await event.respond("❌ Harap kirimkan **FOTO BUKTI TRANSFER** Anda.")
             return
-        await event.respond("⏳ Mengirim bukti ke admin untuk verifikasi...")
+        await event.respond("⏳ Mengirim bukti ke admin...")
         media = await event.message.download_media(file="data/proofs/")
         trx_id, pkg, amt = state_data["trx_id"], state_data["package_name"], state_data["amount"]
         admin_msg = f"🔔 **BUKTI BARU**\n\n👤 User: `{user_id}`\n📦 Paket: {pkg}\n💰 Nominal: Rp {amt:,}\n🆔 Order: `{trx_id}`"
@@ -216,7 +212,7 @@ async def user_input_handler(event):
         try:
             res = await client.send_code_request(phone)
             login_states[user_id].update({"state": "waiting_for_otp", "phone": phone, "client": client, "hash": res.phone_code_hash})
-            await event.respond("📨 **OTP dikirim!** Masukkan kode 5 digit:")
+            await event.respond("📨 **OTP dikirim!** Masukkan kode:")
         except Exception as e: await event.respond(f"❌ Gagal: {e}"); await clear_login_state(user_id)
 
     elif current_state == "waiting_for_otp":
@@ -260,7 +256,7 @@ async def user_input_handler(event):
         asyncio.create_task(start_user_broadcast(user_id))
 
 async def _save_userbot_session(event, client, phone):
-    user_id = int(event.sender_id)
+    user_id = event.sender_id
     is_admin = (user_id == ADMIN_ID)
     session = f"admin_{phone.replace('+','')}" if is_admin else f"user_{user_id}"
     async with get_db() as db:
@@ -268,14 +264,55 @@ async def _save_userbot_session(event, client, phone):
         else: await db.execute("INSERT OR REPLACE INTO userbots (user_id, phone_number, session_name, status) VALUES (?, ?, ?, 'connected')", (user_id, phone, session))
         await db.commit()
     await client.disconnect()
-    
-    # JARVIS PROACTIVE: Jika ini client, lanjut minta materi iklan
     if not is_admin:
         login_states[user_id] = {"state": "waiting_for_ad"}
-        await event.respond("✅ **Userbot Terhubung!**\n\nSekarang silakan **KIRIM MATERI IKLAN** Anda ke sini (teks/foto):")
+        await event.respond("✅ **Userbot Terhubung!**\n\nSekarang silakan **KIRIM MATERI IKLAN** Anda ke sini:")
     else:
         del login_states[user_id]
         await event.respond("✅ **Pool Admin Ditambahkan!**")
+
+@bot.on(events.NewMessage(incoming=True))
+async def order_format_parser(event):
+    if event.sender_id in login_states: return
+    text = event.text or ""
+    if "𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦" not in text and "𝗙𝗢𝗥𝗠𝗔𝗧 𝗣𝗔𝗦𝗔𝗡𝗚 𝗨𝗦𝗘𝗥𝗕𝗢𝗧" not in text: return
+    if event.sender_id != ADMIN_ID: return
+    lines = text.split("\n")
+    data = {}
+    for line in lines:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            data[k.strip().lower().replace("–","").strip()] = v.strip()
+    m = re.search(r'\d+', data.get("total harga", "0").replace(".", ""))
+    amount = int(m.group(0)) if m else 0
+    paket = data.get("paket jaseb", data.get("durasi userbot", "Manual"))
+    target_uid = int(data.get("id telegram", event.sender_id))
+    trx_id = f"MAN-{int(datetime.now().timestamp())}"
+    async with get_db() as db:
+        await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (target_uid, trx_id, paket, amount))
+        await db.commit()
+    await process_successful_payment(trx_id)
+    await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
+
+async def process_successful_payment(trx_id: str):
+    async with get_db() as db:
+        cur = await db.execute("SELECT user_id, amount, package_id, status FROM transactions WHERE trx_id=?", (trx_id,))
+        row = await cur.fetchone()
+        if not row or row[3] == 'success': return
+        uid, amt, pkg, _ = row
+        new_end = await activate_user_package(db, uid, pkg, amt, load_prices())
+        await db.execute("UPDATE transactions SET status='success' WHERE trx_id=?", (trx_id,))
+        await db.commit()
+    is_ub = "userbot" in pkg.lower()
+    login_states[uid] = {"state": "waiting_for_phone" if is_ub else "waiting_for_ad"}
+    await bot.send_message(uid, f"🎉 **Paket {pkg} Aktif!**\n" + ("🤖 Kirim nomor HP Ubot:" if is_ub else "✍️ Kirim materi iklan:"))
+
+@bot.on(events.CallbackQuery(pattern=b"check_(.+)"))
+async def check_payment_status_handler(event):
+    trx_id = event.pattern_match.group(1).decode()
+    res = await check_transaction_status(trx_id)
+    if res and res.get("data", {}).get("status") == "success": await process_successful_payment(trx_id); await event.answer("✅ Sukses!", alert=True)
+    else: await event.answer("⏳ Menunggu...", alert=True)
 
 # ─────────────────────────────────────────
 # API Handlers
@@ -292,7 +329,7 @@ async def handle_checkout_api(request):
                 await db.execute("INSERT INTO transactions (user_id, trx_id, package_id, amount, payment_url, status) VALUES (?, ?, ?, ?, 'manual', 'pending')", (uid, trx_id, pkg, amt))
                 await db.commit()
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
-            await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke sini!")
+            await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nPaket: {pkg}\nTotal: Rp {amt:,}\n\nKirim bukti transfer ke bot!")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
@@ -306,13 +343,27 @@ async def handle_checkout_api(request):
 async def handle_user_stats_api(request):
     try:
         uid = int(request.match_info['user_id'])
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         async with get_db() as db:
             cur = await db.execute("SELECT COUNT(*) FROM forward_logs WHERE user_id=? AND status='success'", (uid,))
             succ = (await cur.fetchone())[0]
+            cur = await db.execute("""
+                SELECT package_name, capacity_lpm, end_date, broadcast_interval_hours FROM subscriptions 
+                WHERE user_id=? AND status='active' AND TRIM(end_date) > ? 
+                ORDER BY end_date DESC LIMIT 1
+            """, (uid, now_str))
+            sub = await cur.fetchone()
             cur = await db.execute("SELECT status FROM userbots WHERE user_id=?", (uid,))
             ub = await cur.fetchone()
-            # Paket check...
-        return web.json_response({"status": True, "data": {"total_sent": succ, "userbot_status": ub[0] if ub else "disconnected"}}, headers={"Access-Control-Allow-Origin": "*"})
+        res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub[0] if ub else "disconnected"}
+        if sub:
+            try:
+                end_dt = datetime.strptime(sub[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
+                delta = end_dt - datetime.now()
+                res.update({"package_name": sub[0], "capacity_lpm": sub[1], "days_left": max(0, delta.days), "seconds_left": max(0, int(delta.total_seconds())), "interval": sub[3]})
+                if res["days_left"] == 0 and res["seconds_left"] > 0: res["days_left"] = 1
+            except: pass
+        return web.json_response({"status": True, "data": res}, headers={"Access-Control-Allow-Origin": "*"})
     except: return web.json_response({"status": False}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_history_api(request):
@@ -329,23 +380,21 @@ async def handle_check_status_api(request):
     res = await check_transaction_status(trx_id)
     if res and res.get("data", {}).get("status") == "success":
         async with get_db() as db:
-            await activate_user_package(db, int(res["data"]["user_id"]), res["data"]["package_id"], int(res["data"]["amount"]), load_prices())
+            cur = await db.execute("SELECT user_id, amount, package_id FROM transactions WHERE trx_id=?", (trx_id,))
+            row = await cur.fetchone()
+            if row: await activate_user_package(db, int(row[0]), row[2], int(row[1]), load_prices())
     return web.json_response(res, headers={"Access-Control-Allow-Origin": "*"})
 
-# ─────────────────────────────────────────
-# Engine & Orchestration
-# ─────────────────────────────────────────
 async def start_user_broadcast(user_id: int):
-    async with get_db() as db:
-        await start_user_broadcast_logic(bot, db, user_id, API_ID, API_HASH)
+    async with get_db() as db: await start_user_broadcast_logic(bot, db, user_id, API_ID, API_HASH)
 
 async def run_jaseb_scheduler():
     last_run = {}
     while True:
         await asyncio.sleep(60)
-        now = datetime.now()
+        now = datetime.now(); now_str = now.strftime("%Y-%m-%d %H:%M:%S")
         async with get_db() as db:
-            cur = await db.execute("SELECT DISTINCT user_id, broadcast_interval_hours FROM subscriptions WHERE status='active' AND TRIM(end_date) > ?", (now.strftime("%Y-%m-%d %H:%M:%S"),))
+            cur = await db.execute("SELECT DISTINCT user_id, broadcast_interval_hours FROM subscriptions WHERE status='active' AND TRIM(end_date) > ?", (now_str,))
             users = await cur.fetchall()
         for uid, iv_h in users:
             iv = float(iv_h or 0.5)
@@ -364,9 +413,8 @@ async def main():
     app.router.add_get('/api/user-stats/{user_id}', handle_user_stats_api)
     app.router.add_get('/api/history/{user_id}', handle_history_api)
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
-    async def options_handler(request): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
-    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}']:
-        app.router.add_options(p, options_handler)
+    async def opt(req): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
+    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}']: app.router.add_options(p, opt)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
     await bot.run_until_disconnected()
 
