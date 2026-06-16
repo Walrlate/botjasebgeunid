@@ -30,7 +30,9 @@ from src.jaseb_engine import JasebEngine
 from src.notifications import (
     notify_client_subscription_expiring,
 )
-from src.logic import process_activation, run_broadcast_cycle
+from src.logic import process_activation, run_broadcast_cycle, get_package_duration_days
+from src.admin_handlers import init_admin_handlers
+from src.client_handlers import init_client_handlers, register_edit_jaseb_btn
 
 # ─────────────────────────────────────────
 # Konfigurasi Logging
@@ -367,6 +369,25 @@ async def run_jaseb_scheduler():
             if uid not in last_run or (now - last_run[uid]).total_seconds() >= iv * 3600:
                 last_run[uid] = now; asyncio.create_task(start_user_broadcast(uid))
 
+async def run_expiry_reminder():
+    while True:
+        try:
+            await asyncio.sleep(3600 * 6)
+            now = datetime.now()
+            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            limit_str = (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+            async with get_db() as db:
+                cur = await db.execute("SELECT user_id, package_name, end_date FROM subscriptions WHERE status='active' AND TRIM(end_date) BETWEEN ? AND ?", (now_str, limit_str))
+                exp = await cur.fetchall()
+            for u, p, e in exp:
+                try:
+                    end_dt = datetime.strptime(e.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
+                    days_left = max(0, (end_dt - now).days)
+                    if days_left == 0 and (end_dt - now).total_seconds() > 0: days_left = 1
+                except: days_left = 1
+                await notify_client_subscription_expiring(bot, u, days_left, p, ADMIN_USERNAME)
+        except: pass
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
@@ -381,9 +402,9 @@ async def run_web_server():
 async def main():
     await init_db(); await bot.start(bot_token=BOT_TOKEN)
     me = await bot.get_me(); import src.config; src.config.BOT_USERNAME = me.username
-    init_admin_handlers(bot, login_states, load_prices, None, start_user_broadcast)
+    init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
     init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
-    asyncio.create_task(run_jaseb_scheduler()); asyncio.create_task(run_web_server())
+    asyncio.create_task(run_jaseb_scheduler()); asyncio.create_task(run_expiry_reminder()); asyncio.create_task(run_web_server())
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':

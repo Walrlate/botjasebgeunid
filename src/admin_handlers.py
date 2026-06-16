@@ -93,8 +93,9 @@ def _register_admin_handlers(bot):
     async def approve_manual_handler(event):
         if not await _admin_only_check(event): return
         trx_id = event.pattern_match.group(1).decode()
-        from src.main import process_successful_payment
-        await process_successful_payment(trx_id)
+        from src.logic import process_activation
+        async with get_db() as db:
+            await process_activation(bot, db, trx_id, _load_prices(), _login_states)
         await event.edit(f"✅ **TRANSAKSI {trx_id} DISETUJUI!**")
 
     @bot.on(events.CallbackQuery(pattern=b"reject_man_(.+)"))
