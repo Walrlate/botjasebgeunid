@@ -64,7 +64,6 @@ const Dashboard = () => {
   const [rawWording, setRawWording] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<'premium' | 'minimalist' | 'flash'>('premium');
   const [wordingCopied, setWordingCopied] = useState(false);
-  const [lpmToScan, setLpmToScan] = useState('');
   
   // State for History
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -471,8 +470,6 @@ const Dashboard = () => {
                 setSelectedTemplate={setSelectedTemplate}
                 wordingCopied={wordingCopied}
                 setWordingCopied={setWordingCopied}
-                lpmToScan={lpmToScan}
-                setLpmToScan={setLpmToScan}
                 enhancedWording={enhancedWording}
                 triggerHaptic={triggerHaptic}
               />

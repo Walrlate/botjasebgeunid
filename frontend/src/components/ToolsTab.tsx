@@ -10,8 +10,6 @@ interface ToolsTabProps {
   setSelectedTemplate: (val: 'premium' | 'minimalist' | 'flash') => void;
   wordingCopied: boolean;
   setWordingCopied: (val: boolean) => void;
-  lpmToScan: string;
-  setLpmToScan: (val: string) => void;
   enhancedWording: (text: string, template: 'premium' | 'minimalist' | 'flash') => string;
   triggerHaptic: (style?: 'light' | 'medium' | 'heavy') => void;
 }
@@ -23,8 +21,6 @@ export const ToolsTab: React.FC<ToolsTabProps> = ({
   setSelectedTemplate,
   wordingCopied,
   setWordingCopied,
-  lpmToScan,
-  setLpmToScan,
   enhancedWording,
   triggerHaptic,
 }) => {
@@ -34,12 +30,6 @@ export const ToolsTab: React.FC<ToolsTabProps> = ({
     navigator.clipboard.writeText(enhancedWording(rawWording, selectedTemplate));
     setWordingCopied(true);
     setTimeout(() => setWordingCopied(false), 2000);
-  };
-
-  const getScanCommandText = () => {
-    const matches = lpmToScan.match(/(?:https?:\/\/)?(?:t\.me\/|@)?([a-zA-Z0-9_]{5,32}|joinchat\/[a-zA-Z0-9_\-]+)/g);
-    if (!matches) return '';
-    return `/scan ` + matches.map(l => l.startsWith('@') || l.includes('t.me') ? l : `@${l}`).join(' ');
   };
 
   return (
@@ -97,41 +87,6 @@ export const ToolsTab: React.FC<ToolsTabProps> = ({
             <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-2xl text-[9.5px] font-mono text-slate-700 whitespace-pre-wrap leading-relaxed shadow-inner max-h-[150px] overflow-y-auto">
               {enhancedWording(rawWording, selectedTemplate)}
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="glass-panel rounded-3xl p-5 border border-slate-200/60 shadow-soft space-y-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-2xl bg-geun-purple/10 flex items-center justify-center text-geun-purple">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-slate-800 uppercase">LPM Auto-Scanner Helper</h3>
-          </div>
-        </div>
-        <textarea
-          value={lpmToScan}
-          onChange={(e) => setLpmToScan(e.target.value)}
-          placeholder="Username atau link grup LPM..."
-          className="w-full min-h-[90px] text-[10px] p-3.5 bg-[#F8FAFC] border border-slate-200 rounded-2xl focus:outline-none text-slate-700 shadow-inner resize-none"
-        />
-        {lpmToScan.trim() && getScanCommandText() && (
-          <div className="space-y-3.5">
-            <div className="p-3.5 bg-[#F8FAFC] border border-slate-200 rounded-2xl text-[9.5px] font-mono text-slate-700 leading-relaxed shadow-inner break-all">
-              {getScanCommandText()}
-            </div>
-            <a
-              href={`https://t.me/GeunIDJaseb_Bot?text=${encodeURIComponent(getScanCommandText())}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => triggerHaptic('heavy')}
-              className="w-full bg-gradient-to-r from-geun-blue to-geun-purple text-white py-3 rounded-2xl text-[9px] font-black uppercase text-center block shadow-soft"
-            >
-              🚀 Kirim ke Bot
-            </a>
           </div>
         )}
       </div>
