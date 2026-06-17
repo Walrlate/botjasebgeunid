@@ -66,6 +66,7 @@ async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
                                         failed_count: int, next_broadcast_hours: float,
                                         success_links: list = None):
     """Kirim laporan broadcast ke client setelah siklus selesai."""
+    import html as pyhtml
     total = success_count + failed_count
     rate = round((success_count / total * 100) if total > 0 else 0, 1)
     
@@ -73,22 +74,23 @@ async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
     
     links_text = ""
     if success_links:
-        links_text = "\n🔗 **Bukti Kirim:**\n"
+        links_text = "\n🔗 <b>Bukti Kirim:</b>\n"
         for title, link in success_links[:5]:
             if link and (link.startswith("http") or "t.me" in link):
-                short_title = title[:20] + "..." if len(title) > 20 else title
-                links_text += f"• {short_title}: [Bukti Kirim ↗]({link})\n"
+                safe_title = pyhtml.escape(title)
+                short_title = safe_title[:20] + "..." if len(safe_title) > 20 else safe_title
+                links_text += f"• {short_title}: <a href=\"{link}\">Bukti Kirim ↗</a>\n"
         if len(success_links) > 5:
-            links_text += f"• _dan {len(success_links) - 5} grup lainnya..._\n"
+            links_text += f"• <i>dan {len(success_links) - 5} grup lainnya...</i>\n"
             
     text = (
-        "📊 **Laporan Jaseb**\n\n"
-        f"✅ Terkirim: **{success_count} grup**\n"
-        f"❌ Gagal: **{failed_count} grup**\n"
-        f"📈 Success Rate: **{rate}%**\n"
+        "📊 <b>Laporan Jaseb</b>\n\n"
+        f"✅ Terkirim: <b>{success_count} grup</b>\n"
+        f"❌ Gagal: <b>{failed_count} grup</b>\n"
+        f"📈 Success Rate: <b>{rate}%</b>\n"
         f"{links_text}\n"
-        f"⏰ Broadcast berikutnya: **{interval_text} lagi** (otomatis)\n\n"
-        "💡 _Ketik /mystatus untuk cek detail atau /edit_jaseb untuk ganti teks._"
+        f"⏰ Broadcast berikutnya: <b>{interval_text} lagi</b> (otomatis)\n\n"
+        "💡 <i>Ketik /mystatus untuk cek detail atau /edit_jaseb untuk ganti teks.</i>"
     )
     
     from src.main import get_web_app_url
@@ -100,11 +102,11 @@ async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
         else:
             url += "?tab=history"
         buttons = [[KeyboardButtonWebView(text="📋 Lihat Riwayat Lengkap", url=url)]]
-        await bot.send_message(user_id, text, buttons=buttons, link_preview=False)
+        await bot.send_message(user_id, text, parse_mode='html', buttons=buttons, link_preview=False)
     except Exception as e:
         logger.error(f"Gagal notif client broadcast done dengan tombol (user {user_id}): {e}")
         try:
-            await bot.send_message(user_id, text, link_preview=False)
+            await bot.send_message(user_id, text, parse_mode='html', link_preview=False)
         except Exception as e2:
             logger.error(f"Gagal fallback notif client broadcast done (user {user_id}): {e2}")
 
