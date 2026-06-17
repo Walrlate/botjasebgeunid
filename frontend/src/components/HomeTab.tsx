@@ -38,6 +38,33 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   setOpenAccordion,
   triggerHaptic,
 }) => {
+  const [displayCount, setDisplayCount] = React.useState(0);
+
+  React.useEffect(() => {
+    let startTimestamp: number | null = null;
+    const start = displayCount;
+    const end = stats.broadcasts;
+    const duration = 1.5;
+    
+    if (start === end) return;
+
+    let animationFrameId: number;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / (duration * 1000), 1);
+      const easeOutQuad = progress * (2 - progress);
+      
+      setDisplayCount(Math.floor(start + easeOutQuad * (end - start)));
+      
+      if (progress < 1) {
+        animationFrameId = window.requestAnimationFrame(step);
+      }
+    };
+    
+    animationFrameId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [stats.broadcasts]);
+
   const formatBroadcast = (val: number) => {
     if (val >= 1000) {
       return { number: (val / 1000).toFixed(1), unit: 'K Terkirim' };
@@ -45,7 +72,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     return { number: val.toString(), unit: 'Terkirim' };
   };
   
-  const bData = formatBroadcast(stats.broadcasts);
+  const bData = formatBroadcast(displayCount);
 
   return (
     <motion.div
