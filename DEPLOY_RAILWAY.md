@@ -43,12 +43,12 @@ Setelah project dibuat, klik tab **"Variables"** dan tambahkan semua variabel be
 
 | Variable | Value | Keterangan |
 |---|---|---|
-| `API_ID` | `33241986` | API ID Telegram |
-| `API_HASH` | `3ac3dfb73b9b34f471a22b948cb0e6c9` | API Hash Telegram |
-| `BOT_TOKEN` | `8901501719:AAG6kyPNUlM1FrgHNenEITth5GwkK44ZGF8` | Token Bot dari @BotFather |
-| `ADMIN_ID` | `8844645901` | Telegram User ID Admin |
-| `KLIKQRIS_API_KEY` | `MSkw9B8L40L9ywZH8i1nyvnEuZ72exKZsZOHVfVC` | API Key KlikQRIS |
-| `KLIKQRIS_MERCHANT_ID` | `178075934651` | Merchant ID KlikQRIS |
+| `API_ID` | `12345678` | API ID Telegram Anda |
+| `API_HASH` | `abcdef0123456789abcdef0123456789` | API Hash Telegram Anda |
+| `BOT_TOKEN` | `1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ-placeholder` | Token Bot dari @BotFather |
+| `ADMIN_ID` | `123456789` | Telegram User ID Admin Anda |
+| `KLIKQRIS_API_KEY` | `your_klikqris_api_key_here` | API Key KlikQRIS |
+| `KLIKQRIS_MERCHANT_ID` | `your_merchant_id_here` | Merchant ID KlikQRIS |
 | `CHANNEL_USERNAME` | `@geunidk` | Channel wajib join |
 | `ADMIN_USERNAME` | `@Geun_ID` | Username admin |
 | `DB_PATH` | `data/jaseb.db` | Path database SQLite |
