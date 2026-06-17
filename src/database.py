@@ -552,12 +552,13 @@ def db_get_lpm_lists_count() -> int:
 def db_get_active_lpm_lists(limit: int):
     try:
         supabase = get_supabase()
+        query_limit = max(300, limit)
         res = supabase.table("lpm_lists")\
             .select("group_link")\
             .eq("is_active", True)\
             .eq("is_blacklisted", False)\
             .order("member_count", desc=True)\
-            .limit(300)\
+            .limit(query_limit)\
             .execute()
         if res.data:
             all_links = [r["group_link"] for r in res.data]
