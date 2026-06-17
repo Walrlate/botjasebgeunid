@@ -909,40 +909,59 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             retry_delay=5
         )
         try:
-            await client.connect()
+            # 1. Hubungkan sesi dengan penanganan lock (retry loop)
+            connected = False
+            retries = 3
+            while retries > 0:
+                try:
+                    await client.connect()
+                    connected = True
+                    break
+                except Exception as conn_err:
+                    err_str = str(conn_err).lower()
+                    if "lock" in err_str or "locked" in err_str:
+                        logger.warning(f"⚠️ Berkas sesi admin {phone} terkunci, mencoba kembali dalam 5 detik... (Percobaan: {4-retries})")
+                        await asyncio.sleep(5)
+                        retries -= 1
+                    else:
+                        raise conn_err
+            
+            if not connected:
+                await bot.send_message(status_chat_id, f"⚠️ **Gagal:** Sesi {phone} terkunci oleh proses lain. Melewati.")
+                continue
+                
             if not await client.is_user_authorized():
                 await bot.send_message(status_chat_id, f"⚠️ Akun {phone} tidak terotorisasi (butuh login ulang). Melewati.")
                 continue
                 
-            # Ambil daftar chat/grup yang sudah diikuti oleh admin ini
+            # 2. Ambil daftar chat/grup yang sudah diikuti oleh admin ini (ID & Username)
             joined_ids = set()
+            joined_usernames = set()
             try:
                 async for dialog in client.iter_dialogs(limit=None):
                     if dialog.is_group or dialog.is_channel:
                         joined_ids.add(dialog.entity.id)
+                        if hasattr(dialog.entity, 'username') and dialog.entity.username:
+                            joined_usernames.add(dialog.entity.username.lower())
             except Exception as ex:
                 logger.error(f"Error iter_dialogs untuk {phone}: {ex}")
                 
-            # Cari LPM mana saja yang belum diikuti
+            # 3. Cari LPM mana saja yang belum diikuti (Pencocokan 100% di memori, Tanpa API Telegram Call!)
             to_join = []
             for link, db_group_id in lpm_data:
-                # 1. Cek ID di joined_ids (instan & tanpa network request)
+                # Normalisasi link ke format username bersih (lowercase)
+                target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "").lower()
+                
+                # Cek berdasarkan ID (jika ada di database)
                 if db_group_id and int(db_group_id) in joined_ids:
                     continue
                     
-                # 2. Fallback jika group_id di DB kosong (None/0)
-                if not db_group_id:
-                    try:
-                        target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
-                        entity = await client.get_entity(target_entity)
-                        if entity.id in joined_ids:
-                            continue
-                        to_join.append(entity)
-                    except:
-                        continue
-                else:
-                    # Simpan string link untuk di-resolve nanti saat akan di-join
-                    to_join.append(link)
+                # Cek berdasarkan username/slug (sangat cepat & aman)
+                if target_entity in joined_usernames:
+                    continue
+                    
+                # Masukkan ke daftar target jika tidak cocok di keduanya
+                to_join.append(link)
                     
             if not to_join:
                 await bot.send_message(status_chat_id, f"✅ Akun {phone} sudah bergabung ke semua grup LPM yang valid. (Sisa target: 0)")
@@ -955,7 +974,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             joined_count = 0
             for item in to_join[:limit_join]:
                 try:
-                    # Resolve ke entity jika string
+                    # Resolve ke entity jika berupa string
                     if isinstance(item, str):
                         target_entity = item.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
                         entity = await client.get_entity(target_entity)
