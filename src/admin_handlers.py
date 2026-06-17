@@ -867,7 +867,7 @@ def _register_admin_handlers(bot):
 
 
 async def run_admin_pool_gradual_join(bot, status_chat_id):
-    from src.database import db_get_active_admin_userbots, db_get_active_lpm_lists, db_get_lpm_lists_count
+    from src.database import db_get_active_admin_userbots, db_get_active_lpm_links_with_ids, db_get_lpm_lists_count
     from src.jaseb_engine import JasebEngine
     from telethon import TelegramClient
     from telethon.network import ConnectionTcpObfuscated
@@ -883,8 +883,8 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
         await bot.send_message(status_chat_id, "❌ **Gagal:** Pool LPM di database kosong.")
         return
         
-    lpm_links = db_get_active_lpm_lists(limit=total_lpm)
-    if not lpm_links:
+    lpm_data = db_get_active_lpm_links_with_ids(limit=total_lpm)
+    if not lpm_data:
         await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada LPM aktif di database.")
         return
 
@@ -894,7 +894,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
         await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada akun Admin Pool yang terhubung.")
         return
 
-    await bot.send_message(status_chat_id, f"📢 **Gradual Join dimulai:**\n👤 Total Admin: **{len(admins)}**\n📋 Total LPM Pool: **{len(lpm_links)}**")
+    await bot.send_message(status_chat_id, f"📢 **Gradual Join dimulai:**\n👤 Total Admin: **{len(admins)}**\n📋 Total LPM Pool: **{len(lpm_data)}**")
     
     for sess, phone, aid in admins:
         await bot.send_message(status_chat_id, f"⏳ **Memproses akun admin: {phone}...**")
@@ -925,15 +925,24 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
                 
             # Cari LPM mana saja yang belum diikuti
             to_join = []
-            for link in lpm_links:
-                try:
-                    # Ganti link ke username/slug jika public
-                    target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
-                    entity = await client.get_entity(target_entity)
-                    if entity.id not in joined_ids:
-                        to_join.append(entity)
-                except Exception as ex:
+            for link, db_group_id in lpm_data:
+                # 1. Cek ID di joined_ids (instan & tanpa network request)
+                if db_group_id and int(db_group_id) in joined_ids:
                     continue
+                    
+                # 2. Fallback jika group_id di DB kosong (None/0)
+                if not db_group_id:
+                    try:
+                        target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
+                        entity = await client.get_entity(target_entity)
+                        if entity.id in joined_ids:
+                            continue
+                        to_join.append(entity)
+                    except:
+                        continue
+                else:
+                    # Simpan string link untuk di-resolve nanti saat akan di-join
+                    to_join.append(link)
                     
             if not to_join:
                 await bot.send_message(status_chat_id, f"✅ Akun {phone} sudah bergabung ke semua grup LPM yang valid. (Sisa target: 0)")
@@ -944,14 +953,23 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             await bot.send_message(status_chat_id, f"🔄 Akun {phone} akan bergabung ke **{limit_join}** grup baru...\n🎯 Sisa target LPM belum diikuti akun ini: **{len(to_join)}** grup")
             
             joined_count = 0
-            for entity in to_join[:limit_join]:
+            for item in to_join[:limit_join]:
                 try:
+                    # Resolve ke entity jika string
+                    if isinstance(item, str):
+                        target_entity = item.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
+                        entity = await client.get_entity(target_entity)
+                    else:
+                        entity = item
+                        
                     await client(JoinChannelRequest(entity))
                     joined_count += 1
                     # Jeda waktu aman yang panjang
                     await asyncio.sleep(random.uniform(20, 35))
                 except Exception as ex:
-                    logger.error(f"Admin {phone} gagal join {entity.title if hasattr(entity, 'title') else entity.id}: {ex}")
+                    # Mengambil info identitas error untuk log
+                    target_name = item if isinstance(item, str) else (entity.title if hasattr(entity, 'title') else "grup")
+                    logger.error(f"Admin {phone} gagal join {target_name}: {ex}")
                     if "flood" in str(ex).lower():
                         await bot.send_message(status_chat_id, f"⚠️ Akun {phone} terkena FloodWait. Menghentikan join untuk akun ini.")
                         break

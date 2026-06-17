@@ -573,6 +573,30 @@ def db_get_active_lpm_lists(limit: int):
         logger.error(f"Error in db_get_active_lpm_lists: {e}")
         return []
 
+def db_get_active_lpm_links_with_ids(limit: int):
+    try:
+        supabase = get_supabase()
+        query_limit = max(300, limit)
+        res = supabase.table("lpm_lists")\
+            .select("group_link, group_id")\
+            .eq("is_active", True)\
+            .eq("is_blacklisted", False)\
+            .order("member_count", desc=True)\
+            .limit(query_limit)\
+            .execute()
+        if res.data:
+            import random
+            all_data = [(r["group_link"], r["group_id"]) for r in res.data]
+            if len(all_data) > limit:
+                return random.sample(all_data, limit)
+            else:
+                random.shuffle(all_data)
+                return all_data
+        return []
+    except Exception as e:
+        logger.error(f"Error in db_get_active_lpm_links_with_ids: {e}")
+        return []
+
 def db_insert_forward_log(user_id: int, ad_id: int, group_id: int, msg_link: str, status: str, error_msg: str = ""):
     try:
         db_ensure_user(user_id)
