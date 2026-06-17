@@ -557,10 +557,16 @@ def db_get_active_lpm_lists(limit: int):
             .eq("is_active", True)\
             .eq("is_blacklisted", False)\
             .order("member_count", desc=True)\
-            .limit(limit)\
+            .limit(300)\
             .execute()
         if res.data:
-            return [r["group_link"] for r in res.data]
+            all_links = [r["group_link"] for r in res.data]
+            import random
+            if len(all_links) > limit:
+                return random.sample(all_links, limit)
+            else:
+                random.shuffle(all_links)
+                return all_links
         return []
     except Exception as e:
         logger.error(f"Error in db_get_active_lpm_lists: {e}")
@@ -595,6 +601,18 @@ def db_get_success_forward_logs_count(user_id: int) -> int:
         return res.count or 0
     except Exception as e:
         logger.error(f"Error in db_get_success_forward_logs_count: {e}")
+        return 0
+
+def db_get_global_success_forward_logs_count() -> int:
+    try:
+        supabase = get_supabase()
+        res = supabase.table("forward_logs")\
+            .select("id", count="exact")\
+            .eq("status", "success")\
+            .execute()
+        return res.count or 0
+    except Exception as e:
+        logger.error(f"Error in db_get_global_success_forward_logs_count: {e}")
         return 0
 
 def db_get_forward_history(user_id: int, limit: int = 50):

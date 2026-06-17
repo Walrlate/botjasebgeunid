@@ -29,6 +29,7 @@ from src.database import (
     db_ensure_user,
     db_get_active_subscription_status,
     db_get_success_forward_logs_count,
+    db_get_global_success_forward_logs_count,
     db_get_lpm_lists_count,
     db_get_active_userbots_count,
     db_get_userbot_status,
@@ -452,7 +453,7 @@ async def handle_user_stats_api(request):
             if not verified_user or int(verified_user.get("id", 0)) != uid:
                 return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
                 
-        succ = db_get_success_forward_logs_count(uid)
+        succ = db_get_global_success_forward_logs_count()
         sub = db_get_active_subscription_status(uid)
         ub_status = db_get_userbot_status(uid)
         res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub_status}

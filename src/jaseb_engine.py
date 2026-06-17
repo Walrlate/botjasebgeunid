@@ -49,6 +49,7 @@ class JasebEngine:
         success_count = 0
         failed_count = 0
         flood_seconds = 0
+        success_links = []
 
         ad = db_get_user_ad_by_id(ad_id)
         if not ad:
@@ -176,6 +177,9 @@ class JasebEngine:
                 
                 db_insert_forward_log(user_id, ad_id, entity.id, msg_link, 'success')
                 
+                group_title = entity.title if hasattr(entity, 'title') else link
+                success_links.append((group_title, msg_link))
+                
                 success_count += 1
                 unprocessed_links.remove(link)
 
@@ -199,7 +203,7 @@ class JasebEngine:
                 db_insert_forward_log(user_id, ad_id, ent_id, "", 'failed', str(e))
         
         self.is_running = False
-        return {"success": True, "success_count": success_count, "failed_count": failed_count, "unprocessed_links": unprocessed_links, "floodwait_seconds": flood_seconds}
+        return {"success": True, "success_count": success_count, "failed_count": failed_count, "unprocessed_links": unprocessed_links, "floodwait_seconds": flood_seconds, "success_links": success_links}
 
     @staticmethod
     async def verify_lpm_group(client, group_link):

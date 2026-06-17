@@ -63,25 +63,50 @@ async def notify_client_broadcast_start(bot, user_id: int, total_groups: int, pa
 
 
 async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
-                                        failed_count: int, next_broadcast_hours: float):
+                                        failed_count: int, next_broadcast_hours: float,
+                                        success_links: list = None):
     """Kirim laporan broadcast ke client setelah siklus selesai."""
     total = success_count + failed_count
     rate = round((success_count / total * 100) if total > 0 else 0, 1)
     
     interval_text = f"{int(next_broadcast_hours * 60)} menit" if next_broadcast_hours < 1 else f"{next_broadcast_hours} jam"
     
+    links_text = ""
+    if success_links:
+        links_text = "\n🔗 **Bukti Kirim:**\n"
+        for title, link in success_links[:5]:
+            if link and (link.startswith("http") or "t.me" in link):
+                short_title = title[:20] + "..." if len(title) > 20 else title
+                links_text += f"• {short_title}: [Bukti Kirim ↗]({link})\n"
+        if len(success_links) > 5:
+            links_text += f"• _dan {len(success_links) - 5} grup lainnya..._\n"
+            
     text = (
-        "📊 **Laporan Broadcast Jaseb Selesai!**\n\n"
+        "📊 **Laporan Jaseb**\n\n"
         f"✅ Terkirim: **{success_count} grup**\n"
         f"❌ Gagal: **{failed_count} grup**\n"
-        f"📈 Success Rate: **{rate}%**\n\n"
+        f"📈 Success Rate: **{rate}%**\n"
+        f"{links_text}\n"
         f"⏰ Broadcast berikutnya: **{interval_text} lagi** (otomatis)\n\n"
         "💡 _Ketik /mystatus untuk cek detail atau /edit_jaseb untuk ganti teks._"
     )
+    
+    from src.main import get_web_app_url
+    from telethon.tl.types import KeyboardButtonWebView
     try:
-        await bot.send_message(user_id, text)
+        url = await get_web_app_url(user_id)
+        if "?" in url:
+            url += "&tab=history"
+        else:
+            url += "?tab=history"
+        buttons = [[KeyboardButtonWebView(text="📋 Lihat Riwayat Lengkap", url=url)]]
+        await bot.send_message(user_id, text, buttons=buttons, link_preview=False)
     except Exception as e:
-        logger.error(f"Gagal notif client broadcast done (user {user_id}): {e}")
+        logger.error(f"Gagal notif client broadcast done dengan tombol (user {user_id}): {e}")
+        try:
+            await bot.send_message(user_id, text, link_preview=False)
+        except Exception as e2:
+            logger.error(f"Gagal fallback notif client broadcast done (user {user_id}): {e2}")
 
 
 async def notify_client_subscription_expiring(bot, user_id: int, days_left: int,

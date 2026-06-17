@@ -146,7 +146,8 @@ async def _show_mystatus(event, user_id: int):
                 days = 0
                 
         iv_label = f"{int(iv*60)}m" if iv < 1 else f"{iv}j"
-        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:10]} ({days} hari lagi)\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup\n🤖 Userbot: {ub_status.capitalize()}"
+        ub_line = f"\n🤖 Userbot: {ub_status.capitalize()}" if "userbot" in pkg.lower() else ""
+        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:10]} ({days} hari lagi)\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
         buttons = [[Button.inline("🔄 Sebar Ulang", b"resend_jaseb"), Button.inline("✍️ Edit Iklan", b"edit_jaseb_btn")], [Button.inline("⬅️ Kembali", b"start")]]
 
     if hasattr(event, "edit"):

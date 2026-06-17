@@ -178,6 +178,15 @@ const Dashboard = () => {
   useEffect(() => {
     if (user?.id) {
       fetchUserStats(user.id);
+      
+      // Deteksi query param 'tab' untuk langsung membuka tab history
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'history') {
+        setActiveTab('history');
+        fetchHistory(user.id);
+      }
+
       const intervalId = setInterval(() => fetchUserStats(user.id), 30000);
       return () => clearInterval(intervalId);
     }

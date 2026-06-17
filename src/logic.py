@@ -180,7 +180,8 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                 try:
                     await eng.start()
                     res = await eng.broadcast_with_stealth(user_id, ad_id, links, 'slowly')
-                    await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5)
+                    success_links = res.get("success_links", [])
+                    await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5, success_links)
                 except Exception as e:
                     logger.error(f"Gagal broadcast userbot pembeli {user_id}: {e}")
                     from src.database import db_update_userbot_status
@@ -204,6 +205,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
             unprocessed = links.copy()
             total_succ = 0
             total_fail = 0
+            total_success_links = []
             
             for sess, phone, aid in admins:
                 if not unprocessed: break
@@ -213,6 +215,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                     res = await eng.broadcast_with_stealth(user_id, ad_id, unprocessed, 'slowly' if 'regular' in pkg.lower() else 'instant')
                     total_succ += res.get("success_count", 0)
                     total_fail += res.get("failed_count", 0)
+                    total_success_links.extend(res.get("success_links", []))
                     unprocessed = res.get("unprocessed_links", [])
                     
                     if res.get("floodwait_seconds", 0) > 300:
@@ -225,6 +228,6 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                 except: continue
                 finally: await eng.stop()
                 
-            await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5)
+            await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5, total_success_links)
     finally:
         active_broadcasts.discard(user_id)

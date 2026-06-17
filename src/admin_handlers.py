@@ -1031,15 +1031,20 @@ async def handle_admin_input(event, state_data: dict):
 
     # ──────────────── LPM STATES ────────────────
     elif state == "admin_add_lpm":
-        raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
-        if not raw_lines:
-            await event.respond("❌ Tidak ada link yang valid. Coba lagi.")
+        import re
+        usernames = re.findall(r'@[a-zA-Z0-9_]{5,32}', text)
+        links = re.findall(r'(?:https?://)?t\.me/(?:joinchat/[a-zA-Z0-9_\-]+|[a-zA-Z0-9_]{5,32})', text)
+        all_targets = list(set(usernames + links))
+        
+        if not all_targets:
+            await event.respond("❌ Tidak ada link LPM atau username yang valid. Coba lagi.")
             return
-        count = db_bulk_add_lpm_entries(raw_lines)
+            
+        count = db_bulk_add_lpm_entries(all_targets)
         del _login_states[user_id]
         total_now = db_get_lpm_lists_count()
         await event.respond(
-            f"✅ **{count} dari {len(raw_lines)} LPM berhasil ditambahkan!**\n"
+            f"✅ **{count} dari {len(all_targets)} LPM berhasil ditambahkan!**\n"
             f"📋 Total LPM pool sekarang: **{total_now} grup**",
             buttons=[[Button.inline("📋 Lihat LPM Pool", b"lpm_view"), Button.inline("⬅️ Menu LPM", b"lpm_main")]]
         )

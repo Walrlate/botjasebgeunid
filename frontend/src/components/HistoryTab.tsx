@@ -50,9 +50,25 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ history, loadingHistory 
                 </div>
                 {item.status === 'success' && item.msg_link ? (
                   <div className="mt-3 pt-3 border-t border-slate-50">
-                    <a href={item.msg_link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[9px] font-black text-geun-blue uppercase">
+                    <button
+                      onClick={() => {
+                        if (item.msg_link) {
+                          const webapp = (window as any).Telegram?.WebApp;
+                          if (webapp) {
+                            if (item.msg_link.startsWith('https://t.me/')) {
+                              webapp.openTelegramLink(item.msg_link);
+                            } else {
+                              webapp.openLink(item.msg_link);
+                            }
+                          } else {
+                            window.open(item.msg_link, '_blank');
+                          }
+                        }
+                      }}
+                      className="flex items-center gap-1.5 text-[9px] font-black text-geun-blue uppercase border-none bg-transparent p-0 cursor-pointer"
+                    >
                       Bukti Kirim ↗
-                    </a>
+                    </button>
                   </div>
                 ) : item.status === 'failed' && item.error_msg && (
                   <div className="mt-3 pt-3 border-t border-slate-50">
