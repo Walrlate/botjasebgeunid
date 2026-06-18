@@ -4,7 +4,7 @@ import logging
 import os
 from telethon import TelegramClient
 from telethon.network import ConnectionTcpObfuscated
-from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import PeerChannel, PeerUser, PeerChat
 from telethon.errors import FloodWaitError
 from src.database import (
@@ -14,6 +14,23 @@ from src.database import (
 )
 
 logger = logging.getLogger(__name__)
+
+def resolve_spintax(text: str) -> str:
+    """Memutar kata secara acak berdasarkan format spintax {pilihan1|pilihan2}."""
+    import re
+    import random
+    if not text:
+        return ""
+    pattern = re.compile(r'\{([^{}]+)\}')
+    def replacer(match):
+        choices = match.group(1).split('|')
+        return random.choice(choices)
+    while True:
+        new_text = pattern.sub(replacer, text)
+        if new_text == text:
+            break
+        text = new_text
+    return text
 
 class JasebEngine:
     def __init__(self, user_session_name, api_id, api_hash):
@@ -40,7 +57,7 @@ class JasebEngine:
         except: pass
         self.is_running = False
 
-    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly'):
+    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', is_promote=False):
         """
         GEUNID ANTI-BAN BROADCAST ENGINE
         """
@@ -61,6 +78,14 @@ class JasebEngine:
         sub_row = db_get_active_subscription_status(user_id)
         package_name = sub_row[0] if sub_row else ""
 
+        # Ambil custom target messages untuk user_id ini
+        from src.database import db_get_custom_target_messages
+        custom_messages = db_get_custom_target_messages(user_id)
+        custom_map = {}
+        for cm in custom_messages:
+            if cm.get("is_active"):
+                custom_map[cm["target_peer"].lower()] = cm["custom_message"]
+
         # Branding Otomatis
         if content and not (fwd_chat_id and fwd_msg_id):
             import src.config
@@ -79,8 +104,14 @@ class JasebEngine:
         joins_this_cycle = 0
         max_joins_per_cycle = 5
 
+        from src.logic import active_broadcasts
+
         for link in group_links:
             if not self.is_running: break
+            if user_id not in active_broadcasts:
+                logger.info(f"Broadcast untuk user {user_id} dihentikan paksa (dibatalkan oleh admin/sistem).")
+                self.is_running = False
+                break
             
             entity = None
             try:
@@ -88,15 +119,14 @@ class JasebEngine:
                 is_private_invite = "joinchat/" in link or "+" in link
                 
                 if is_private_invite:
-                    # Ini tautan undangan private
                     invite_hash = link.split("/")[-1].replace("+", "")
                     from telethon.tl.functions.messages import ImportChatInviteRequest
                     try:
-                        # Coba join private group
                         logger.info(f"Userbot bergabung ke private invite link: {link}")
                         await self.client(ImportChatInviteRequest(invite_hash))
                         joins_this_cycle += 1
-                        await asyncio.sleep(random.uniform(20, 30))
+                        # Jeda acak manusia saat join
+                        await asyncio.sleep(random.uniform(15, 30))
                     except Exception as invite_err:
                         if "UserAlreadyParticipantError" in str(invite_err):
                             pass
@@ -106,7 +136,6 @@ class JasebEngine:
                                 unprocessed_links.remove(link)
                             continue
                             
-                    # Coba ambil entity chat setelah join sukses
                     try:
                         entity = await self.client.get_entity(link)
                     except Exception as ent_err:
@@ -115,7 +144,6 @@ class JasebEngine:
                             unprocessed_links.remove(link)
                         continue
                 else:
-                    # Tautan publik biasa
                     try:
                         entity = await self.client.get_entity(link)
                     except Exception as e:
@@ -136,22 +164,51 @@ class JasebEngine:
                         await self.client(JoinChannelRequest(entity))
                         joined_ids.add(entity.id)
                         joins_this_cycle += 1
+                        # Jeda acak manusia saat join
                         await asyncio.sleep(random.uniform(15, 25))
 
                 # 3. JARVIS PROACTIVE: Simulasi Manusia (Typing) jika sudah bergabung
                 try:
                     async with self.client.action(entity, 'typing'):
-                        await asyncio.sleep(random.uniform(2, 4))
+                        # Simulasi mengetik 2-5 detik acak
+                        await asyncio.sleep(random.uniform(2, 5))
                 except Exception as e:
                     logger.debug(f"Gagal mensimulasikan typing: {e}")
 
-                # 4. Smart-Tagging (Dinamis)
+                # 4. Custom Target Message vs default Ad
                 final_content = content
+                # Cek apakah target link terdaftar di pesan kustom
+                link_clean = link.strip().lower().replace("https://t.me/","").replace("t.me/","").replace("@","")
+                ent_id_str = str(entity.id) if entity else ""
+                
+                # Gunakan pesan kustom jika ada pencocokan link atau id grup
+                if link_clean in custom_map:
+                    final_content = custom_map[link_clean]
+                elif ent_id_str in custom_map:
+                    final_content = custom_map[ent_id_str]
+                elif entity and hasattr(entity, 'username') and entity.username and entity.username.lower() in custom_map:
+                    final_content = custom_map[entity.username.lower()]
+
+                # Putar kata iklan secara dinamis (AI Smart Wording Auto-Rotation)
+                final_content = resolve_spintax(final_content)
+
                 if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
                     final_content = f"{final_content}\n#LPM #Promote"
 
                 # 5. EXECUTION
-                if fwd_chat_id and fwd_msg_id:
+                if is_promote:
+                    import src.config
+                    bot_username = src.config.BOT_USERNAME
+                    try:
+                        results = await self.client.inline_query(bot_username, 'promote')
+                        if results:
+                            msg = await results[0].click(entity)
+                        else:
+                            raise ValueError("Hasil inline query kosong.")
+                    except Exception as inline_err:
+                        logger.warning(f"Gagal kirim via inline query promote, fallback ke teks biasa: {inline_err}")
+                        msg = await self.client.send_message(entity, final_content, parse_mode='html')
+                elif fwd_chat_id and fwd_msg_id:
                     clean_fwd_id = int(str(fwd_chat_id).replace("-100", ""))
                     if fwd_peer_type == 'channel': from_peer = PeerChannel(clean_fwd_id)
                     elif fwd_peer_type == 'user': from_peer = PeerUser(clean_fwd_id)
@@ -183,8 +240,9 @@ class JasebEngine:
                 success_count += 1
                 unprocessed_links.remove(link)
 
-                # PERSISTENT PROTOCOL: No Leave.
-                sleep_time = random.uniform(30, 60) if delay_mode == 'slowly' else random.uniform(5, 10)
+                # PERSISTENT PROTOCOL & Dynamic Random Delay Simulator
+                # Menyusun jeda waktu yang dinamis dan acak secara manusiawi
+                sleep_time = random.uniform(30, 150) if delay_mode == 'slowly' else random.uniform(5, 25)
                 await asyncio.sleep(sleep_time)
 
             except FloodWaitError as fwe:
@@ -198,7 +256,6 @@ class JasebEngine:
                 failed_count += 1
                 if link in unprocessed_links:
                     unprocessed_links.remove(link)
-                # Catat kegagalan ke database
                 ent_id = entity.id if ('entity' in locals() and entity) else 0
                 db_insert_forward_log(user_id, ad_id, ent_id, "", 'failed', str(e))
         

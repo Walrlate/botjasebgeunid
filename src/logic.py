@@ -23,7 +23,8 @@ from src.database import (
     db_get_active_lpm_lists,
     db_get_userbot_session_and_status,
     db_get_active_admin_userbots,
-    db_cooldown_admin_userbot
+    db_cooldown_admin_userbot,
+    db_get_lpm_sharded_for_admin
 )
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     if not row:
         return False, "Transaksi tidak ditemukan."
     
-    uid, amt, pkg_name, status = row
+    uid, amt, pkg_name, status, assigned_admin_ub_id = row
     if status == 'success':
         return True, "Sudah aktif."
 
@@ -100,11 +101,11 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
         except:
             base_date = now
         new_end = (base_date + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        db_update_subscription_dates(sub_id, new_end, cap, pkg_name)
+        db_update_subscription_dates(sub_id, new_end, cap, pkg_name, assigned_admin_ub_id)
     else:
         # MODE BARU
         new_end = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        db_add_subscription(uid, pkg_name, cap, now_str, new_end)
+        db_add_subscription(uid, pkg_name, cap, now_str, new_end, assigned_admin_ub_id)
     
     # 4. Tandai transaksi sukses
     db_update_transaction_status(trx_id, "success")
@@ -156,7 +157,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
         sub = db_get_active_subscription_broadcast_details(user_id)
         if not sub: return
         
-        pkg, cap, req_lpm, iv = sub
+        pkg, cap, req_lpm, iv, assigned_admin_ub_id = sub
         
         # 2. Ambil Iklan
         ad = db_get_latest_user_ad_id(user_id)
@@ -170,7 +171,11 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
         links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
         sisa = max(0, cap - len(links))
         if sisa > 0:
-            links.extend(db_get_active_lpm_lists(sisa))
+            if "userbot" not in pkg.lower() and assigned_admin_ub_id:
+                # Gunakan porsi LPM terdistribusi unik untuk bot admin sewa ini (Sharding LPM)
+                links.extend(db_get_lpm_sharded_for_admin(assigned_admin_ub_id, sisa))
+            else:
+                links.extend(db_get_active_lpm_lists(sisa))
 
         if "userbot" in pkg.lower():
             # JALUR USERBOT PEMBELI
@@ -195,11 +200,32 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                 try: await bot.send_message(user_id, "⚠️ Userbot terputus! Sambungkan kembali.");
                 except: pass
         else:
-            # JALUR POOL ADMIN (FALLBACK)
-            admins = db_get_active_admin_userbots()
+            # JALUR POOL ADMIN (Slot Terikat / Fallback Global)
+            assigned_admin = None
+            if assigned_admin_ub_id:
+                from src.database import db_get_admin_userbot_by_id
+                assigned_admin = db_get_admin_userbot_by_id(assigned_admin_ub_id)
             
-            if not admins:
-                logger.error(f"Pool Kosong untuk user {user_id}")
+            # Kumpulkan daftar admin yang akan memproses broadcast
+            admins_to_use = []
+            if assigned_admin and assigned_admin[3] == 'connected':
+                # Masukkan bot admin eksklusif terpilih ke daftar utama
+                admins_to_use.append((assigned_admin[0], assigned_admin[1], assigned_admin[2]))
+            
+            # Ambil sisa admin yang aktif sebagai cadangan (fallback jika bot utama limit/off)
+            active_pool = db_get_active_admin_userbots()
+            
+            # Saring agar tidak menduplikasi bot utama dalam daftar
+            assigned_id = assigned_admin[2] if assigned_admin else None
+            backups = [a for a in active_pool if a[2] != assigned_id]
+            
+            # Satukan: Bot utama di depan, diikuti oleh bot-bot cadangan (smart redirect)
+            admins_to_use.extend(backups)
+            
+            if not admins_to_use:
+                logger.error(f"Pool Admin Kosong untuk user {user_id}")
+                try: await bot.send_message(user_id, "⚠️ **Sistem Sibuk:** Seluruh bot admin sedang limit atau offline. Silakan hubungi admin.")
+                except: pass
                 return
                 
             unprocessed = links.copy()
@@ -207,8 +233,19 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
             total_fail = 0
             total_success_links = []
             
-            for sess, phone, aid in admins:
+            is_redirected = False
+            
+            for sess, phone, aid in admins_to_use:
                 if not unprocessed: break
+                
+                # Jika kita beralih ke bot cadangan di tengah jalan (Smart Redirect)
+                if assigned_id and aid != assigned_id and not is_redirected:
+                    is_redirected = True
+                    logger.info(f"🔄 Smart Redirect aktif: Mengalihkan sisa iklan user {user_id} ke bot cadangan {phone} karena bot utama limit.")
+                    try:
+                        await bot.send_message(user_id, f"🔄 **Smart Redirect:** Bot utama Anda sedang beristirahat (limit). Pengiriman dialihkan ke bot cadangan `{phone}` agar iklan tetap selesai terkirim.")
+                    except: pass
+                
                 eng = JasebEngine(f"data/sessions/{sess}", api_id, api_hash)
                 try:
                     await eng.start()
@@ -225,8 +262,11 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                     
                     if not unprocessed:
                         break
-                except: continue
-                finally: await eng.stop()
+                except Exception as ex:
+                    logger.error(f"Error pada bot admin {phone} saat broadcast: {ex}")
+                    continue
+                finally:
+                    await eng.stop()
                 
             await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5, total_success_links)
     finally:

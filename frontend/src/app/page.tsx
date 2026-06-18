@@ -81,6 +81,7 @@ const Dashboard = () => {
     duration: string;
     price: number;
   } | null>(null);
+  const [selectedAdminSlot, setSelectedAdminSlot] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<'select_payment' | 'qris_invoice' | 'manual_invoice' | 'success_screen'>('select_payment');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'qris' | 'manual' | null>(null);
@@ -310,11 +311,12 @@ const Dashboard = () => {
 – Payment: ${paymentText}
 – Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
     } else {
+      const slotLine = selectedAdminSlot ? `\n– Pilihan Bot: Bot GEUNID JASEB ${selectedAdminSlot}` : '';
       return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username akun: ${getUsername() || '@username'}
 – Durasi Jaseb: ${selectedPackage.duration}
-– Paket jaseb: JASEB ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM
+– Paket jaseb: JASEB ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM${slotLine}
 – Payment: ${paymentText}
 – Request Lpm: (isi @lpm1 @lpm2, kalau gaada kosongin/hapus)
 – Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
@@ -369,7 +371,7 @@ const Dashboard = () => {
     return () => clearInterval(pollInterval);
   }, [checkoutStep, qrisData]);
 
-  const handleContinueCheckout = async () => {
+  const handleContinueCheckout = async (adminId?: number | null) => {
     if (!selectedPaymentMethod) {
       alert("Silakan pilih metode pembayaran terlebih dahulu.");
       return;
@@ -405,7 +407,8 @@ const Dashboard = () => {
         lpm: selectedPackage.type === 'userbot' ? 0 : selectedPackage.lpm,
         package_type: selectedPackage.type,
         request_lpm: "",
-        payment_method: selectedPaymentMethod
+        payment_method: selectedPaymentMethod,
+        assigned_admin_ub_id: selectedPackage.type === 'userbot' ? null : (adminId || selectedAdminSlot)
       };
 
       const response = await fetch('/api/checkout', {
@@ -516,6 +519,8 @@ const Dashboard = () => {
             user={user}
             triggerHaptic={triggerHaptic}
             qrisTaxPercent={qrisTaxPercent}
+            selectedAdminSlot={selectedAdminSlot}
+            setSelectedAdminSlot={setSelectedAdminSlot}
           />
         </AnimatePresence>
 

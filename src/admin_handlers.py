@@ -70,6 +70,46 @@ def init_admin_handlers(bot, login_states, load_prices_fn, get_pkg_days_fn, star
     _start_user_broadcast = start_broadcast_fn
     _register_admin_handlers(bot)
 
+async def show_promote_panel(event, edit=False):
+    from src.database import db_get_admin_promote_ad
+    content, buttons_json = db_get_admin_promote_ad()
+    
+    if not content:
+        content = "🚀 **GEUNID JASEB** - Solusi Jasa Sebar Iklan Telegram Terbaik!"
+        
+    preview_text = f"📢 **PREVIEW PROMOSI GEUNID**\n{'━'*30}\n\n{content}"
+    
+    buttons = []
+    if buttons_json:
+        try:
+            import json
+            btn_data = json.loads(buttons_json)
+            row = []
+            for btn in btn_data:
+                row.append(Button.url(btn["text"], btn["url"]))
+                if len(row) == 2:
+                    buttons.append(row)
+                    row = []
+            if row:
+                buttons.append(row)
+        except:
+            pass
+            
+    control_buttons = [
+        [Button.inline("📝 Edit Teks", b"promo_edit_text"), Button.inline("🔗 Edit Tombol", b"promo_edit_btns")],
+        [Button.inline("🚀 Mulai Sebar Promosi", b"promo_start_broadcast")],
+        [Button.inline("⬅️ Kembali ke Admin", b"admin_main")]
+    ]
+    
+    all_buttons = buttons + control_buttons
+    
+    if edit and hasattr(event, "edit"):
+        try:
+            await event.edit(preview_text, buttons=all_buttons, parse_mode="html")
+            return
+        except:
+            pass
+    await event.respond(preview_text, buttons=all_buttons, parse_mode="html")
 
 def _is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
@@ -200,6 +240,209 @@ async def validate_and_add_lpm(bot, raw_link: str) -> tuple:
 # ══════════════════════════════════════════════════
 
 def _register_admin_handlers(bot):
+
+    # ─── KOMANDO UTAMA ADMIN BARU ───
+    @bot.on(events.NewMessage(pattern=r'/promote'))
+    async def promote_command(event):
+        if not await _admin_only_check(event): return
+        _login_states.pop(event.sender_id, None)
+        await show_promote_panel(event, edit=False)
+
+    @bot.on(events.CallbackQuery(data=b"promo_panel"))
+    async def promo_panel_callback(event):
+        if not await _admin_only_check(event): return
+        _login_states.pop(event.sender_id, None)
+        await show_promote_panel(event, edit=True)
+
+    @bot.on(events.CallbackQuery(data=b"promo_edit_text"))
+    async def promo_edit_text_callback(event):
+        if not await _admin_only_check(event): return
+        _login_states[event.sender_id] = {"state": "admin_edit_promote_text"}
+        await event.edit(
+            "📝 **EDIT TEKS PROMOSI**\n\n"
+            "Kirimkan teks materi promosi yang baru (HTML didukung):",
+            buttons=[[Button.inline("❌ Batal", b"promo_panel")]]
+        )
+
+    @bot.on(events.CallbackQuery(data=b"promo_edit_btns"))
+    async def promo_edit_btns_callback(event):
+        if not await _admin_only_check(event): return
+        _login_states[event.sender_id] = {"state": "admin_edit_promote_buttons"}
+        await event.edit(
+            "🔗 **EDIT TOMBOL PROMOSI**\n\n"
+            "Kirimkan tombol promosi baru dengan format pipa (satu tombol per baris).\n\n"
+            "Format:\n"
+            "`Teks Tombol 1 | Tautan URL 1`\n"
+            "`Teks Tombol 2 | Tautan URL 2`\n\n"
+            "Ketik `-` untuk menghapus semua tombol.",
+            buttons=[[Button.inline("❌ Batal", b"promo_panel")]]
+        )
+
+    @bot.on(events.CallbackQuery(data=b"promo_start_broadcast"))
+    async def promo_start_broadcast_callback(event):
+        if not await _admin_only_check(event): return
+        from src.database import get_supabase
+        supabase = get_supabase()
+        res = supabase.table("user_ads").select("id").eq("user_id", ADMIN_ID).eq("title", "Promosi Admin").limit(1).execute()
+        if res.data:
+            ad_id = res.data[0]["id"]
+            await event.answer("🚀 Memulai broadcast promosi!", alert=True)
+            asyncio.create_task(run_promote_broadcast_task(bot, event.chat_id, ad_id))
+        else:
+            # Jika belum ada di DB, buat default dulu
+            from src.database import db_save_admin_promote_ad
+            db_save_admin_promote_ad("🚀 **GEUNID JASEB** - Solusi Jasa Sebar Iklan Telegram Terbaik!", "")
+            res2 = supabase.table("user_ads").select("id").eq("user_id", ADMIN_ID).eq("title", "Promosi Admin").limit(1).execute()
+            if res2.data:
+                ad_id = res2.data[0]["id"]
+                await event.answer("🚀 Memulai broadcast promosi!", alert=True)
+                asyncio.create_task(run_promote_broadcast_task(bot, event.chat_id, ad_id))
+            else:
+                await event.answer("❌ Gagal memulai, materi promosi kosong.", alert=True)
+
+    @bot.on(events.NewMessage(pattern=r'/gentoken(?:\s+(.+))?'))
+    async def gentoken_command(event):
+        if not await _admin_only_check(event): return
+        
+        args = event.pattern_match.group(1) or ""
+        parts = args.strip().split()
+        if not parts:
+            prices = _load_prices_json()
+            lines = ["🔑 **PEMBUATAN VOUCHER AKTIVASI**\n\nGunakan format: `/gentoken <paket_id> [jumlah]`\n\nDaftar `paket_id` yang tersedia:\n"]
+            for k in ['regular', 'forward', 'userbot']:
+                for item in prices.get(k, []):
+                    lines.append(f"• `{item['id']}` - {item['duration']}")
+            await event.respond("\n".join(lines))
+            return
+            
+        package_id = parts[0].strip()
+        count = 1
+        if len(parts) > 1 and parts[1].isdigit():
+            count = int(parts[1])
+            
+        prices = _load_prices_json()
+        target_item = None
+        for category in ['regular', 'forward', 'userbot']:
+            for item in prices.get(category, []):
+                if item.get('id') == package_id:
+                    target_item = item
+                    break
+            if target_item: break
+            
+        if not target_item:
+            await event.respond(f"❌ `paket_id` `{package_id}` tidak ditemukan di pricelist.")
+            return
+            
+        duration_str = target_item.get('duration', '')
+        import re
+        days = int(re.search(r'(\d+)', duration_str).group(1)) if re.search(r'(\d+)', duration_str) else 30
+        bonus = re.search(r'\+(\d+)', target_item.get('bonus', ''))
+        if bonus:
+            days += int(bonus.group(1))
+            
+        lpm_capacity = target_item.get('lpm', 20)
+        
+        import uuid
+        from src.database import db_generate_activation_token
+        
+        generated_tokens = []
+        for _ in range(count):
+            token = f"GEUNID-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[4:8].upper()}"
+            if db_generate_activation_token(token, package_id, lpm_capacity, days):
+                generated_tokens.append(token)
+                
+        if not generated_tokens:
+            await event.respond("❌ Gagal membuat token.")
+            return
+            
+        token_lines = [f"`{tok}`" for tok in generated_tokens]
+        res_text = (
+            f"🔑 **VOUCHER AKTIVASI SELESAI DICETAK**\n{'━'*30}\n\n"
+            f"📦 Paket: **{target_item['duration']}** ({package_id.upper()})\n"
+            f"🎯 Kapasitas: **{lpm_capacity} LPM**\n"
+            f"⏳ Durasi: **{days} Hari**\n"
+            f"🔢 Jumlah: **{len(generated_tokens)} voucher**\n\n"
+            f"**Daftar Token:** (sentuh untuk copy)\n" + "\n".join(token_lines)
+        )
+        await event.respond(res_text)
+
+    # ─── CALLBACK PENGATURAN MASSAL ───
+    @bot.on(events.CallbackQuery(data=b"admin_mass"))
+    async def admin_mass_callback(event):
+        if not await _admin_only_check(event): return
+        _login_states.pop(event.sender_id, None)
+        await _show_mass_settings_panel(event)
+
+    @bot.on(events.CallbackQuery(data=b"mass_start"))
+    async def mass_start_handler(event):
+        if not await _admin_only_check(event): return
+        from src.database import db_get_active_users_for_scheduler
+        users = db_get_active_users_for_scheduler()
+        
+        if not users:
+            await event.answer("❌ Tidak ada klien aktif saat ini.", alert=True)
+            return
+            
+        success_triggered = 0
+        from src.logic import active_broadcasts
+        for uid, iv in users:
+            if uid not in active_broadcasts:
+                asyncio.create_task(_start_user_broadcast(uid))
+                success_triggered += 1
+                
+        await event.answer(f"🚀 Memulai broadcast massal untuk {success_triggered} klien!", alert=True)
+        await _show_mass_settings_panel(event)
+
+    @bot.on(events.CallbackQuery(data=b"mass_stop"))
+    async def mass_stop_handler(event):
+        if not await _admin_only_check(event): return
+        from src.logic import active_broadcasts
+        total_active = len(active_broadcasts)
+        active_broadcasts.clear()
+        
+        await event.answer(f"🛑 Menghentikan paksa {total_active} proses broadcast aktif!", alert=True)
+        await _show_mass_settings_panel(event)
+
+    @bot.on(events.CallbackQuery(data=b"mass_interval"))
+    async def mass_interval_handler(event):
+        if not await _admin_only_check(event): return
+        _login_states[event.sender_id] = {"state": "admin_mass_interval"}
+        await event.edit(
+            "⏰ **UBAH JEDA BROADCAST MASSAL**\n\n"
+            "Ketik interval baru dalam jam untuk **SEMUA** subskripsi aktif:\n"
+            "_Contoh: `0.5` (30 menit) | `1` (1 jam) | `2` (2 jam)_",
+            buttons=[[Button.inline("❌ Batal", b"admin_mass")]]
+        )
+
+    @bot.on(events.CallbackQuery(pattern=b"mass_pm_(on|off)"))
+    async def mass_pm_handler(event):
+        if not await _admin_only_check(event): return
+        status_str = event.pattern_match.group(1).decode()
+        status_bool = (status_str == "on")
+        
+        from src.database import db_update_userbot_mass_settings
+        if db_update_userbot_mass_settings(pm_permit_status=status_bool):
+            try:
+                from src.userbot_manager import reload_all_userbot_settings
+                await reload_all_userbot_settings()
+            except Exception as e:
+                logger.error(f"Gagal reload settings: {e}")
+                
+            await event.answer(f"✅ PM Permit massal berhasil di{'aktifkan' if status_bool else 'nonaktifkan'}!", alert=True)
+        else:
+            await event.answer("❌ Gagal merubah status PM Permit massal.", alert=True)
+        await _show_mass_settings_panel(event)
+
+    @bot.on(events.CallbackQuery(data=b"mass_bio"))
+    async def mass_bio_handler(event):
+        if not await _admin_only_check(event): return
+        _login_states[event.sender_id] = {"state": "admin_mass_bio"}
+        await event.edit(
+            "✍️ **UBAH BIO TELEGRAM MASSAL**\n\n"
+            "Ketik biografi Telegram baru untuk **SEMUA** userbot klien (maks 70 karakter):\n"
+            "_Contoh:_ `Promote by GEUNID JASEB`",
+            buttons=[[Button.inline("❌ Batal", b"admin_mass")]]
+        )
 
     # ─── PANEL UTAMA ───
     @bot.on(events.NewMessage(pattern='/admin'))
@@ -1005,6 +1248,77 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
     await bot.send_message(status_chat_id, "🎯 **Proses Gradual Join selesai untuk seluruh Admin Pool!**\nJalankan kembali perintah `/join_pool` secara berkala (misal 1-2 jam sekali) hingga semua akun admin bergabung ke semua LPM.")
 
 
+async def run_promote_broadcast_task(bot, status_chat_id, ad_id):
+    from src.database import db_get_active_admin_userbots, db_get_lpm_sharded_for_admin
+    from src.jaseb_engine import JasebEngine
+    
+    admins = db_get_active_admin_userbots()
+    if not admins:
+        await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada akun Admin Pool yang terhubung.")
+        return
+        
+    await bot.send_message(status_chat_id, f"📢 **Promosi GeunID Dimulai:**\n🤖 Total Admin Pool: **{len(admins)}**\n🎯 Menggunakan sistem sharding (maks 100 LPM berbeda per admin ubot).")
+    
+    from src.config import API_ID, API_HASH
+    from src.logic import active_broadcasts
+    active_broadcasts.add(ADMIN_ID)
+    
+    total_succ = 0
+    total_fail = 0
+    
+    try:
+        for sess, phone, aid in admins:
+            if ADMIN_ID not in active_broadcasts:
+                await bot.send_message(status_chat_id, "⏹ **Promosi internal dihentikan paksa oleh Admin.**")
+                break
+                
+            links = db_get_lpm_sharded_for_admin(aid, limit=100)
+            if not links:
+                logger.info(f"Admin {phone} tidak memiliki LPM sharded.")
+                continue
+                
+            await bot.send_message(status_chat_id, f"🔄 Bot `{phone}` mulai menyebar ke **{len(links)}** LPM sharded...")
+            
+            eng = JasebEngine(f"data/sessions/{sess}", API_ID, API_HASH)
+            try:
+                await eng.start()
+                res = await eng.broadcast_with_stealth(ADMIN_ID, ad_id, links, 'instant', is_promote=True)
+                succ = res.get("success_count", 0)
+                fail = res.get("failed_count", 0)
+                total_succ += succ
+                total_fail += fail
+                await bot.send_message(status_chat_id, f"✅ Bot `{phone}` selesai. Sukses: **{succ}** | Gagal: **{fail}**")
+            except Exception as ex:
+                logger.error(f"Error pada ubot admin {phone} saat promosi: {ex}")
+                await bot.send_message(status_chat_id, f"⚠️ Bot `{phone}` mengalami error: {ex}")
+            finally:
+                await eng.stop()
+                
+        await bot.send_message(status_chat_id, f"🎯 **PROMOSI INTERNAL SELESAI!**\n{'━'*26}\n\n📤 Total Sukses: **{total_succ}** grup\n❌ Total Gagal: **{total_fail}** grup")
+    finally:
+        active_broadcasts.discard(ADMIN_ID)
+
+
+async def _show_mass_settings_panel(event):
+    text = (
+        "⚡ **PENGATURAN MASSAL ADMIN**\n\n"
+        "Kendalikan seluruh userbot klien secara massal dengan satu ketukan:"
+    )
+    buttons = [
+        [Button.inline("🚀 Mulai Sebar Massal", b"mass_start"), Button.inline("🛑 Hentikan Sebar Massal", b"mass_stop")],
+        [Button.inline("⏰ Ubah Jeda Massal", b"mass_interval")],
+        [Button.inline("🟢 Aktifkan PM Permit Massal", b"mass_pm_on"), Button.inline("🔴 Matikan PM Permit Massal", b"mass_pm_off")],
+        [Button.inline("✍️ Ganti Bio Massal", b"mass_bio")],
+        [Button.inline("⬅️ Kembali ke Admin", b"admin_main")]
+    ]
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons); return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
+
+
 # ══════════════════════════════════════════════════
 # INPUT HANDLER UTAMA (State Machine)
 # ══════════════════════════════════════════════════
@@ -1065,6 +1379,83 @@ async def handle_admin_input(event, state_data: dict):
             )
         else:
             await event.respond("❌ Gagal ubah kapasitas LPM.")
+
+    elif state == "admin_edit_promote_text":
+        from src.database import db_save_admin_promote_ad, db_get_admin_promote_ad
+        # Ambil buttons_json yang sudah ada agar tidak terhapus
+        _, buttons_json = db_get_admin_promote_ad()
+        if db_save_admin_promote_ad(text, buttons_json):
+            del _login_states[user_id]
+            await event.respond("✅ **Teks promosi berhasil diperbarui!**")
+            await show_promote_panel(event, edit=False)
+        else:
+            await event.respond("❌ Gagal menyimpan teks promosi.")
+
+    elif state == "admin_edit_promote_buttons":
+        from src.database import db_save_admin_promote_ad, db_get_admin_promote_ad
+        content, _ = db_get_admin_promote_ad()
+        
+        if text.strip() == "-":
+            buttons_json = ""
+        else:
+            # Parse format pipa
+            lines = text.strip().split("\n")
+            buttons = []
+            for line in lines:
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) >= 2:
+                    btn_text = parts[0]
+                    btn_url = parts[1]
+                    if btn_url.startswith("t.me/"):
+                        btn_url = "https://" + btn_url
+                    buttons.append({"text": btn_text, "url": btn_url})
+            import json
+            buttons_json = json.dumps(buttons) if buttons else ""
+            
+        if db_save_admin_promote_ad(content, buttons_json):
+            del _login_states[user_id]
+            await event.respond("✅ **Tombol promosi berhasil diperbarui!**")
+            await show_promote_panel(event, edit=False)
+        else:
+            await event.respond("❌ Gagal menyimpan tombol promosi.")
+
+    elif state == "admin_mass_interval":
+        try:
+            iv = float(text)
+            if iv <= 0: raise ValueError
+        except ValueError:
+            await event.respond("❌ Masukkan angka desimal positif. Contoh: `0.5` atau `1` atau `2`")
+            return
+        from src.database import db_mass_update_subscription_interval
+        if db_mass_update_subscription_interval(iv):
+            del _login_states[user_id]
+            iv_label = f"{int(iv*60)} menit" if iv < 1 else f"{iv} jam"
+            await event.respond(
+                f"✅ **Interval broadcast seluruh klien diubah ke {iv_label}!**",
+                buttons=[[Button.inline("⚡ Pengaturan Massal", b"admin_mass")]]
+            )
+        else:
+            await event.respond("❌ Gagal mengubah interval massal.")
+
+    elif state == "admin_mass_bio":
+        if len(text) > 70:
+            await event.respond(f"❌ Bio terlalu panjang ({len(text)} karakter). Maksimal 70 karakter.")
+            return
+        from src.database import db_update_userbot_mass_settings
+        if db_update_userbot_mass_settings(custom_bio=text):
+            try:
+                from src.userbot_manager import update_all_online_userbot_bios
+                asyncio.create_task(update_all_online_userbot_bios(text))
+            except Exception as e:
+                logger.error(f"Gagal update bio online: {e}")
+                
+            del _login_states[user_id]
+            await event.respond(
+                f"✅ **Bio Telegram seluruh klien berhasil diubah ke:**\n`{text}`\n\n_Bio akan otomatis diperbarui secara bertahap pada akun klien yang terhubung._",
+                buttons=[[Button.inline("⚡ Pengaturan Massal", b"admin_mass")]]
+            )
+        else:
+            await event.respond("❌ Gagal mengubah bio massal.")
 
     # ──────────────── LPM STATES ────────────────
     elif state == "admin_add_lpm":
@@ -1296,6 +1687,7 @@ async def _show_admin_panel(event):
         [Button.inline("📊 Statistik", b"admin_stats"), Button.inline("👥 Billing", b"admin_billing")],
         [Button.inline("📋 Kelola LPM", b"lpm_main"), Button.inline("💰 Kelola Harga", b"sp_main")],
         [Button.inline("🤖 Admin Pool", b"admin_ubots"), Button.inline("👤 Userbot Client", b"admin_client_ubots")],
+        [Button.inline("⚡ Pengaturan Massal", b"admin_mass")],
         [Button.inline("⬅️ Menu Utama", b"start")]
     ]
     if hasattr(event, "edit"):

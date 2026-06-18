@@ -169,14 +169,18 @@ async def show_start_menu(event, edit=False):
     if event.sender_id == ADMIN_ID:
         buttons.append([
             KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"),
-            KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots")
+            KeyboardButtonCallback(text="👤 Panel Klien", data=b"client_panel")
         ])
         buttons.append([
+            KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots"),
             KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
         ])
     else:
         buttons.append([
             KeyboardButtonCallback(text="📊 Status Saya", data=b"my_status"),
+            KeyboardButtonCallback(text="👤 Panel Kontrol", data=b"client_panel")
+        ])
+        buttons.append([
             KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
         ])
         
@@ -321,8 +325,72 @@ async def user_input_handler(event):
         await event.respond("🎉 **Pendaftaran Selesai!** Bot mulai menyebar sekarang.")
         asyncio.create_task(start_user_broadcast(user_id))
 
+    elif current_state == "waiting_for_ar_keyword":
+        login_states[user_id]["keyword"] = text
+        login_states[user_id]["state"] = "waiting_for_ar_text"
+        await event.respond(
+            f"🔑 Kata kunci `{text}` disimpan!\n\n"
+            f"Sekarang kirim **TEKS BALASAN** otomatis untuk kata kunci tersebut:"
+        )
+
+    elif current_state == "waiting_for_ar_text":
+        keyword = state_data.get("keyword")
+        from src.database import db_add_auto_reply
+        if db_add_auto_reply(user_id, keyword, text):
+            try:
+                from src.userbot_manager import reload_all_userbot_settings
+                await reload_all_userbot_settings()
+            except Exception as e:
+                logger.error(f"Gagal reload settings setelah tambah AR: {e}")
+                
+            del login_states[user_id]
+            await event.respond("✅ **Auto Reply Berhasil Ditambahkan!**")
+            from src.client_handlers import _show_autoreply_menu
+            await _show_autoreply_menu(event)
+        else:
+            await event.respond("❌ Gagal menyimpan kata kunci auto reply. Silakan coba lagi.")
+
+    elif current_state == "waiting_for_schedule_input":
+        parts = [p.strip() for p in text.split("|")]
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            await event.respond("❌ Format salah! Gunakan format: `jam_mulai | jam_selesai` (contoh: `8 | 22`):")
+            return
+        start_h = int(parts[0])
+        end_h = int(parts[1])
+        if start_h < 0 or start_h > 23 or end_h < 0 or end_h > 23:
+            await event.respond("❌ Format salah! Jam harus berada di antara 0 sampai 23.")
+            return
+            
+        from src.database import db_update_subscription_schedule
+        if db_update_subscription_schedule(user_id, start_h, end_h):
+            del login_states[user_id]
+            await event.respond("✅ **Jadwal Operasional Broadcast Berhasil Diubah!**")
+            from src.client_handlers import _show_schedule_menu
+            await _show_schedule_menu(event)
+        else:
+            await event.respond("❌ Gagal mengubah jam operasional sebar.")
+
+    elif current_state == "waiting_for_bio_input":
+        if len(text) > 70:
+            await event.respond(f"❌ Bio terlalu panjang ({len(text)} karakter). Maksimal 70 karakter.")
+            return
+            
+        from src.database import db_update_custom_bio
+        if db_update_custom_bio(user_id, text):
+            try:
+                from src.userbot_manager import update_single_online_userbot_bio
+                asyncio.create_task(update_single_online_userbot_bio(user_id, text))
+            except Exception as e:
+                logger.error(f"Gagal update bio online: {e}")
+                
+            del login_states[user_id]
+            await event.respond("✅ **Bio Telegram Berhasil Diubah!**")
+            from src.client_handlers import show_client_panel
+            await show_client_panel(event, edit=False)
+        else:
+            await event.respond("❌ Gagal menyimpan bio baru Anda.")
+
     elif current_state.startswith("setprice_") or current_state.startswith("admin_"):
-        # Delegasikan ke admin_handlers untuk pengelolaan harga/admin
         await handle_setprice_input(event, state_data)
  
 async def _save_userbot_session(event, client, phone):
@@ -382,6 +450,46 @@ async def check_payment_status_handler(event):
         await event.answer("✅ Sukses!", alert=True)
     else: await event.answer("⏳ Menunggu...", alert=True)
 
+@bot.on(events.InlineQuery)
+async def inline_query_handler(event):
+    query_text = (event.text or "").strip().lower()
+    if query_text == "promote":
+        from src.database import db_get_admin_promote_ad
+        from src.config import ADMIN_USERNAME
+        
+        content, buttons_json = db_get_admin_promote_ad()
+        if not content:
+            content = "🚀 **GEUNID JASEB** - Solusi Jasa Sebar Iklan Telegram Terbaik!"
+            
+        buttons = []
+        if buttons_json:
+            try:
+                import json
+                btn_data = json.loads(buttons_json)
+                row = []
+                for btn in btn_data:
+                    row.append(Button.url(btn["text"], btn["url"]))
+                    if len(row) == 2:
+                        buttons.append(row)
+                        row = []
+                if row:
+                    buttons.append(row)
+            except Exception as e:
+                logger.error(f"Error parsing buttons_json in inline query: {e}")
+                
+        if not buttons:
+            buttons = [[Button.url("Hubungi Admin 👤", f"https://t.me/{ADMIN_USERNAME.replace('@','')}")]]
+            
+        builder = event.builder
+        result = builder.article(
+            title="Materi Promosi GeunID",
+            description="Kirim pesan promosi resmi GeunID dengan tombol inline",
+            text=content,
+            buttons=buttons,
+            parse_mode='html'
+        )
+        await event.answer([result])
+
 # ─────────────────────────────────────────
 # API Handlers & Authorization
 # ─────────────────────────────────────────
@@ -421,17 +529,22 @@ async def handle_checkout_api(request):
     try:
         data = await request.json()
         uid, amt, pkg, method = int(data['user_id']), int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
+        admin_ub_id = data.get("assigned_admin_ub_id")
+        if admin_ub_id is not None:
+            admin_ub_id = int(admin_ub_id)
+            
         if method == 'manual':
             trx_id = f"MAN-{int(datetime.now().timestamp())}"
-            db_save_transaction(uid, trx_id, pkg, amt, "manual")
+            db_save_transaction(uid, trx_id, pkg, amt, "manual", admin_ub_id)
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
             await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke bot!")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
-            db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'])
+            db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'], admin_ub_id)
             return web.json_response({"status": True, "data": trx}, headers={"Access-Control-Allow-Origin": "*"})
-    except: pass
+    except Exception as e:
+        logger.error(f"Error handle_checkout_api: {e}")
     return web.json_response({"status": False}, status=400, headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_user_stats_api(request):
@@ -568,6 +681,15 @@ async def handle_klikqris_webhook(request):
         logger.error(f"Error handle_klikqris_webhook: {e}")
         return web.json_response({"status": "error", "message": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
+async def handle_admin_slots_api(request):
+    try:
+        from src.database import db_get_admin_slots_status
+        slots = db_get_admin_slots_status()
+        return web.json_response({"status": True, "data": slots}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error handle_admin_slots_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
@@ -576,8 +698,9 @@ async def run_web_server():
     app.router.add_get('/api/history/{user_id}', handle_history_api)
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
     app.router.add_post('/api/callback/klikqris', handle_klikqris_webhook)
+    app.router.add_get('/api/admin-slots', handle_admin_slots_api)
     async def opt(req): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
-    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}', '/api/callback/klikqris']: app.router.add_options(p, opt)
+    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}', '/api/callback/klikqris', '/api/admin-slots']: app.router.add_options(p, opt)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 async def main():
@@ -613,6 +736,11 @@ async def main():
     me = await bot.get_me(); import src.config; src.config.BOT_USERNAME = me.username
     init_admin_handlers(bot, login_states, load_prices, get_package_duration_days, start_user_broadcast)
     init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
+    
+    # Inisialisasi daemon userbot klien (Auto Reply & PM Permit)
+    from src.userbot_manager import start_all_connected_userbots
+    asyncio.create_task(start_all_connected_userbots())
+    
     asyncio.create_task(run_jaseb_scheduler()); asyncio.create_task(run_expiry_reminder()); asyncio.create_task(run_web_server())
     await bot.run_until_disconnected()
 

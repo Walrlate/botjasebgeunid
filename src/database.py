@@ -146,7 +146,7 @@ def db_get_active_subscription_broadcast_details(user_id: int):
         supabase = get_supabase()
         now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
-            .select("package_name, capacity_lpm, request_lpm, broadcast_interval_hours")\
+            .select("package_name, capacity_lpm, request_lpm, broadcast_interval_hours, assigned_admin_ub_id")\
             .eq("user_id", user_id)\
             .eq("status", "active")\
             .gt("end_date", now_str)\
@@ -159,7 +159,8 @@ def db_get_active_subscription_broadcast_details(user_id: int):
                 row["package_name"],
                 row["capacity_lpm"],
                 row["request_lpm"],
-                row["broadcast_interval_hours"]
+                row["broadcast_interval_hours"],
+                row["assigned_admin_ub_id"]
             )
         return None
     except Exception as e:
@@ -179,10 +180,9 @@ def db_update_subscription_lpm(user_id: int, lpm_list_str: str):
         logger.error(f"Error in db_update_subscription_lpm: {e}")
         return False
 
-def db_add_subscription(user_id: int, package_name: str, capacity_lpm: int, start_date: str, end_date: str):
+def db_add_subscription(user_id: int, package_name: str, capacity_lpm: int, start_date: str, end_date: str, assigned_admin_ub_id: int = None):
     try:
         db_ensure_user(user_id)
-        # Konversi ke ISO format untuk PostgreSQL
         try:
             sd_dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
             sd_iso = sd_dt.isoformat()
@@ -195,7 +195,7 @@ def db_add_subscription(user_id: int, package_name: str, capacity_lpm: int, star
             ed_iso = end_date
             
         supabase = get_supabase()
-        supabase.table("subscriptions").insert({
+        insert_data = {
             "user_id": user_id,
             "package_name": package_name,
             "capacity_lpm": capacity_lpm,
@@ -203,13 +203,17 @@ def db_add_subscription(user_id: int, package_name: str, capacity_lpm: int, star
             "end_date": ed_iso,
             "status": "active",
             "broadcast_interval_hours": 0.5
-        }).execute()
+        }
+        if assigned_admin_ub_id is not None:
+            insert_data["assigned_admin_ub_id"] = assigned_admin_ub_id
+            
+        supabase.table("subscriptions").insert(insert_data).execute()
         return True
     except Exception as e:
         logger.error(f"Error in db_add_subscription: {e}")
         return False
 
-def db_update_subscription_dates(sub_id: int, end_date: str, capacity_lpm: int, package_name: str):
+def db_update_subscription_dates(sub_id: int, end_date: str, capacity_lpm: int, package_name: str, assigned_admin_ub_id: int = None):
     try:
         try:
             ed_dt = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S")
@@ -218,11 +222,15 @@ def db_update_subscription_dates(sub_id: int, end_date: str, capacity_lpm: int, 
             ed_iso = end_date
             
         supabase = get_supabase()
-        supabase.table("subscriptions").update({
+        update_data = {
             "end_date": ed_iso,
             "capacity_lpm": capacity_lpm,
             "package_name": package_name
-        }).eq("id", sub_id).execute()
+        }
+        if assigned_admin_ub_id is not None:
+            update_data["assigned_admin_ub_id"] = assigned_admin_ub_id
+            
+        supabase.table("subscriptions").update(update_data).eq("id", sub_id).execute()
         return True
     except Exception as e:
         logger.error(f"Error in db_update_subscription_dates: {e}")
@@ -493,18 +501,22 @@ def db_cooldown_admin_userbot(aid: int, until_str: str):
 # HELPER TRANSAKSI (TRANSACTIONS)
 # ─────────────────────────────────────────
 
-def db_save_transaction(user_id: int, trx_id: str, package_id: str, amount: int, payment_url: str):
+def db_save_transaction(user_id: int, trx_id: str, package_id: str, amount: int, payment_url: str, assigned_admin_ub_id: int = None):
     try:
         db_ensure_user(user_id)
         supabase = get_supabase()
-        supabase.table("transactions").insert({
+        insert_data = {
             "user_id": user_id,
             "trx_id": trx_id,
             "package_id": package_id,
             "amount": amount,
             "payment_url": payment_url,
             "status": "pending"
-        }).execute()
+        }
+        if assigned_admin_ub_id is not None:
+            insert_data["assigned_admin_ub_id"] = assigned_admin_ub_id
+            
+        supabase.table("transactions").insert(insert_data).execute()
         return True
     except Exception as e:
         logger.error(f"Error in db_save_transaction: {e}")
@@ -513,10 +525,10 @@ def db_save_transaction(user_id: int, trx_id: str, package_id: str, amount: int,
 def db_get_transaction(trx_id: str):
     try:
         supabase = get_supabase()
-        res = supabase.table("transactions").select("user_id, amount, package_id, status").eq("trx_id", trx_id).execute()
+        res = supabase.table("transactions").select("user_id, amount, package_id, status, assigned_admin_ub_id").eq("trx_id", trx_id).execute()
         if res.data:
             r = res.data[0]
-            return (r["user_id"], r["amount"], r["package_id"], r["status"])
+            return (r["user_id"], r["amount"], r["package_id"], r["status"], r.get("assigned_admin_ub_id"))
         return None
     except Exception as e:
         logger.error(f"Error in db_get_transaction: {e}")
@@ -1011,5 +1023,470 @@ def db_get_last_broadcast_time(user_id: int):
     except Exception as e:
         logger.error(f"Error in db_get_last_broadcast_time: {e}")
         return None
+
+
+# ─────────────────────────────────────────
+# EKSPANSI FITUR BARU DATABASE LAYER
+# ─────────────────────────────────────────
+
+def db_generate_activation_token(token: str, package_id: str, lpm_capacity: int, duration_days: int) -> bool:
+    """Membuat token aktivasi baru oleh admin."""
+    try:
+        supabase = get_supabase()
+        supabase.table("activation_tokens").insert({
+            "token": token,
+            "package_id": package_id,
+            "lpm_capacity": lpm_capacity,
+            "duration_days": duration_days
+        }).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_generate_activation_token: {e}")
+        return False
+
+def db_redeem_activation_token(token: str, user_id: int) -> tuple:
+    """Klaim token aktivasi untuk mengaktifkan subscription."""
+    try:
+        supabase = get_supabase()
+        db_ensure_user(user_id)
+        # Cari token
+        res = supabase.table("activation_tokens").select("*").eq("token", token).execute()
+        if not res.data:
+            return False, "Token tidak valid atau tidak ditemukan."
+        
+        token_data = res.data[0]
+        if token_data.get("used_by"):
+            return False, "Token sudah pernah digunakan."
+            
+        package_id = token_data["package_id"]
+        lpm_capacity = token_data["lpm_capacity"]
+        duration_days = token_data["duration_days"]
+        
+        # Tambah atau perpanjang subscription
+        now = datetime.now(timezone.utc)
+        now_str = now.isoformat()
+        res_sub = supabase.table("subscriptions")\
+            .select("id, end_date")\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .order("end_date", desc=True)\
+            .limit(1)\
+            .execute()
+            
+        start_date = now
+        if res_sub.data:
+            # Perpanjang dari tanggal berakhir subscription lama
+            existing_sub = res_sub.data[0]
+            try:
+                start_date = parse_utc_date(existing_sub["end_date"])
+            except:
+                start_date = now
+                
+        end_date = start_date + timedelta(days=duration_days)
+        
+        # Simpan ke tabel subscriptions
+        package_name = f"Jaseb {package_id.upper()}"
+        
+        supabase.table("subscriptions").insert({
+            "user_id": user_id,
+            "package_name": package_name,
+            "capacity_lpm": lpm_capacity,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "status": "active",
+            "broadcast_interval_hours": 0.5
+        }).execute()
+        
+        # Tandai token telah digunakan
+        supabase.table("activation_tokens").update({
+            "used_by": user_id,
+            "used_at": now.isoformat()
+        }).eq("token", token).execute()
+        
+        return True, f"Berhasil mengaktifkan {package_name} selama {duration_days} hari!"
+    except Exception as e:
+        logger.error(f"Error in db_redeem_activation_token: {e}")
+        return False, f"Terjadi kesalahan database: {e}"
+
+def db_get_auto_replies(user_id: int) -> list:
+    """Ambil semua auto reply kata kunci milik user."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("auto_replies")\
+            .select("id, keyword, reply_text, skip_links, max_char_limit, skip_usernames, is_active")\
+            .eq("user_id", user_id)\
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_auto_replies: {e}")
+        return []
+
+def db_add_auto_reply(user_id: int, keyword: str, reply_text: str, skip_links: bool = True, max_char_limit: int = 70, skip_usernames: str = None) -> bool:
+    """Tambah/edit kata kunci auto reply milik user."""
+    try:
+        db_ensure_user(user_id)
+        supabase = get_supabase()
+        supabase.table("auto_replies").upsert({
+            "user_id": user_id,
+            "keyword": keyword.strip().lower(),
+            "reply_text": reply_text,
+            "skip_links": skip_links,
+            "max_char_limit": max_char_limit,
+            "skip_usernames": skip_usernames,
+            "is_active": True
+        }, on_conflict="user_id, keyword").execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_add_auto_reply: {e}")
+        return False
+
+def db_delete_auto_reply(user_id: int, reply_id: int) -> bool:
+    """Hapus kata kunci auto reply milik user."""
+    try:
+        supabase = get_supabase()
+        supabase.table("auto_replies").delete().eq("id", reply_id).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_delete_auto_reply: {e}")
+        return False
+
+def db_get_custom_target_messages(user_id: int) -> list:
+    """Ambil semua pesan kustom per target milik user."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("custom_target_messages")\
+            .select("id, target_peer, custom_message, is_active")\
+            .eq("user_id", user_id)\
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_custom_target_messages: {e}")
+        return []
+
+def db_add_custom_target_message(user_id: int, target_peer: str, custom_message: str) -> bool:
+    """Tambah/edit pesan kustom per target milik user."""
+    try:
+        db_ensure_user(user_id)
+        supabase = get_supabase()
+        supabase.table("custom_target_messages").upsert({
+            "user_id": user_id,
+            "target_peer": target_peer.strip().lower(),
+            "custom_message": custom_message,
+            "is_active": True
+        }, on_conflict="user_id, target_peer").execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_add_custom_target_message: {e}")
+        return False
+
+def db_delete_custom_target_message(user_id: int, custom_id: int) -> bool:
+    """Hapus pesan kustom per target."""
+    try:
+        supabase = get_supabase()
+        supabase.table("custom_target_messages").delete().eq("id", custom_id).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_delete_custom_target_message: {e}")
+        return False
+
+def db_update_subscription_schedule(user_id: int, start_hour: int, end_hour: int) -> bool:
+    """Update jam operasional sebar harian user."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now(timezone.utc).isoformat()
+        supabase.table("subscriptions")\
+            .update({
+                "schedule_start_hour": start_hour,
+                "schedule_end_hour": end_hour
+            })\
+            .eq("user_id", user_id)\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_subscription_schedule: {e}")
+        return False
+
+def db_cooldown_client_userbot(user_id: int, until_str: str) -> bool:
+    """Masukkan userbot klien ke masa cooldown/istirahat."""
+    try:
+        supabase = get_supabase()
+        try:
+            dt = datetime.strptime(until_str, "%Y-%m-%d %H:%M:%S")
+            iso_str = dt.isoformat()
+        except:
+            iso_str = until_str
+        supabase.table("userbots").update({"cooldown_until": iso_str}).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_cooldown_client_userbot: {e}")
+        return False
+
+def db_get_admin_slots_status() -> list:
+    """Mengambil status pemesanan (booking) slot bot admin pool."""
+    try:
+        supabase = get_supabase()
+        # Ambil semua admin userbots
+        res_admins = supabase.table("admin_userbots").select("id, phone_number, status").order("id", desc=False).execute()
+        admins = res_admins.data or []
+        if not admins:
+            return []
+            
+        now_str = datetime.now(timezone.utc).isoformat()
+        # Ambil subscription aktif yang memiliki assigned_admin_ub_id
+        res_subs = supabase.table("subscriptions")\
+            .select("assigned_admin_ub_id, end_date, user_id")\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .execute()
+        subs = res_subs.data or []
+        
+        # Buat mapping admin_id ke data subscription-nya
+        subs_map = {s["assigned_admin_ub_id"]: s for s in subs if s.get("assigned_admin_ub_id")}
+        
+        results = []
+        for i, admin in enumerate(admins):
+            admin_id = admin["id"]
+            phone = admin["phone_number"]
+            visual_name = f"Bot GEUNID JASEB {i + 1}"
+            
+            sub_info = subs_map.get(admin_id)
+            if sub_info:
+                status_slot = "Penuh"
+                end_date = normalize_date(sub_info["end_date"])
+            else:
+                status_slot = "Tersedia"
+                end_date = ""
+                
+            results.append({
+                "id": admin_id,
+                "phone_number": phone,
+                "visual_name": visual_name,
+                "status": status_slot,
+                "end_date": end_date
+            })
+        return results
+    except Exception as e:
+        logger.error(f"Error in db_get_admin_slots_status: {e}")
+        return []
+
+def db_get_admin_userbot_by_id(aid: int):
+    """Mengambil detail satu bot admin berdasarkan ID-nya."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("admin_userbots").select("session_name, phone_number, id, status").eq("id", aid).execute()
+        if res.data:
+            r = res.data[0]
+            return (r["session_name"], r["phone_number"], r["id"], r["status"])
+        return None
+    except Exception as e:
+        logger.error(f"Error in db_get_admin_userbot_by_id: {e}")
+        return None
+
+def db_get_lpm_sharded_for_admin(admin_id: int, limit: int = 100) -> list:
+    """Mendapatkan porsi LPM yang berbeda (slice 100 grup) khusus untuk bot admin tertentu."""
+    try:
+        supabase = get_supabase()
+        # Ambil semua admin userbots diurutkan berdasarkan ID untuk menentukan index
+        res_admins = supabase.table("admin_userbots").select("id").order("id", desc=False).execute()
+        admins = res_admins.data or []
+        
+        admin_ids = [a["id"] for a in admins]
+        if admin_id not in admin_ids:
+            return db_get_active_lpm_lists(limit)
+            
+        idx = admin_ids.index(admin_id)
+        start_offset = idx * 100
+        
+        # Ambil 100 grup LPM dari database
+        res_lpm = supabase.table("lpm_lists")\
+            .select("group_link")\
+            .eq("is_active", True)\
+            .eq("is_blacklisted", False)\
+            .order("id", desc=False)\
+            .range(start_offset, start_offset + 99)\
+            .execute()
+            
+        links = [r["group_link"] for r in res_lpm.data] if res_lpm.data else []
+        
+        # Jika data kurang, fallback ke isi lpm global secukupnya
+        if len(links) < limit:
+            fallback = db_get_active_lpm_lists(limit - len(links))
+            links.extend(fallback)
+            
+        import random
+        # Potong sesuai limit dan acak urutannya sesuai instruksi
+        random.shuffle(links)
+        return links[:limit]
+    except Exception as e:
+        logger.error(f"Error in db_get_lpm_sharded_for_admin: {e}")
+        return []
+
+def db_transfer_userbot_session(old_uid: int, new_uid: int) -> tuple:
+    """Mentransfer sesi userbot dan subscription aktif dari user_id lama ke user_id baru secara aman."""
+    try:
+        supabase = get_supabase()
+        db_ensure_user(new_uid)
+        
+        # 1. Cek apakah old_uid memiliki userbot terdaftar
+        res_ub = supabase.table("userbots").select("*").eq("user_id", old_uid).execute()
+        if not res_ub.data:
+            return False, "Akun Anda tidak memiliki userbot terhubung yang dapat ditransfer."
+            
+        ub_data = res_ub.data[0]
+        phone = ub_data["phone_number"]
+        old_session = ub_data["session_name"]
+        new_session = f"user_{new_uid}"
+        
+        # 2. Pindahkan file fisik .session secara lokal
+        old_path = f"data/sessions/{old_session}.session"
+        new_path = f"data/sessions/{new_session}.session"
+        
+        if os.path.exists(old_path):
+            try:
+                import shutil
+                shutil.move(old_path, new_path)
+                # Pindahkan file journal jika ada
+                old_journal = f"{old_path}-journal"
+                new_journal = f"{new_path}-journal"
+                if os.path.exists(old_journal):
+                    try: shutil.move(old_journal, new_journal)
+                    except: pass
+            except Exception as file_err:
+                logger.error(f"Gagal memindahkan file sesi fisik: {file_err}")
+                return False, f"Gagal memindahkan file sesi: {file_err}"
+        
+        # 3. Update tabel userbots (hapus old_uid, masukkan new_uid)
+        # Hapus data userbot new_uid lama jika ada untuk menghindari konflik primary key
+        supabase.table("userbots").delete().eq("user_id", new_uid).execute()
+        
+        supabase.table("userbots").insert({
+            "user_id": new_uid,
+            "phone_number": phone,
+            "session_name": new_session,
+            "status": ub_data["status"]
+        }).execute()
+        supabase.table("userbots").delete().eq("user_id", old_uid).execute()
+        
+        # 4. Pindahkan subskripsi aktif jika ada
+        res_sub = supabase.table("subscriptions").select("*").eq("user_id", old_uid).eq("status", "active").execute()
+        if res_sub.data:
+            for sub in res_sub.data:
+                # Update user_id subskripsi ke new_uid
+                supabase.table("subscriptions").update({"user_id": new_uid}).eq("id", sub["id"]).execute()
+                
+        # 5. Pindahkan materi iklan
+        res_ad = supabase.table("user_ads").select("*").eq("user_id", old_uid).execute()
+        if res_ad.data:
+            # Hapus iklan new_uid lama
+            supabase.table("user_ads").delete().eq("user_id", new_uid).execute()
+            for ad in res_ad.data:
+                supabase.table("user_ads").update({"user_id": new_uid}).eq("id", ad["id"]).execute()
+                
+        return True, f"Berhasil memindahkan userbot ke User ID `{new_uid}`!"
+    except Exception as e:
+        logger.error(f"Error in db_transfer_userbot_session: {e}")
+        return False, f"Terjadi kesalahan saat transfer: {e}"
+
+def db_update_userbot_mass_settings(pm_permit_status: bool = None, custom_bio: str = None) -> bool:
+    """Melakukan update massal pengaturan PM Permit atau Kustom Bio untuk seluruh userbot klien."""
+    try:
+        supabase = get_supabase()
+        update_data = {}
+        if pm_permit_status is not None:
+            update_data["pm_permit_status"] = pm_permit_status
+        if custom_bio is not None:
+            update_data["custom_bio"] = custom_bio
+            
+        if not update_data:
+            return False
+            
+        supabase.table("userbots").update(update_data).neq("user_id", 0).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_userbot_mass_settings: {e}")
+        return False
+
+def db_mass_update_subscription_interval(interval_hours: float) -> bool:
+    """Mengubah interval broadcast seluruh subskripsi aktif secara massal."""
+    try:
+        supabase = get_supabase()
+        now_str = datetime.now(timezone.utc).isoformat()
+        supabase.table("subscriptions")\
+            .update({"broadcast_interval_hours": interval_hours})\
+            .eq("status", "active")\
+            .gt("end_date", now_str)\
+            .execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_mass_update_subscription_interval: {e}")
+        return False
+
+def db_save_admin_promote_ad(content: str, buttons_json: str) -> bool:
+    """Menyimpan materi iklan promosi admin beserta konfigurasi tombol inline."""
+    try:
+        from src.config import ADMIN_ID
+        db_ensure_user(ADMIN_ID)
+        supabase = get_supabase()
+        # Hapus iklan promosi lama admin
+        supabase.table("user_ads").delete().eq("user_id", ADMIN_ID).eq("title", "Promosi Admin").execute()
+        # Simpan iklan baru
+        supabase.table("user_ads").insert({
+            "user_id": ADMIN_ID,
+            "title": "Promosi Admin",
+            "content": content or "",
+            "buttons_json": buttons_json or ""
+        }).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_save_admin_promote_ad: {e}")
+        return False
+
+def db_get_admin_promote_ad() -> tuple:
+    """Mengambil materi iklan promosi admin dan konfigurasi tombol inline."""
+    try:
+        from src.config import ADMIN_ID
+        supabase = get_supabase()
+        res = supabase.table("user_ads")\
+            .select("content, buttons_json")\
+            .eq("user_id", ADMIN_ID)\
+            .eq("title", "Promosi Admin")\
+            .order("created_at", desc=True)\
+            .limit(1)\
+            .execute()
+        if res.data:
+            r = res.data[0]
+            return r.get("content", ""), r.get("buttons_json", "")
+        return "", ""
+    except Exception as e:
+        logger.error(f"Error in db_get_admin_promote_ad: {e}")
+        return "", ""
+
+def db_toggle_pm_permit(user_id: int) -> tuple:
+    """Mengubah status PM Permit (aktif/nonaktif) untuk userbot klien."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("userbots").select("pm_permit_status").eq("user_id", user_id).execute()
+        curr = res.data[0]["pm_permit_status"] if res.data else False
+        new_status = not curr
+        supabase.table("userbots").update({"pm_permit_status": new_status}).eq("user_id", user_id).execute()
+        return True, new_status
+    except Exception as e:
+        logger.error(f"Error in db_toggle_pm_permit: {e}")
+        return False, False
+
+def db_update_custom_bio(user_id: int, bio: str) -> bool:
+    """Mengubah bio kustom untuk userbot klien."""
+    try:
+        supabase = get_supabase()
+        supabase.table("userbots").update({"custom_bio": bio}).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_custom_bio: {e}")
+        return False
+
+
 
 

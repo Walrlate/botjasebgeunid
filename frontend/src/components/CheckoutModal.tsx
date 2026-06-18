@@ -45,12 +45,14 @@ interface CheckoutModalProps {
   qrisData: QrisData | null;
   manualTrxData: ManualTrxData | null;
   timeLeft: number;
-  handleContinueCheckout: () => void;
+  handleContinueCheckout: (adminId?: number | null) => void;
   handleCopyOrderFormat: () => void;
   getOrderFormatText: () => string;
   user: TelegramUser | null;
   triggerHaptic: (style?: 'light' | 'medium' | 'heavy') => void;
   qrisTaxPercent?: number;
+  selectedAdminSlot: number | null;
+  setSelectedAdminSlot: (id: number | null) => void;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -73,7 +75,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   user,
   triggerHaptic,
   qrisTaxPercent,
+  selectedAdminSlot,
+  setSelectedAdminSlot,
 }) => {
+  const [adminSlots, setAdminSlots] = React.useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isModalOpen && selectedPackage && selectedPackage.type !== 'userbot') {
+      setLoadingSlots(true);
+      fetch('/api/admin-slots')
+        .then(res => res.json())
+        .then(data => {
+          if (data.status && data.data) {
+            setAdminSlots(data.data);
+            const firstAvailable = data.data.find((slot: any) => slot.status === 'Tersedia');
+            if (firstAvailable) {
+              setSelectedAdminSlot(firstAvailable.id);
+            } else if (data.data.length > 0) {
+              setSelectedAdminSlot(data.data[0].id);
+            }
+          }
+        })
+        .catch(err => console.error("Error fetching admin slots:", err))
+        .finally(() => setLoadingSlots(false));
+    }
+  }, [isModalOpen, selectedPackage]);
+
   if (!isModalOpen || !selectedPackage) return null;
 
   const basePrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
@@ -134,6 +162,60 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     +
                   </button>
                 </div>
+              </div>
+            )}
+
+            {selectedPackage.type !== 'userbot' && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center px-1">
+                  <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-wider">PILIH BOT JASEB (SLOT ADMIN)</h4>
+                  {loadingSlots && <span className="text-[8px] text-geun-blue animate-pulse font-extrabold uppercase">Loading...</span>}
+                </div>
+                {adminSlots.length === 0 && !loadingSlots ? (
+                  <div className="bg-slate-50 border border-slate-200/50 p-4 rounded-2xl text-center text-xs text-slate-400">
+                    ❌ Bot admin pool tidak tersedia
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {adminSlots.map((slot) => {
+                      const isSelected = selectedAdminSlot === slot.id;
+                      const isFull = slot.status === 'Penuh';
+                      return (
+                        <div
+                          key={slot.id}
+                          onClick={() => {
+                            triggerHaptic('light');
+                            setSelectedAdminSlot(slot.id);
+                          }}
+                          className={`relative border p-3 rounded-2xl cursor-pointer flex flex-col justify-between transition-all overflow-hidden ${
+                            isSelected
+                              ? 'border-geun-blue bg-geun-blue/5 shadow-[0_0_15px_rgba(0,122,255,0.08)]'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9.5px] font-black text-slate-800 line-clamp-1">{slot.visual_name}</span>
+                            <span className={`w-2 h-2 rounded-full ${isFull ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[7.5px] font-extrabold text-slate-400 uppercase">Status</p>
+                            <p className={`text-[9px] font-black ${isFull ? 'text-red-500' : 'text-emerald-600'}`}>
+                              {isFull ? 'Penuh' : 'Tersedia'}
+                            </p>
+                            {isFull && slot.end_date && (
+                              <div className="mt-1 pt-1 border-t border-slate-100/80">
+                                <p className="text-[7px] font-extrabold text-slate-400 uppercase">Hingga</p>
+                                <p className="text-[8px] font-black text-slate-500 leading-tight">
+                                  {slot.end_date.split(' ')[0]}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -212,9 +294,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             )}
 
             <button
-              disabled={!selectedPaymentMethod || loadingCheckout}
-              onClick={handleContinueCheckout}
-              className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase text-white shadow-premium ${selectedPaymentMethod && !loadingCheckout ? 'bg-gradient-to-r from-geun-blue to-geun-purple' : 'bg-slate-200'}`}
+              disabled={!selectedPaymentMethod || loadingCheckout || (selectedPackage.type !== 'userbot' && !selectedAdminSlot)}
+              onClick={() => handleContinueCheckout(selectedAdminSlot)}
+              className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase text-white shadow-premium ${selectedPaymentMethod && !loadingCheckout && (selectedPackage.type === 'userbot' || selectedAdminSlot) ? 'bg-gradient-to-r from-geun-blue to-geun-purple' : 'bg-slate-200'}`}
             >
               {loadingCheckout ? 'Menyiapkan...' : 'Lanjutkan Pembayaran'}
             </button>

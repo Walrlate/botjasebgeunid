@@ -44,10 +44,9 @@ Mini App berjalan langsung secara melayang di dalam aplikasi Telegram saat user 
 ### 2. Telegram Bot & Jaseb Engine (Backend Python Telethon)
 Mesin backend yang bertugas menangani interaksi chat, pemrosesan transaksi, serta eksekusi pengiriman iklan:
 *   **Stealth Mode Humanoid AI:** Saat menyebarkan iklan ke grup LPM, bot meniru perilaku asli manusia untuk meminimalkan risiko banned:
-    1.  **Auto-Join:** Bot bergabung ke grup LPM tujuan secara otomatis.
+    1.  **Auto-Join:** Bot bergabung ke grup LPM tujuan secara otomatis (jika belum terdaftar).
     2.  **Typing Simulation:** Bot mengirimkan status *"sedang mengetik..."* selama 3 hingga 7 detik sebelum mengirim iklan.
-    3.  **Send Ad:** Mengirimkan pesan iklan (teks, foto, atau video).
-    4.  **Auto-Leave:** Bot keluar dari grup tersebut secara otomatis agar daftar chat Telegram pengguna tetap bersih dari grup LPM yang menumpuk.
+    3.  **Send Ad:** Mengirimkan pesan iklan (teks, foto, atau video) dan tetap berada di dalam grup secara permanen untuk menghindari pembatasan limit join ulang dari Telegram.
 *   **Pilihan Ritme Pengiriman (Delay Mode):**
     *   `Slowly Mode`: Memberikan jeda aman selama 30-60 detik antar grup. Sangat direkomendasikan untuk keamanan akun.
     *   `Instant Mode`: Mengirim cepat ke setiap grup (jeda 3-5 detik), lalu melakukan jeda istirahat panjang (15-30 menit) di setiap akhir putaran grup.
