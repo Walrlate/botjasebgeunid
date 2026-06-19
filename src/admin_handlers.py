@@ -1103,44 +1103,101 @@ def _register_admin_handlers(bot):
         
         asyncio.create_task(run_admin_pool_gradual_join(bot, event.chat_id))
         await event.respond(
-            "⏳ **Memulai proses gradual join untuk semua Admin Pool...**\n"
-            "Setiap akun admin akan mencoba bergabung ke maksimal 5 grup LPM baru yang belum diikuti dengan jeda aman 20-35 detik per join.\n\n"
-            "Laporan progress akan dikirimkan di sini."
+            "⏳ **Memulai proses perapian & gradual join/leave sharding untuk semua Admin Pool...**\n"
+            "Setiap akun admin akan menyelaraskan grup LPM-nya:\n"
+            "- Join maksimal 5 grup baru di jatah slotnya (jeda 20-35 detik).\n"
+            "- Keluar maksimal 15 grup yang berada di luar jatah slotnya (jeda 4-8 detik).\n\n"
+            "Laporan progress dikirim berkala di sini."
         )
 
 
 async def run_admin_pool_gradual_join(bot, status_chat_id):
-    from src.database import db_get_active_admin_userbots, db_get_active_lpm_links_with_ids, db_get_lpm_lists_count
-    from src.jaseb_engine import JasebEngine
+    from src.database import db_get_active_admin_userbots, db_get_lpm_lists_count
+    from src.supabase_client import get_supabase
     from telethon import TelegramClient
     from telethon.network import ConnectionTcpObfuscated
-    from telethon.tl.functions.channels import JoinChannelRequest
+    from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
     import random
+    import asyncio
     
     # 1. Api-ID & Api-Hash
     from src.config import API_ID, API_HASH
     
-    # 2. Ambil semua link LPM dari database
-    total_lpm = db_get_lpm_lists_count()
-    if total_lpm == 0:
-        await bot.send_message(status_chat_id, "❌ **Gagal:** Pool LPM di database kosong.")
-        return
-        
-    lpm_data = db_get_active_lpm_links_with_ids(limit=total_lpm)
-    if not lpm_data:
-        await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada LPM aktif di database.")
+    # 2. Ambil semua admin terdaftar diurutkan berdasarkan ID ascending untuk kestabilan indeks sharding
+    try:
+        supabase = get_supabase()
+        res_all_admins = supabase.table("admin_userbots") \
+            .select("id, phone_number") \
+            .order("id", desc=False) \
+            .execute()
+        all_admins = res_all_admins.data or []
+        all_admin_ids = [a["id"] for a in all_admins]
+    except Exception as e:
+        logger.error(f"Gagal mengambil daftar admin dari Supabase: {e}")
+        await bot.send_message(status_chat_id, f"❌ **Gagal:** Tidak bisa memuat data admin dari database: {e}")
         return
 
-    # 3. Ambil semua admin userbots yang terhubung
+    if not all_admin_ids:
+        await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada Admin Pool terdaftar di database.")
+        return
+
+    # 3. Ambil semua LPM aktif dari database diurutkan berdasarkan ID ascending
+    try:
+        res_all_lpm = supabase.table("lpm_lists") \
+            .select("group_link, group_id") \
+            .eq("is_active", True) \
+            .eq("is_blacklisted", False) \
+            .order("id", desc=False) \
+            .execute()
+        all_active_lpm = res_all_lpm.data or []
+        total_lpm = len(all_active_lpm)
+    except Exception as e:
+        logger.error(f"Gagal mengambil daftar LPM dari Supabase: {e}")
+        await bot.send_message(status_chat_id, f"❌ **Gagal:** Tidak bisa memuat data LPM dari database: {e}")
+        return
+
+    if total_lpm == 0:
+        await bot.send_message(status_chat_id, "❌ **Gagal:** Pool LPM aktif di database kosong.")
+        return
+
+    # 4. Ambil semua admin userbots aktif (yang terkoneksi saat ini)
     admins = db_get_active_admin_userbots()
     if not admins:
-        await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada akun Admin Pool yang terhubung.")
+        await bot.send_message(status_chat_id, "❌ **Gagal:** Tidak ada akun Admin Pool yang terhubung (status: connected).")
         return
 
-    await bot.send_message(status_chat_id, f"📢 **Gradual Join dimulai:**\n👤 Total Admin: **{len(admins)}**\n📋 Total LPM Pool: **{len(lpm_data)}**")
+    await bot.send_message(
+        status_chat_id, 
+        f"📢 **SHARDED JOIN & LEAVE POOL DIMULAI**\n"
+        f"👤 Admin Aktif: **{len(admins)}**\n"
+        f"📋 Total LPM Database: **{total_lpm}**\n"
+        f"⚙️ Aturan: **1 Akun = Slot 100 LPM** (Statis by ID ASC)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
     
+    SLOT_SIZE = 100
     for sess, phone, aid in admins:
-        await bot.send_message(status_chat_id, f"⏳ **Memproses akun admin: {phone}...**")
+        # Tentukan posisi urutan sharding (index ke-N)
+        if aid not in all_admin_ids:
+            await bot.send_message(status_chat_id, f"⚠️ **Admin {phone}** tidak ditemukan di daftar utama. Lewati.")
+            continue
+            
+        idx = all_admin_ids.index(aid)  # 0-based index
+        start_offset = idx * SLOT_SIZE
+        end_offset = start_offset + SLOT_SIZE - 1
+        
+        # Saring slot LPM jatah admin ini
+        slot_lpm = all_active_lpm[start_offset:end_offset+1]
+        
+        # Kumpulkan LPM luar slot (yang ada di database tapi di luar rentang indeks jatahnya)
+        out_of_slot_lpm = all_active_lpm[:start_offset] + all_active_lpm[end_offset+1:]
+        
+        await bot.send_message(
+            status_chat_id, 
+            f"⏳ **Menghubungkan Sesi Admin #{idx+1}: {phone}...**\n"
+            f"🎯 Jatah Slot: **LPM #{start_offset+1} s/d #{start_offset+len(slot_lpm)}**"
+        )
+        
         client = TelegramClient(
             f"data/sessions/{sess}",
             API_ID,
@@ -1151,8 +1208,9 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             connection_retries=10,
             retry_delay=5
         )
+        
         try:
-            # 1. Hubungkan sesi dengan penanganan lock (retry loop)
+            # Hubungkan sesi dengan penanganan lock (retry loop)
             connected = False
             retries = 3
             while retries > 0:
@@ -1163,7 +1221,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
                 except Exception as conn_err:
                     err_str = str(conn_err).lower()
                     if "lock" in err_str or "locked" in err_str:
-                        logger.warning(f"⚠️ Berkas sesi admin {phone} terkunci, mencoba kembali dalam 5 detik... (Percobaan: {4-retries})")
+                        logger.warning(f"⚠️ Berkas sesi admin {phone} terkunci, mencoba kembali dalam 5 detik... (Sisa retry: {retries-1})")
                         await asyncio.sleep(5)
                         retries -= 1
                     else:
@@ -1177,7 +1235,7 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
                 await bot.send_message(status_chat_id, f"⚠️ Akun {phone} tidak terotorisasi (butuh login ulang). Melewati.")
                 continue
                 
-            # 2. Ambil daftar chat/grup yang sudah diikuti oleh admin ini (ID & Username)
+            # Ambil daftar chat/grup yang sudah diikuti oleh admin ini (ID & Username)
             joined_ids = set()
             joined_usernames = set()
             try:
@@ -1189,63 +1247,110 @@ async def run_admin_pool_gradual_join(bot, status_chat_id):
             except Exception as ex:
                 logger.error(f"Error iter_dialogs untuk {phone}: {ex}")
                 
-            # 3. Cari LPM mana saja yang belum diikuti (Pencocokan 100% di memori, Tanpa API Telegram Call!)
+            # 1. Cari LPM di dalam jatah slot yang BELUM diikuti (To Join)
             to_join = []
-            for link, db_group_id in lpm_data:
-                # Normalisasi link ke format username bersih (lowercase)
+            for lpm in slot_lpm:
+                link = lpm["group_link"]
+                db_group_id = lpm["group_id"]
                 target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "").lower()
                 
-                # Cek berdasarkan ID (jika ada di database)
+                is_joined = False
                 if db_group_id and int(db_group_id) in joined_ids:
-                    continue
+                    is_joined = True
+                elif target_entity in joined_usernames:
+                    is_joined = True
                     
-                # Cek berdasarkan username/slug (sangat cepat & aman)
-                if target_entity in joined_usernames:
-                    continue
+                if not is_joined:
+                    to_join.append(link)
                     
-                # Masukkan ke daftar target jika tidak cocok di keduanya
-                to_join.append(link)
-                    
-            if not to_join:
-                await bot.send_message(status_chat_id, f"✅ Akun {phone} sudah bergabung ke semua grup LPM yang valid. (Sisa target: 0)")
-                continue
+            # 2. Cari LPM luar slot yang SAAT INI diikuti (To Leave)
+            to_leave = []
+            for lpm in out_of_slot_lpm:
+                link = lpm["group_link"]
+                db_group_id = lpm["group_id"]
+                target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "").lower()
                 
-            # Batasi hanya 5 join baru per siklus per akun untuk menghindari ban
-            limit_join = min(5, len(to_join))
-            await bot.send_message(status_chat_id, f"🔄 Akun {phone} akan bergabung ke **{limit_join}** grup baru...\n🎯 Sisa target LPM belum diikuti akun ini: **{len(to_join)}** grup")
+                is_joined = False
+                matched_peer = None
+                if db_group_id and int(db_group_id) in joined_ids:
+                    is_joined = True
+                    matched_peer = int(db_group_id)
+                elif target_entity in joined_usernames:
+                    is_joined = True
+                    matched_peer = target_entity
+                    
+                if is_joined:
+                    to_leave.append((link, matched_peer))
+                    
+            # Kirim laporan pemetaan awal untuk akun ini
+            report_msg = (
+                f"📊 **Analisis Sesi {phone}** (Admin #{idx+1}):\n"
+                f"• Jatah Slot: **LPM #{start_offset+1}–#{start_offset+len(slot_lpm)}** ({len(slot_lpm)} grup)\n"
+                f"• Sudah Gabung: **{len(slot_lpm) - len(to_join)}** / {len(slot_lpm)}\n"
+                f"• Perlu Join (Slot): **{len(to_join)}** grup\n"
+                f"• Perlu Leave (Luar Slot): **{len(to_leave)}** grup"
+            )
+            await bot.send_message(status_chat_id, report_msg)
             
+            # --- EKSEKUSI LEAVE (Keluar Grup Luar Slot) ---
+            left_count = 0
+            limit_leave = min(15, len(to_leave))  # Batasi maks 15 keluar per siklus agar aman
+            if limit_leave > 0:
+                await bot.send_message(status_chat_id, f"🔄 {phone} sedang keluar dari **{limit_leave}** grup luar slot secara bertahap...")
+                for link, matched_peer in to_leave[:limit_leave]:
+                    try:
+                        entity = await client.get_entity(matched_peer)
+                        await client(LeaveChannelRequest(entity))
+                        left_count += 1
+                        await asyncio.sleep(random.uniform(4, 8))  # Jeda aman saat leave
+                    except Exception as ex:
+                        logger.error(f"Admin {phone} gagal leave dari {link}: {ex}")
+                        if "flood" in str(ex).lower():
+                            await bot.send_message(status_chat_id, f"⚠️ Akun {phone} terkena FloodWait saat leave. Menghentikan leave.")
+                            break
+                await bot.send_message(status_chat_id, f"✅ {phone} berhasil keluar dari **{left_count}** grup luar slot.")
+                
+            # --- EKSEKUSI JOIN (Masuk Grup Jatah Slot) ---
             joined_count = 0
-            for item in to_join[:limit_join]:
-                try:
-                    # Resolve ke entity jika berupa string
-                    if isinstance(item, str):
-                        target_entity = item.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
+            limit_join = min(5, len(to_join))  # Batasi maks 5 join baru per siklus agar anti-banned
+            if limit_join > 0:
+                await bot.send_message(status_chat_id, f"🔄 {phone} sedang bergabung ke **{limit_join}** grup jatah slot secara bertahap...")
+                for link in to_join[:limit_join]:
+                    try:
+                        target_entity = link.strip().replace("https://t.me/", "").replace("t.me/", "").replace("@", "")
                         entity = await client.get_entity(target_entity)
-                    else:
-                        entity = item
-                        
-                    await client(JoinChannelRequest(entity))
-                    joined_count += 1
-                    # Jeda waktu aman yang panjang
-                    await asyncio.sleep(random.uniform(20, 35))
-                except Exception as ex:
-                    # Mengambil info identitas error untuk log
-                    target_name = item if isinstance(item, str) else (entity.title if hasattr(entity, 'title') else "grup")
-                    logger.error(f"Admin {phone} gagal join {target_name}: {ex}")
-                    if "flood" in str(ex).lower():
-                        await bot.send_message(status_chat_id, f"⚠️ Akun {phone} terkena FloodWait. Menghentikan join untuk akun ini.")
-                        break
-                        
-            await bot.send_message(status_chat_id, f"✅ Akun {phone} berhasil bergabung ke **{joined_count}** grup baru. (Sisa target akun ini: **{len(to_join) - joined_count}**)")
+                        await client(JoinChannelRequest(entity))
+                        joined_count += 1
+                        await asyncio.sleep(random.uniform(20, 35))  # Jeda aman yang panjang saat join
+                    except Exception as ex:
+                        logger.error(f"Admin {phone} gagal join ke {link}: {ex}")
+                        if "flood" in str(ex).lower():
+                            await bot.send_message(status_chat_id, f"⚠️ Akun {phone} terkena FloodWait saat join. Menghentikan join.")
+                            break
+                await bot.send_message(status_chat_id, f"✅ {phone} berhasil bergabung ke **{joined_count}** grup jatah slot.")
+                
+            # Kirim rangkuman akhir sesi untuk akun ini
+            await bot.send_message(
+                status_chat_id, 
+                f"👤 **Rangkuman Sesi {phone}**:\n"
+                f"👉 Berhasil Join: **+{joined_count}** (Sisa belum join: {len(to_join) - joined_count})\n"
+                f"👉 Berhasil Leave: **-{left_count}** (Sisa di luar slot: {len(to_leave) - left_count})"
+            )
             
         except Exception as e:
             logger.error(f"Error processing admin join for {phone}: {e}")
             await bot.send_message(status_chat_id, f"❌ Terjadi kesalahan pada akun {phone}: {e}")
         finally:
-            try: await client.disconnect()
-            except: pass
+            try:
+                await client.disconnect()
+            except:
+                pass
             
-    await bot.send_message(status_chat_id, "🎯 **Proses Gradual Join selesai untuk seluruh Admin Pool!**\nJalankan kembali perintah `/join_pool` secara berkala (misal 1-2 jam sekali) hingga semua akun admin bergabung ke semua LPM.")
+    await bot.send_message(
+        status_chat_id, 
+        "🎯 **Proses Sharded Join & Leave selesai untuk seluruh Admin Pool!**\n"
+        "Silakan jalankan kembali `/join_pool` secara berkala (misal 1-2 jam sekali) hingga seluruh sisa join/leave bernilai 0."
+    )
 
 
 async def run_promote_broadcast_task(bot, status_chat_id, ad_id):
@@ -1890,18 +1995,56 @@ async def _show_setprice_package_list(event, ptype: str):
 
 
 async def _show_ubots(event):
-    admins = db_get_admin_userbots()
-    text = "🤖 **ADMIN POOL**\n\n"
+    admins = db_get_admin_userbots()  # Semua admin diurutkan by ID ascending
+    from src.database import db_get_lpm_lists_count
+    total_lpm = db_get_lpm_lists_count()
+    SLOT_SIZE = 100  # Slot LPM per admin (harus konsisten dengan db_get_lpm_sharded_for_admin)
+
+    text = "🤖 **ADMIN POOL — DISTRIBUSI LPM**\n"
+    text += f"{'━' * 30}\n\n"
+    text += f"📋 Total LPM Pool: **{total_lpm} grup**\n"
+    text += f"🤖 Total Admin Terdaftar: **{len(admins)} akun**\n\n"
+
     buttons = []
     if not admins:
-        text += "_Belum ada nomor admin._"
+        text += "_Belum ada nomor admin. Gunakan /install untuk menambahkan._\n"
     else:
-        for aid, phone, status, cooldown in admins:
-            icon = "🟢" if status == 'connected' else "🔴"
-            cd_str = f" (cooldown s/d {cooldown[:10]})" if cooldown else ""
-            text += f"{icon} {phone}{cd_str}\n"
-            if status == 'connected':
+        for i, (aid, phone, status, cooldown) in enumerate(admins):
+            # Hitung slot LPM statis berdasarkan posisi urutan (0-based index = i)
+            slot_start = i * SLOT_SIZE + 1
+            slot_end   = (i + 1) * SLOT_SIZE
+            # Cek apakah slot ini benar-benar ada di pool
+            if slot_start > total_lpm:
+                slot_label = f"⚠️ #{slot_start}–#{slot_end} _(slot kosong, pool LPM kurang)_"
+            elif slot_end > total_lpm:
+                actual_end = total_lpm
+                slot_label = f"⚠️ #{slot_start}–#{actual_end} _(hanya {actual_end - slot_start + 1} LPM, kurang dari 100)_"
+            else:
+                slot_label = f"✅ #{slot_start}–#{slot_end} (100 LPM)"
+
+            # Status icon
+            icon = "🟢" if status == "connected" else "🔴"
+            cd_str = f"\n      ⏸ Cooldown s/d `{cooldown[:10]}`" if cooldown else ""
+
+            text += (
+                f"{icon} **Admin #{i+1}** — `{phone}`\n"
+                f"      🗂 Slot LPM: {slot_label}{cd_str}\n\n"
+            )
+            if status == "connected":
                 buttons.append([Button.inline(f"🔌 Disconnect {phone}", f"admin_dc_pool_{aid}".encode())])
+
+    # Ringkasan coverage LPM
+    if admins:
+        covered = min(len(admins) * SLOT_SIZE, total_lpm)
+        uncovered = max(0, total_lpm - covered)
+        text += f"{'━' * 30}\n"
+        text += f"📊 **Coverage:** {covered}/{total_lpm} LPM tercakup\n"
+        if uncovered > 0:
+            admins_needed = -(-uncovered // SLOT_SIZE)  # ceiling division
+            text += f"ℹ️ {uncovered} LPM belum tercakup. Tambah **{admins_needed} admin** lagi untuk full coverage.\n"
+        else:
+            text += "🎯 Semua LPM telah tercakup oleh admin pool!\n"
+
     buttons.append([Button.inline("⬅️ Kembali", b"admin_main")])
     if hasattr(event, "edit"):
         try:
@@ -1909,6 +2052,7 @@ async def _show_ubots(event):
         except Exception:
             pass
     await event.respond(text, buttons=buttons)
+
 
 
 async def _show_client_ubots(event):

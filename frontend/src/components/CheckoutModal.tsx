@@ -168,49 +168,85 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             {selectedPackage.type !== 'userbot' && (
               <div className="space-y-3">
                 <div className="flex justify-between items-center px-1">
-                  <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-wider">PILIH BOT JASEB (SLOT ADMIN)</h4>
-                  {loadingSlots && <span className="text-[8px] text-geun-blue animate-pulse font-extrabold uppercase">Loading...</span>}
+                  <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Pilih Bot Jaseb (Slot Admin)</h4>
+                  {loadingSlots && <span className="text-[8px] text-geun-blue animate-pulse font-extrabold uppercase">Memuat...</span>}
                 </div>
+
                 {adminSlots.length === 0 && !loadingSlots ? (
-                  <div className="bg-slate-50 border border-slate-200/50 p-4 rounded-2xl text-center text-xs text-slate-400">
-                    ❌ Bot admin pool tidak tersedia
+                  <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl text-center">
+                    <div className="text-red-400 text-lg mb-1">⚙️</div>
+                    <p className="text-[10px] font-black text-red-500">Bot Admin Pool Belum Tersedia</p>
+                    <p className="text-[9px] text-red-400 mt-0.5">Hubungi admin untuk mengaktifkan slot</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     {adminSlots.map((slot) => {
                       const isSelected = selectedAdminSlot === slot.id;
-                      const isFull = slot.status === 'Penuh';
+                      const isFull    = slot.status === 'Penuh';
+                      const isOffline = slot.status === 'Offline';
+                      const isAvail   = slot.status === 'Tersedia';
+
+                      // Warna border & bg berdasarkan state
+                      let cardClass = 'border-slate-200 bg-white hover:border-slate-300';
+                      if (isSelected && isAvail)   cardClass = 'border-geun-blue bg-geun-blue/5 shadow-[0_0_15px_rgba(0,122,255,0.08)]';
+                      if (isSelected && isFull)    cardClass = 'border-orange-400 bg-orange-50/60 shadow-[0_0_12px_rgba(251,146,60,0.12)]';
+                      if (isSelected && isOffline) cardClass = 'border-slate-400 bg-slate-50';
+
+                      const statusColor = isAvail ? 'text-emerald-600' : isFull ? 'text-orange-500' : 'text-slate-400';
+                      const dotColor   = isAvail ? 'bg-emerald-500' : isFull ? 'bg-orange-400 animate-pulse' : 'bg-slate-300';
+
                       return (
                         <div
                           key={slot.id}
-                          onClick={() => {
-                            triggerHaptic('light');
-                            setSelectedAdminSlot(slot.id);
-                          }}
-                          className={`relative border p-3 rounded-2xl cursor-pointer flex flex-col justify-between transition-all overflow-hidden ${
-                            isSelected
-                              ? 'border-geun-blue bg-geun-blue/5 shadow-[0_0_15px_rgba(0,122,255,0.08)]'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
-                          }`}
+                          onClick={() => { triggerHaptic('light'); setSelectedAdminSlot(slot.id); }}
+                          className={`relative border p-3 rounded-2xl cursor-pointer flex flex-col gap-1.5 transition-all overflow-hidden ${cardClass}`}
                         >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[9.5px] font-black text-slate-800 line-clamp-1">{slot.visual_name}</span>
-                            <span className={`w-2 h-2 rounded-full ${isFull ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+                          {/* Header: nama + dot status */}
+                          <div className="flex items-start justify-between gap-1">
+                            <span className="text-[10px] font-black text-slate-800 leading-tight">{slot.visual_name}</span>
+                            <span className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${dotColor}`} />
                           </div>
-                          <div className="space-y-0.5">
-                            <p className="text-[7.5px] font-extrabold text-slate-400 uppercase">Status</p>
-                            <p className={`text-[9px] font-black ${isFull ? 'text-red-500' : 'text-emerald-600'}`}>
-                              {isFull ? 'Penuh' : 'Tersedia'}
-                            </p>
-                            {isFull && slot.end_date && (
-                              <div className="mt-1 pt-1 border-t border-slate-100/80">
-                                <p className="text-[7px] font-extrabold text-slate-400 uppercase">Hingga</p>
-                                <p className="text-[8px] font-black text-slate-500 leading-tight">
-                                  {slot.end_date.split(' ')[0]}
-                                </p>
-                              </div>
+
+                          {/* Badge STATUS */}
+                          <div className="flex items-center gap-1">
+                            {isAvail && (
+                              <span className="inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                ✓ Tersedia
+                              </span>
+                            )}
+                            {isFull && (
+                              <span className="inline-flex items-center gap-0.5 bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                🔒 Disewa
+                              </span>
+                            )}
+                            {isOffline && (
+                              <span className="inline-flex items-center gap-0.5 bg-slate-100 text-slate-500 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                ✕ Offline
+                              </span>
                             )}
                           </div>
+
+                          {/* Info slot LPM */}
+                          <div className="text-[7.5px] text-slate-400 font-extrabold uppercase">
+                            LPM #{slot.lpm_slot_start}–#{slot.lpm_slot_end}
+                          </div>
+
+                          {/* Info kapan slot kosong (jika penuh) */}
+                          {isFull && slot.end_date && (
+                            <div className="pt-1 border-t border-orange-100">
+                              <p className="text-[7px] font-extrabold text-slate-400 uppercase">Slot kosong:</p>
+                              <p className="text-[8px] font-black text-orange-500 leading-tight">{slot.end_date.split(' ')[0]}</p>
+                            </div>
+                          )}
+
+                          {/* Selected checkmark */}
+                          {isSelected && (
+                            <div className="absolute top-2 right-2">
+                              <div className="w-4 h-4 rounded-full bg-geun-blue flex items-center justify-center">
+                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -225,19 +261,36 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 className={`glass-panel rounded-2xl p-4 flex items-center justify-between border transition-all ${selectedPaymentMethod === 'qris' ? 'border-geun-blue bg-geun-blue/5' : 'border-slate-200'}`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-100 border border-slate-200">
-                    <svg className="w-7 h-7 text-geun-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 border border-blue-200/60">
+                    {/* Icon QRIS — Barcode scan style */}
+                    <svg className="w-7 h-7 text-geun-blue" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      {/* Pojok scan TL */}
+                      <path d="M3 9V5a2 2 0 012-2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      {/* Pojok scan TR */}
+                      <path d="M15 3h4a2 2 0 012 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      {/* Pojok scan BL */}
+                      <path d="M3 15v4a2 2 0 002 2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      {/* Pojok scan BR */}
+                      <path d="M15 21h4a2 2 0 002-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      {/* Garis barcode dalam */}
+                      <line x1="7" y1="9" x2="7" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <line x1="10" y1="8" x2="10" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      <line x1="13" y1="9" x2="13" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <line x1="16" y1="8.5" x2="16" y2="15.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                      {/* Garis scan laser */}
+                      <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeDasharray="2 1" opacity="0.5"/>
                     </svg>
                   </div>
                   <div>
                     <p className="text-xs font-black text-slate-800">QRIS Otomatis</p>
+                    <p className="text-[8.5px] text-slate-400 font-semibold mt-0.5">Bayar via e-wallet / m-banking</p>
                   </div>
                 </div>
                 <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedPaymentMethod === 'qris' ? 'border-geun-blue bg-geun-blue' : 'border-slate-300'}`}>
                   {selectedPaymentMethod === 'qris' && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>}
                 </div>
               </div>
+
               
               <div
                 onClick={() => { triggerHaptic('light'); setSelectedPaymentMethod('manual'); }}

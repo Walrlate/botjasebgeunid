@@ -172,10 +172,13 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
         sisa = max(0, cap - len(links))
         if sisa > 0:
             if "userbot" not in pkg.lower() and assigned_admin_ub_id:
-                # Gunakan porsi LPM terdistribusi unik untuk bot admin sewa ini (Sharding LPM)
-                links.extend(db_get_lpm_sharded_for_admin(assigned_admin_ub_id, sisa))
+                # Gunakan porsi LPM eksklusif (slot tetap 100 LPM) milik bot admin yang ditugaskan.
+                # Fungsi sharding selalu mengembalikan 100 LPM dari slot-nya — potong sesuai kapasitas (sisa).
+                sharded = db_get_lpm_sharded_for_admin(assigned_admin_ub_id)
+                links.extend(sharded[:sisa])
             else:
                 links.extend(db_get_active_lpm_lists(sisa))
+
 
         if "userbot" in pkg.lower():
             # JALUR USERBOT PEMBELI

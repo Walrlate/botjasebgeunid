@@ -442,15 +442,144 @@ def db_delete_admin_userbot(aid: int):
         return False
 
 def db_get_admin_userbots():
+    """Mengambil semua admin userbots diurutkan by ID ASC (konsisten dengan logika slot sharding LPM)."""
     try:
         supabase = get_supabase()
-        res = supabase.table("admin_userbots").select("id, phone_number, status, cooldown_until").execute()
+        res = supabase.table("admin_userbots") \
+            .select("id, phone_number, status, cooldown_until") \
+            .order("id", desc=False) \
+            .execute()
         if res.data:
             return [(r["id"], r["phone_number"], r["status"], normalize_date(r.get("cooldown_until"))) for r in res.data]
         return []
     except Exception as e:
         logger.error(f"Error in db_get_admin_userbots: {e}")
         return []
+
+
+def db_get_admin_slots_status() -> list:
+    """
+    Mengambil status slot semua admin pool untuk ditampilkan di Mini App saat checkout.
+
+    Setiap slot admin menampilkan:
+      - id             : ID unik admin di database
+      - visual_name    : Label tampilan (Bot Admin #1, Bot Admin #2, dst)
+      - phone_last4    : 4 digit terakhir nomor HP (untuk identifikasi tanpa expose penuh)
+      - status         : 'Tersedia' / 'Penuh' / 'Offline'
+      - lpm_slot_start : Nomor LPM pertama di slot ini
+      - lpm_slot_end   : Nomor LPM terakhir di slot ini
+      - active_clients : Jumlah klien aktif yang menggunakan admin ini
+      - end_date       : Tanggal berakhir klien terakhir (untuk info kapan slot kosong)
+
+    Aturan status:
+      - 'Offline'   → admin status != 'connected'
+      - 'Penuh'     → ada >= 1 klien aktif yang assigned ke admin ini
+      - 'Tersedia'  → connected dan tidak ada klien aktif assigned
+    """
+    SLOT_SIZE = 100  # Harus konsisten dengan db_get_lpm_sharded_for_admin
+    try:
+        supabase = get_supabase()
+
+        # Ambil semua admin diurutkan by ID ASC (slot statis)
+        res_admins = supabase.table("admin_userbots") \
+            .select("id, phone_number, status, cooldown_until") \
+            .order("id", desc=False) \
+            .execute()
+        admins = res_admins.data or []
+
+        if not admins:
+            return []
+
+        # Ambil semua subscription aktif yang punya assigned_admin_ub_id
+        now_str = datetime.now(timezone.utc).isoformat()
+        res_subs = supabase.table("subscriptions") \
+            .select("assigned_admin_ub_id, end_date, user_id") \
+            .eq("status", "active") \
+            .gt("end_date", now_str) \
+            .execute()
+        subs = res_subs.data or []
+
+        # Buat map: admin_id → list subscription aktif
+        admin_subs_map: dict = {}
+        for sub in subs:
+            aid = sub.get("assigned_admin_ub_id")
+            if aid:
+                if aid not in admin_subs_map:
+                    admin_subs_map[aid] = []
+                admin_subs_map[aid].append(sub)
+
+        result = []
+        for i, admin in enumerate(admins):
+            aid = admin["id"]
+            phone = admin.get("phone_number", "")
+            status_db = admin.get("status", "disconnected")
+            cooldown = admin.get("cooldown_until")
+
+            # Tentukan label visual
+            visual_name = f"Bot Admin #{i + 1}"
+            phone_last4 = phone[-4:] if phone and len(phone) >= 4 else "????"
+
+            # Slot LPM statis
+            lpm_slot_start = i * SLOT_SIZE + 1
+            lpm_slot_end   = (i + 1) * SLOT_SIZE
+
+            # Klien aktif di admin ini
+            active_subs = admin_subs_map.get(aid, [])
+            active_client_count = len(active_subs)
+
+            # Cari tanggal end_date terjauh (kapan slot akan kosong)
+            latest_end = None
+            for sub in active_subs:
+                ed = sub.get("end_date")
+                if ed:
+                    if latest_end is None or ed > latest_end:
+                        latest_end = ed
+
+            # Format end_date untuk tampil di UI
+            end_date_display = None
+            if latest_end:
+                try:
+                    clean = latest_end.replace("T", " ").split("+")[0].split(".")[0].strip()
+                    end_date_display = clean  # "YYYY-MM-DD HH:MM:SS"
+                except Exception:
+                    end_date_display = latest_end[:10]
+
+            # Cek cooldown
+            is_on_cooldown = False
+            if cooldown:
+                try:
+                    cooldown_dt = parse_utc_date(cooldown)
+                    if cooldown_dt > datetime.now(timezone.utc):
+                        is_on_cooldown = True
+                except Exception:
+                    pass
+
+            # Tentukan status tampilan
+            if status_db != "connected" or is_on_cooldown:
+                slot_status = "Offline"
+            elif active_client_count > 0:
+                slot_status = "Penuh"
+            else:
+                slot_status = "Tersedia"
+
+            result.append({
+                "id"              : aid,
+                "visual_name"     : visual_name,
+                "phone_last4"     : phone_last4,
+                "status"          : slot_status,
+                "lpm_slot_start"  : lpm_slot_start,
+                "lpm_slot_end"    : lpm_slot_end,
+                "active_clients"  : active_client_count,
+                "end_date"        : end_date_display,
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"Error in db_get_admin_slots_status: {e}")
+        return []
+
+
+
 
 def db_get_active_admin_userbots():
     try:
@@ -1286,42 +1415,72 @@ def db_get_admin_userbot_by_id(aid: int):
         return None
 
 def db_get_lpm_sharded_for_admin(admin_id: int, limit: int = 100) -> list:
-    """Mendapatkan porsi LPM yang berbeda (slice 100 grup) khusus untuk bot admin tertentu."""
+    """
+    Mendapatkan porsi LPM eksklusif (slot tetap 100 LPM) untuk bot admin tertentu.
+
+    Prinsip sharding statis berdasarkan urutan ID terdaftar di database:
+      - Admin ke-1 (ID terkecil) → LPM slot 1–100   (offset 0)
+      - Admin ke-2               → LPM slot 101–200  (offset 100)
+      - Admin ke-N               → LPM slot (N-1)*100 + 1 … N*100
+
+    Penting:
+      - Menggunakan SEMUA admin_userbots (bukan hanya yang connected) agar
+        indeks/slot tidak bergeser saat ada admin yang disconnect atau reconnect.
+      - Parameter `limit` pada fungsi ini selalu diabaikan dan dioverride ke 100
+        agar setiap admin selalu mendapat slot penuh tanpa overlap.
+    """
+    SLOT_SIZE = 100  # Kapasitas tetap per admin userbot
     try:
         supabase = get_supabase()
-        # Ambil semua admin userbots diurutkan berdasarkan ID untuk menentukan index
-        res_admins = supabase.table("admin_userbots").select("id").order("id", desc=False).execute()
+
+        # ── Ambil SEMUA admin (termasuk disconnected) diurutkan by ID ascending ──
+        # Menggunakan semua admin agar slot tidak bergeser saat status berubah
+        res_admins = supabase.table("admin_userbots") \
+            .select("id") \
+            .order("id", desc=False) \
+            .execute()
         admins = res_admins.data or []
-        
+
         admin_ids = [a["id"] for a in admins]
         if admin_id not in admin_ids:
-            return db_get_active_lpm_lists(limit)
-            
-        idx = admin_ids.index(admin_id)
-        start_offset = idx * 100
-        
-        # Ambil 100 grup LPM dari database
-        res_lpm = supabase.table("lpm_lists")\
-            .select("group_link")\
-            .eq("is_active", True)\
-            .eq("is_blacklisted", False)\
-            .order("id", desc=False)\
-            .range(start_offset, start_offset + 99)\
+            logger.warning(f"[LPM Sharding] admin_id={admin_id} tidak ditemukan di tabel admin_userbots. Fallback ke LPM acak.")
+            return db_get_active_lpm_lists(SLOT_SIZE)
+
+        # ── Hitung offset statis berdasarkan posisi urutan ──
+        idx = admin_ids.index(admin_id)   # 0-based index
+        start_offset = idx * SLOT_SIZE    # Admin 1 → 0, Admin 2 → 100, dst
+        end_offset   = start_offset + SLOT_SIZE - 1
+
+        logger.info(
+            f"[LPM Sharding] admin_id={admin_id} | posisi ke-{idx+1} dari {len(admin_ids)} admin "
+            f"| slot LPM {start_offset+1}–{end_offset+1} (offset Supabase: {start_offset}–{end_offset})"
+        )
+
+        # ── Ambil 100 LPM dari slot yang telah ditentukan ──
+        res_lpm = supabase.table("lpm_lists") \
+            .select("group_link") \
+            .eq("is_active", True) \
+            .eq("is_blacklisted", False) \
+            .order("id", desc=False) \
+            .range(start_offset, end_offset) \
             .execute()
-            
+
         links = [r["group_link"] for r in res_lpm.data] if res_lpm.data else []
-        
-        # Jika data kurang, fallback ke isi lpm global secukupnya
-        if len(links) < limit:
-            fallback = db_get_active_lpm_lists(limit - len(links))
-            links.extend(fallback)
-            
+
+        if not links:
+            logger.warning(
+                f"[LPM Sharding] Slot offset {start_offset}–{end_offset} kosong untuk admin_id={admin_id}. "
+                f"Pool LPM mungkin belum mencapai {end_offset+1} entri."
+            )
+            return []
+
+        logger.info(f"[LPM Sharding] admin_id={admin_id} mendapat {len(links)} LPM dari slot-nya.")
+
         import random
-        # Potong sesuai limit dan acak urutannya sesuai instruksi
-        random.shuffle(links)
-        return links[:limit]
+        random.shuffle(links)  # Acak urutan pengiriman agar terkesan manusiawi
+        return links
     except Exception as e:
-        logger.error(f"Error in db_get_lpm_sharded_for_admin: {e}")
+        logger.error(f"Error in db_get_lpm_sharded_for_admin (admin_id={admin_id}): {e}")
         return []
 
 def db_transfer_userbot_session(old_uid: int, new_uid: int) -> tuple:
