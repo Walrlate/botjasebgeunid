@@ -96,9 +96,15 @@ async def show_promote_panel(event, edit=False):
         except:
             pass
             
+    from src.logic import active_broadcasts
+    from src.config import ADMIN_ID
+    is_running = ADMIN_ID in active_broadcasts
+    
+    action_btn = Button.inline("🛑 Hentikan Promosi", b"promo_stop_broadcast") if is_running else Button.inline("🚀 Mulai Sebar Promosi", b"promo_start_broadcast")
+    
     control_buttons = [
         [Button.inline("📝 Edit Teks", b"promo_edit_text"), Button.inline("🔗 Edit Tombol", b"promo_edit_btns")],
-        [Button.inline("🚀 Mulai Sebar Promosi", b"promo_start_broadcast")],
+        [action_btn],
         [Button.inline("⬅️ Kembali ke Admin", b"admin_main")]
     ]
     
@@ -300,6 +306,17 @@ def _register_admin_handlers(bot):
                 asyncio.create_task(run_promote_broadcast_task(bot, event.chat_id, ad_id))
             else:
                 await event.answer("❌ Gagal memulai, materi promosi kosong.", alert=True)
+
+    @bot.on(events.CallbackQuery(data=b"promo_stop_broadcast"))
+    async def promo_stop_broadcast_callback(event):
+        if not await _admin_only_check(event): return
+        from src.logic import active_broadcasts
+        if ADMIN_ID in active_broadcasts:
+            active_broadcasts.discard(ADMIN_ID)
+            await event.answer("🛑 Permintaan penghentian promosi dikirim!", alert=True)
+        else:
+            await event.answer("ℹ️ Promosi memang tidak sedang berjalan.", alert=True)
+        await show_promote_panel(event, edit=True)
 
     @bot.on(events.NewMessage(pattern=r'/gentoken(?:\s+(.+))?'))
     async def gentoken_command(event):
