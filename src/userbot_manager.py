@@ -113,11 +113,12 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
         @client.on(events.NewMessage(outgoing=True))
         async def client_selfbot_handler(event):
             text = (event.text or "").strip()
-            if not text.startswith("."):
+            if not text.startswith(".") and not text.startswith("/"):
                 return
                 
             parts = text.split(" ", 1)
             cmd = parts[0].lower()
+            cmd_name = cmd[1:]
             args = parts[1].strip() if len(parts) > 1 else ""
             
             async def reply_self(reply_text):
@@ -126,7 +127,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                 except Exception as edit_err:
                     logger.error(f"Gagal edit pesan perintah selfbot: {edit_err}")
 
-            if cmd == ".help":
+            if cmd_name in ["help", "panel"]:
                 help_text = (
                     "⚙️ **DAFTAR PERINTAH USERBOT GEUNID**\n"
                     f"{'━'*35}\n"
@@ -137,11 +138,12 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                     "• `.pmpermit <on/off>` : Aktifkan/matikan fitur PM Permit\n"
                     "• `.autoreply add <kunci> | <balasan>` : Tambah Auto Reply WTB\n"
                     "• `.autoreply del <kunci>` : Hapus Auto Reply WTB\n"
-                    "• `.autoreply list` : Lihat daftar Auto Reply aktif"
+                    "• `.autoreply list` : Lihat daftar Auto Reply aktif\n\n"
+                    "💡 _Catatan: Anda juga bisa menggunakan awalan garis miring (seperti `/panel` atau `/status`)._"
                 )
                 await reply_self(help_text)
 
-            elif cmd == ".status":
+            elif cmd_name == "status":
                 from src.database import get_supabase, normalize_date
                 supabase = get_supabase()
                 res = supabase.table("subscriptions").select("status, end_date, capacity_lpm").eq("user_id", user_id).eq("status", "active").execute()
@@ -162,7 +164,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                     reply_msg = "❌ Anda tidak memiliki langganan paket userbot yang aktif saat ini."
                 await reply_self(reply_msg)
 
-            elif cmd == ".jaseb":
+            elif cmd_name == "jaseb":
                 sub_cmd = args.lower()
                 if sub_cmd == "start":
                     from src.database import db_get_active_subscription_status
@@ -180,7 +182,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                 else:
                     await reply_self("❌ Perintah tidak dikenal. Gunakan `.jaseb start` atau `.jaseb stop`.")
 
-            elif cmd == ".setad":
+            elif cmd_name == "setad":
                 if not args:
                     await reply_self("❌ **Format salah!** Gunakan: `.setad <teks_materi_iklan>`")
                     return
@@ -190,7 +192,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                 else:
                     await reply_self("❌ Gagal menyimpan materi iklan baru ke database.")
 
-            elif cmd == ".pmpermit":
+            elif cmd_name == "pmpermit":
                 sub_cmd = args.lower()
                 from src.database import get_supabase
                 supabase = get_supabase()
@@ -203,9 +205,9 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                     await update_single_online_userbot_pm_permit(user_id, False)
                     await reply_self("🔴 **PM Permit dimatikan.**")
                 else:
-                    await reply_self("❌ Perintah tidak dikenal. Gunakan `.pmpermit on` or `.pmpermit off`.")
+                    await reply_self("❌ Perintah tidak dikenal. Gunakan `.pmpermit on` atau `.pmpermit off`.")
 
-            elif cmd == ".autoreply":
+            elif cmd_name == "autoreply":
                 parts_ar = args.split(" ", 1)
                 ar_action = parts_ar[0].lower()
                 ar_args = parts_ar[1].strip() if len(parts_ar) > 1 else ""
