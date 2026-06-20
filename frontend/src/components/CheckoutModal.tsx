@@ -92,8 +92,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             const firstAvailable = data.data.find((slot: any) => slot.status === 'Tersedia');
             if (firstAvailable) {
               setSelectedAdminSlot(firstAvailable.id);
-            } else if (data.data.length > 0) {
-              setSelectedAdminSlot(data.data[0].id);
+            } else {
+              setSelectedAdminSlot(null);
             }
           }
         })
@@ -178,78 +178,97 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     <p className="text-[10px] font-black text-red-500">Bot Admin Pool Belum Tersedia</p>
                     <p className="text-[9px] text-red-400 mt-0.5">Hubungi admin untuk mengaktifkan slot</p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {adminSlots.map((slot) => {
-                      const isSelected = selectedAdminSlot === slot.id;
-                      const isFull    = slot.status === 'Penuh';
-                      const isOffline = slot.status === 'Offline';
-                      const isAvail   = slot.status === 'Tersedia';
-
-                      // Warna border & bg berdasarkan state
-                      let cardClass = 'border-slate-200 bg-white hover:border-slate-300';
-                      if (isSelected && isAvail)   cardClass = 'border-geun-blue bg-geun-blue/5 shadow-[0_0_15px_rgba(0,122,255,0.08)]';
-                      if (isSelected && isFull)    cardClass = 'border-orange-400 bg-orange-50/60 shadow-[0_0_12px_rgba(251,146,60,0.12)]';
-                      if (isSelected && isOffline) cardClass = 'border-slate-400 bg-slate-50';
-
-                      const statusColor = isAvail ? 'text-emerald-600' : isFull ? 'text-orange-500' : 'text-slate-400';
-                      const dotColor   = isAvail ? 'bg-emerald-500' : isFull ? 'bg-orange-400 animate-pulse' : 'bg-slate-300';
-
-                      return (
-                        <div
-                          key={slot.id}
-                          onClick={() => { triggerHaptic('light'); setSelectedAdminSlot(slot.id); }}
-                          className={`relative border p-3 rounded-2xl cursor-pointer flex flex-col gap-1.5 transition-all overflow-hidden ${cardClass}`}
-                        >
-                          {/* Header: nama + dot status */}
-                          <div className="flex items-start justify-between gap-1">
-                            <span className="text-[10px] font-black text-slate-800 leading-tight">{slot.visual_name}</span>
-                            <span className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${dotColor}`} />
-                          </div>
-
-                          {/* Badge STATUS */}
-                          <div className="flex items-center gap-1">
-                            {isAvail && (
-                              <span className="inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-0.5 rounded-full">
-                                ✓ Tersedia
-                              </span>
-                            )}
-                            {isFull && (
-                              <span className="inline-flex items-center gap-0.5 bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full">
-                                🔒 Disewa
-                              </span>
-                            )}
-                            {isOffline && (
-                              <span className="inline-flex items-center gap-0.5 bg-slate-100 text-slate-500 text-[8px] font-black px-2 py-0.5 rounded-full">
-                                ✕ Offline
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Info slot LPM */}
-                          <div className="text-[7.5px] text-slate-400 font-extrabold uppercase">
-                            LPM #{slot.lpm_slot_start}–#{slot.lpm_slot_end}
-                          </div>
-
-                          {/* Info kapan slot kosong (jika penuh) */}
-                          {isFull && slot.end_date && (
-                            <div className="pt-1 border-t border-orange-100">
-                              <p className="text-[7px] font-extrabold text-slate-400 uppercase">Slot kosong:</p>
-                              <p className="text-[8px] font-black text-orange-500 leading-tight">{slot.end_date.split(' ')[0]}</p>
-                            </div>
-                          )}
-
-                          {/* Selected checkmark */}
-                          {isSelected && (
-                            <div className="absolute top-2 right-2">
-                              <div className="w-4 h-4 rounded-full bg-geun-blue flex items-center justify-center">
-                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
-                              </div>
-                            </div>
-                          )}
+                                 ) : (
+                  <div className="space-y-3">
+                    {(() => {
+                      const hasAvailableSlot = adminSlots.some(slot => slot.status === 'Tersedia');
+                      return !hasAvailableSlot && !loadingSlots && adminSlots.length > 0 && (
+                        <div className="bg-amber-50 border border-amber-200/60 p-3.5 rounded-2xl text-center space-y-0.5">
+                          <p className="text-[10px] font-black text-amber-600">⚠️ SEMUA SLOT ADMIN PENUH / OFFLINE</p>
+                          <p className="text-[8.5px] text-amber-500 font-bold leading-normal">Saat ini seluruh bot sedang disewa klien lain atau sedang maintenance. Silakan tunggu beberapa saat.</p>
                         </div>
                       );
-                    })}
+                    })()}
+                    <div className="grid grid-cols-2 gap-2">
+                      {adminSlots.map((slot) => {
+                        const isSelected = selectedAdminSlot === slot.id;
+                        const isFull    = slot.status === 'Disewa';
+                        const isOffline = slot.status === 'Offline';
+                        const isAvail   = slot.status === 'Tersedia';
+
+                        // Warna border & bg berdasarkan state
+                        let cardClass = 'border-slate-200 bg-white hover:border-slate-300';
+                        if (isSelected && isAvail) {
+                          cardClass = 'border-geun-blue bg-geun-blue/5 shadow-[0_0_15px_rgba(0,122,255,0.08)]';
+                        } else if (!isAvail) {
+                          cardClass = 'border-slate-100 bg-slate-50/50 opacity-60 cursor-not-allowed';
+                        }
+
+                        const dotColor = isAvail ? 'bg-emerald-500' : isFull ? 'bg-orange-400 animate-pulse' : 'bg-slate-300';
+
+                        return (
+                          <div
+                            key={slot.id}
+                            onClick={() => {
+                              if (!isAvail) return;
+                              triggerHaptic('light');
+                              setSelectedAdminSlot(slot.id);
+                            }}
+                            className={`relative border p-3 rounded-2xl cursor-pointer flex flex-col gap-1.5 transition-all overflow-hidden ${cardClass}`}
+                          >
+                            {/* Header: nama + dot status */}
+                            <div className="flex items-start justify-between gap-1">
+                              <span className="text-[10px] font-black text-slate-800 leading-tight">{slot.visual_name}</span>
+                              <span className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${dotColor}`} />
+                            </div>
+
+                            {/* Badge STATUS & Deskripsi */}
+                            <div className="flex flex-col gap-1 items-start">
+                              {isAvail && (
+                                <>
+                                  <span className="inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                    ✓ Tersedia
+                                  </span>
+                                  <span className="text-[8px] font-semibold text-emerald-600">Siap broadcast</span>
+                                </>
+                              )}
+                              {isFull && (
+                                <>
+                                  <span className="inline-flex items-center gap-0.5 bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                    🔒 Disewa
+                                  </span>
+                                  <span className="text-[8px] font-semibold text-orange-500">
+                                    {slot.end_date ? `Disewa s/d ${slot.end_date.split(' ')[0]}` : 'Sedang digunakan'}
+                                  </span>
+                                </>
+                              )}
+                              {isOffline && (
+                                <>
+                                  <span className="inline-flex items-center gap-0.5 bg-slate-100 text-slate-500 text-[8px] font-black px-2 py-0.5 rounded-full">
+                                    ✕ Offline
+                                  </span>
+                                  <span className="text-[8px] font-semibold text-slate-400">Perbaikan / Tidak Aktif</span>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Info slot LPM */}
+                            <div className="text-[7.5px] text-slate-400 font-extrabold uppercase">
+                              {slot.lpm_description || `LPM #${slot.lpm_slot_start}–#${slot.lpm_slot_end}`}
+                            </div>
+
+                            {/* Selected checkmark */}
+                            {isSelected && isAvail && (
+                              <div className="absolute top-2 right-2">
+                                <div className="w-4 h-4 rounded-full bg-geun-blue flex items-center justify-center">
+                                  <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -346,13 +365,20 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             )}
 
-            <button
-              disabled={!selectedPaymentMethod || loadingCheckout || (selectedPackage.type !== 'userbot' && !selectedAdminSlot)}
-              onClick={() => handleContinueCheckout(selectedAdminSlot)}
-              className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase text-white shadow-premium ${selectedPaymentMethod && !loadingCheckout && (selectedPackage.type === 'userbot' || selectedAdminSlot) ? 'bg-gradient-to-r from-geun-blue to-geun-purple' : 'bg-slate-200'}`}
-            >
-              {loadingCheckout ? 'Menyiapkan...' : 'Lanjutkan Pembayaran'}
-            </button>
+            {(() => {
+              const selectedSlotObj = adminSlots.find(s => s.id === selectedAdminSlot);
+              const isSelectedSlotAvailable = selectedSlotObj ? selectedSlotObj.status === 'Tersedia' : false;
+              const isCheckoutDisabled = !selectedPaymentMethod || loadingCheckout || (selectedPackage.type !== 'userbot' && (!selectedAdminSlot || !isSelectedSlotAvailable));
+              return (
+                <button
+                  disabled={isCheckoutDisabled}
+                  onClick={() => handleContinueCheckout(selectedAdminSlot)}
+                  className={`w-full py-3.5 rounded-2xl text-[10px] font-black uppercase text-white shadow-premium ${!isCheckoutDisabled ? 'bg-gradient-to-r from-geun-blue to-geun-purple' : 'bg-slate-200'}`}
+                >
+                  {loadingCheckout ? 'Menyiapkan...' : 'Lanjutkan Pembayaran'}
+                </button>
+              );
+            })()}
           </div>
         )}
 

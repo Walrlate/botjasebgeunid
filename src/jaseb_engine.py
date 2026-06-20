@@ -48,7 +48,21 @@ class JasebEngine:
 
     async def start(self):
         if not self.client.is_connected():
-            await self.client.connect()
+            retries = 5
+            while retries > 0:
+                try:
+                    await self.client.connect()
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "lock" in err_str or "locked" in err_str:
+                        logger.warning(f"⚠️ Berkas sesi terkunci, mencoba kembali dalam 3 detik... (Sisa retry: {retries-1})")
+                        await asyncio.sleep(3)
+                        retries -= 1
+                    else:
+                        raise e
+            else:
+                raise RuntimeError("Gagal membuka sesi Telegram karena berkas terkunci oleh proses lain.")
 
     async def stop(self):
         try:
@@ -209,7 +223,14 @@ class JasebEngine:
                         logger.warning(f"Gagal kirim via inline query promote, fallback ke teks biasa: {inline_err}")
                         msg = await self.client.send_message(entity, final_content, parse_mode='html')
                 elif fwd_chat_id and fwd_msg_id:
-                    clean_fwd_id = int(str(fwd_chat_id).replace("-100", ""))
+                    fwd_chat_id_str = str(fwd_chat_id)
+                    if fwd_chat_id_str.startswith("-100"):
+                        clean_fwd_id = int(fwd_chat_id_str[4:])
+                    elif fwd_chat_id_str.startswith("-"):
+                        clean_fwd_id = int(fwd_chat_id_str[1:])
+                    else:
+                        clean_fwd_id = int(fwd_chat_id_str)
+                    
                     if fwd_peer_type == 'channel': from_peer = PeerChannel(clean_fwd_id)
                     elif fwd_peer_type == 'user': from_peer = PeerUser(clean_fwd_id)
                     elif fwd_peer_type == 'chat': from_peer = PeerChat(clean_fwd_id)

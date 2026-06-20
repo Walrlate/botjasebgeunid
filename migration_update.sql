@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS admin_userbots (
     session_name TEXT,
     status TEXT DEFAULT 'connected',
     cooldown_until TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    lpm_description TEXT DEFAULT 'Total LPM 100 Campur'
 );
+ALTER TABLE admin_userbots ADD COLUMN IF NOT EXISTS lpm_description TEXT DEFAULT 'Total LPM 100 Campur';
 
 -- 4. Buat tabel auto_replies jika belum terbentuk
 CREATE TABLE IF NOT EXISTS auto_replies (

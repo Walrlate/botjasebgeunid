@@ -437,7 +437,16 @@ async def order_format_parser(event):
         target_uid = event.sender_id
     import random
     trx_id = f"MAN-{int(datetime.now().timestamp())}{random.randint(100, 999)}"
-    db_save_transaction(target_uid, trx_id, paket, amount, "manual")
+    
+    # Parse assigned_admin_ub_id dari "pilihan bot" jika ada
+    admin_ub_id = None
+    pilihan_bot = data.get("pilihan bot", "")
+    if pilihan_bot:
+        m_admin = re.search(r'(\d+)', pilihan_bot)
+        if m_admin:
+            admin_ub_id = int(m_admin.group(1))
+            
+    db_save_transaction(target_uid, trx_id, paket, amount, "manual", admin_ub_id)
     await process_activation(bot, trx_id, load_prices(), login_states)
     await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
 
@@ -532,6 +541,14 @@ async def handle_checkout_api(request):
         admin_ub_id = data.get("assigned_admin_ub_id")
         if admin_ub_id is not None:
             admin_ub_id = int(admin_ub_id)
+            from src.database import db_get_admin_slots_status
+            slots = db_get_admin_slots_status()
+            slot = next((s for s in slots if s["id"] == admin_ub_id), None)
+            if not slot or slot["status"] != "Tersedia":
+                return web.json_response({
+                    "status": False,
+                    "error": "Slot admin yang dipilih tidak tersedia (Disewa atau Offline). Silakan pilih slot lain."
+                }, status=400, headers={"Access-Control-Allow-Origin": "*"})
             
         if method == 'manual':
             trx_id = f"MAN-{int(datetime.now().timestamp())}"

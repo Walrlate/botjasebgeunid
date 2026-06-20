@@ -94,14 +94,15 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     
     if active_sub:
         # MODE PERPANJANG
-        sub_id, old_end_str = active_sub
+        sub_id, old_end_str, old_assigned_id = active_sub
         try:
             old_end_dt = datetime.strptime(old_end_str.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
             base_date = max(old_end_dt, now)
         except:
             base_date = now
         new_end = (base_date + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        db_update_subscription_dates(sub_id, new_end, cap, pkg_name, assigned_admin_ub_id)
+        final_assigned_id = old_assigned_id if old_assigned_id is not None else assigned_admin_ub_id
+        db_update_subscription_dates(sub_id, new_end, cap, pkg_name, final_assigned_id)
     else:
         # MODE BARU
         new_end = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
@@ -232,6 +233,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                 return
                 
             unprocessed = links.copy()
+            custom_set = set([l.strip() for l in (req_lpm or "").split() if l.strip()])
             total_succ = 0
             total_fail = 0
             total_success_links = []
@@ -240,6 +242,17 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
             
             for sess, phone, aid in admins_to_use:
                 if not unprocessed: break
+                
+                # Jika bot saat ini bukan bot utama, ganti jatah slot LPM dengan slot milik bot saat ini
+                if assigned_id and aid != assigned_id:
+                    unprocessed_custom = [lnk for lnk in unprocessed if lnk in custom_set]
+                    unprocessed_slot_count = len(unprocessed) - len(unprocessed_custom)
+                    
+                    if unprocessed_slot_count > 0:
+                        new_slot_links = db_get_lpm_sharded_for_admin(aid)
+                        new_slot_to_send = new_slot_links[:unprocessed_slot_count]
+                        unprocessed = unprocessed_custom + new_slot_to_send
+                        logger.info(f"🔄 Smart Redirect: Mengganti {unprocessed_slot_count} slot LPM dengan slot milik bot {phone}")
                 
                 # Jika kita beralih ke bot cadangan di tengah jalan (Smart Redirect)
                 if assigned_id and aid != assigned_id and not is_redirected:
@@ -261,12 +274,19 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
                     if res.get("floodwait_seconds", 0) > 300:
                         until = (datetime.now(timezone.utc) + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
                         db_cooldown_admin_userbot(aid, until)
+                        
+                        # Jika bot admin limit/floodwait, ubah statusnya ke disconnected agar Mini App tahu ada gangguan
+                        from src.database import db_update_admin_userbot_status
+                        db_update_admin_userbot_status(aid, "disconnected")
                         continue
                     
                     if not unprocessed:
                         break
                 except Exception as ex:
                     logger.error(f"Error pada bot admin {phone} saat broadcast: {ex}")
+                    # Jika error koneksi/kredensial, ubah status admin ke disconnected
+                    from src.database import db_update_admin_userbot_status
+                    db_update_admin_userbot_status(aid, "disconnected")
                     continue
                 finally:
                     await eng.stop()

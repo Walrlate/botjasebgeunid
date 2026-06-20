@@ -123,7 +123,7 @@ def db_get_active_subscription_id_and_end(user_id: int):
         supabase = get_supabase()
         now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
-            .select("id, end_date")\
+            .select("id, end_date, assigned_admin_ub_id")\
             .eq("user_id", user_id)\
             .eq("status", "active")\
             .gt("end_date", now_str)\
@@ -134,7 +134,8 @@ def db_get_active_subscription_id_and_end(user_id: int):
             row = res.data[0]
             return (
                 row["id"],
-                normalize_date(row["end_date"])
+                normalize_date(row["end_date"]),
+                row.get("assigned_admin_ub_id")
             )
         return None
     except Exception as e:
@@ -447,11 +448,11 @@ def db_get_admin_userbots():
     try:
         supabase = get_supabase()
         res = supabase.table("admin_userbots") \
-            .select("id, phone_number, status, cooldown_until") \
+            .select("id, phone_number, status, cooldown_until, lpm_description") \
             .order("id", desc=False) \
             .execute()
         if res.data:
-            return [(r["id"], r["phone_number"], r["status"], normalize_date(r.get("cooldown_until"))) for r in res.data]
+            return [(r["id"], r["phone_number"], r["status"], normalize_date(r.get("cooldown_until")), r.get("lpm_description") or "Total LPM 100 Campur") for r in res.data]
         return []
     except Exception as e:
         logger.error(f"Error in db_get_admin_userbots: {e}")
@@ -469,6 +470,7 @@ def db_get_admin_slots_status() -> list:
       - status         : 'Tersedia' / 'Penuh' / 'Offline'
       - lpm_slot_start : Nomor LPM pertama di slot ini
       - lpm_slot_end   : Nomor LPM terakhir di slot ini
+      - lpm_description: Deskripsi khusus slot LPM (Total LPM 100 Campur / Custom)
       - active_clients : Jumlah klien aktif yang menggunakan admin ini
       - end_date       : Tanggal berakhir klien terakhir (untuk info kapan slot kosong)
 
@@ -483,7 +485,7 @@ def db_get_admin_slots_status() -> list:
 
         # Ambil semua admin diurutkan by ID ASC (slot statis)
         res_admins = supabase.table("admin_userbots") \
-            .select("id, phone_number, status, cooldown_until") \
+            .select("id, phone_number, status, cooldown_until, lpm_description") \
             .order("id", desc=False) \
             .execute()
         admins = res_admins.data or []
@@ -515,6 +517,7 @@ def db_get_admin_slots_status() -> list:
             phone = admin.get("phone_number", "")
             status_db = admin.get("status", "disconnected")
             cooldown = admin.get("cooldown_until")
+            lpm_desc = admin.get("lpm_description") or "Total LPM 100 Campur"
 
             # Tentukan label visual
             visual_name = f"Bot Admin #{i + 1}"
@@ -559,7 +562,7 @@ def db_get_admin_slots_status() -> list:
             if status_db != "connected" or is_on_cooldown:
                 slot_status = "Offline"
             elif active_client_count > 0:
-                slot_status = "Penuh"
+                slot_status = "Disewa"
             else:
                 slot_status = "Tersedia"
 
@@ -570,6 +573,7 @@ def db_get_admin_slots_status() -> list:
                 "status"          : slot_status,
                 "lpm_slot_start"  : lpm_slot_start,
                 "lpm_slot_end"    : lpm_slot_end,
+                "lpm_description" : lpm_desc,
                 "active_clients"  : active_client_count,
                 "end_date"        : end_date_display,
             })
@@ -624,6 +628,16 @@ def db_cooldown_admin_userbot(aid: int, until_str: str):
         return True
     except Exception as e:
         logger.error(f"Error in db_cooldown_admin_userbot: {e}")
+        return False
+
+def db_update_admin_userbot_status(admin_id: int, status: str):
+    """Memperbarui status bot admin pool (connected / disconnected / dll)."""
+    try:
+        supabase = get_supabase()
+        supabase.table("admin_userbots").update({"status": status}).eq("id", admin_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_admin_userbot_status: {e}")
         return False
 
 
@@ -869,7 +883,7 @@ def db_get_lpm_lists_paginated(offset: int = 0, limit: int = 10, active_only: bo
         logger.error(f"Error in db_get_lpm_lists_paginated: {e}")
         return []
 
-def db_add_lpm_entry(group_link: str, group_name: str = "", member_count: int = 0) -> bool:
+def db_add_lpm_entry(group_link: str, group_name: str = "", member_count: int = 0, group_id: int = None) -> bool:
     """Tambahkan LPM baru ke pool."""
     try:
         supabase = get_supabase()
@@ -877,13 +891,16 @@ def db_add_lpm_entry(group_link: str, group_name: str = "", member_count: int = 
         link = group_link.strip().lstrip("@")
         if not link.startswith("https://t.me/") and not link.startswith("http"):
             link = f"https://t.me/{link}"
-        supabase.table("lpm_lists").upsert({
+        insert_data = {
             "group_link": link,
             "group_name": group_name or link,
             "member_count": member_count,
             "is_active": True,
             "is_blacklisted": False
-        }, on_conflict="group_link").execute()
+        }
+        if group_id is not None:
+            insert_data["group_id"] = group_id
+        supabase.table("lpm_lists").upsert(insert_data, on_conflict="group_link").execute()
         return True
     except Exception as e:
         logger.error(f"Error in db_add_lpm_entry: {e}")
@@ -1424,9 +1441,9 @@ def db_get_lpm_sharded_for_admin(admin_id: int, limit: int = 100) -> list:
         if not links:
             logger.warning(
                 f"[LPM Sharding] Slot offset {start_offset}–{end_offset} kosong untuk admin_id={admin_id}. "
-                f"Pool LPM mungkin belum mencapai {end_offset+1} entri."
+                f"Pool LPM mungkin belum mencapai {end_offset+1} entri. Fallback ke LPM acak global."
             )
-            return []
+            return db_get_active_lpm_lists(SLOT_SIZE)
 
         logger.info(f"[LPM Sharding] admin_id={admin_id} mendapat {len(links)} LPM dari slot-nya.")
 
@@ -1599,3 +1616,15 @@ def db_update_custom_bio(user_id: int, bio: str) -> bool:
     except Exception as e:
         logger.error(f"Error in db_update_custom_bio: {e}")
         return False
+
+def db_update_admin_lpm_description(admin_id: int, new_desc: str) -> bool:
+    """Memperbarui deskripsi kustom slot LPM untuk admin pool."""
+    try:
+        supabase = get_supabase()
+        supabase.table("admin_userbots").update({"lpm_description": new_desc}).eq("id", admin_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_update_admin_lpm_description: {e}")
+        return False
+
+

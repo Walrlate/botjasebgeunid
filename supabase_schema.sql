@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 2. Table Subscriptions
 CREATE TABLE IF NOT EXISTS subscriptions (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     package_name TEXT,
     capacity_lpm INTEGER,
@@ -23,12 +23,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     broadcast_interval_hours DOUBLE PRECISION DEFAULT 0.5,
     schedule_start_hour INTEGER DEFAULT 0,
     schedule_end_hour INTEGER DEFAULT 23,
-    assigned_admin_ub_id INTEGER
+    assigned_admin_ub_id BIGINT
 );
 
 -- 3. Table User Ads
 CREATE TABLE IF NOT EXISTS user_ads (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     title TEXT,
     content TEXT,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS user_ads (
 
 -- 4. Table LPM Lists
 CREATE TABLE IF NOT EXISTS lpm_lists (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     group_link TEXT UNIQUE,
     group_id BIGINT,
     group_name TEXT,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS lpm_lists (
 
 -- 5. Table Transactions
 CREATE TABLE IF NOT EXISTS transactions (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     trx_id TEXT UNIQUE,
     package_id TEXT,
@@ -66,9 +66,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 -- 6. Table Forward Logs
 CREATE TABLE IF NOT EXISTS forward_logs (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
-    ad_id INTEGER REFERENCES user_ads(id) ON DELETE CASCADE,
+    ad_id BIGINT REFERENCES user_ads(id) ON DELETE CASCADE,
     group_id BIGINT,
     msg_link TEXT,
     status TEXT,
@@ -90,12 +90,13 @@ CREATE TABLE IF NOT EXISTS userbots (
 
 -- 8. Table Admin Userbots
 CREATE TABLE IF NOT EXISTS admin_userbots (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     phone_number TEXT UNIQUE,
     session_name TEXT,
     status TEXT DEFAULT 'connected',
     cooldown_until TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    lpm_description TEXT DEFAULT 'Total LPM 100 Campur'
 );
 
 -- Tambahkan foreign key untuk assigned_admin_ub_id di subscriptions setelah admin_userbots terbuat
@@ -114,7 +115,7 @@ CREATE TABLE IF NOT EXISTS activation_tokens (
 
 -- 10. Table Auto Replies (WTB Cerdasar)
 CREATE TABLE IF NOT EXISTS auto_replies (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     keyword TEXT NOT NULL,
     reply_text TEXT NOT NULL,
@@ -128,7 +129,7 @@ CREATE TABLE IF NOT EXISTS auto_replies (
 
 -- 11. Table Custom Target Messages
 CREATE TABLE IF NOT EXISTS custom_target_messages (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     target_peer TEXT NOT NULL,
     custom_message TEXT NOT NULL,

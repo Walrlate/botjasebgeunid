@@ -26,6 +26,7 @@ from src.database import (
     db_delete_admin_userbot,
     db_get_active_subscriptions_list,
     db_get_admin_userbots,
+    db_update_admin_lpm_description,
     # LPM Management
     db_get_lpm_lists_paginated,
     db_add_lpm_entry,
@@ -515,6 +516,22 @@ def _register_admin_handlers(bot):
                 except: pass
         await event.answer("✅ Admin Ubot dihapus.", alert=True)
         await _show_ubots(event)
+
+    @bot.on(events.CallbackQuery(pattern=b"admin_edit_desc_(\\d+)"))
+    async def admin_edit_desc_callback(event):
+        if not await _admin_only_check(event): return
+        aid = int(event.pattern_match.group(1).decode())
+        _login_states[event.sender_id] = {
+            "state": "admin_editing_lpm_desc",
+            "target_admin_id": aid
+        }
+        await event.edit(
+            f"📝 **GANTI DESKRIPSI SLOT LPM**\n\n"
+            f"Kirimkan teks deskripsi baru untuk Admin Pool ID `{aid}`:\n\n"
+            f"Contoh: `Total LPM 100 Campur` atau `Khusus Grup Crypto`.\n"
+            f"Maksimal 60 karakter.",
+            buttons=[[Button.inline("❌ Batal", b"admin_ubots")]]
+        )
 
     # ════════════════════════════════════════════
     # MANAJEMEN USERBOT PEMBELI
@@ -1485,6 +1502,19 @@ async def handle_admin_input(event, state_data: dict):
         else:
             await event.respond("❌ Gagal ubah kapasitas LPM.")
 
+    elif state == "admin_editing_lpm_desc":
+        aid = state_data["target_admin_id"]
+        new_desc = text.strip()
+        if len(new_desc) > 60:
+            await event.respond("❌ **Deskripsi terlalu panjang!** Maksimal 60 karakter.")
+            return
+        if db_update_admin_lpm_description(aid, new_desc):
+            del _login_states[user_id]
+            await event.respond(f"✅ **Deskripsi untuk Admin Pool ID `{aid}` berhasil diubah menjadi:**\n`{new_desc}`")
+            await _show_ubots(event)
+        else:
+            await event.respond("❌ Gagal memperbarui deskripsi di database.")
+
     elif state == "admin_edit_promote_text":
         from src.database import db_save_admin_promote_ad, db_get_admin_promote_ad
         # Ambil buttons_json yang sudah ada agar tidak terhapus
@@ -2009,7 +2039,7 @@ async def _show_ubots(event):
     if not admins:
         text += "_Belum ada nomor admin. Gunakan /install untuk menambahkan._\n"
     else:
-        for i, (aid, phone, status, cooldown) in enumerate(admins):
+        for i, (aid, phone, status, cooldown, lpm_description) in enumerate(admins):
             # Hitung slot LPM statis berdasarkan posisi urutan (0-based index = i)
             slot_start = i * SLOT_SIZE + 1
             slot_end   = (i + 1) * SLOT_SIZE
@@ -2028,10 +2058,15 @@ async def _show_ubots(event):
 
             text += (
                 f"{icon} **Admin #{i+1}** — `{phone}`\n"
-                f"      🗂 Slot LPM: {slot_label}{cd_str}\n\n"
+                f"      📝 Deskripsi Slot: `{lpm_description}`\n"
+                f"      🗂 Jangkauan LPM: {slot_label}{cd_str}\n\n"
             )
+            
+            row_btns = []
             if status == "connected":
-                buttons.append([Button.inline(f"🔌 Disconnect {phone}", f"admin_dc_pool_{aid}".encode())])
+                row_btns.append(Button.inline(f"🔌 DC {phone}", f"admin_dc_pool_{aid}".encode()))
+            row_btns.append(Button.inline("📝 Edit Deskripsi", f"admin_edit_desc_{aid}".encode()))
+            buttons.append(row_btns)
 
     # Ringkasan coverage LPM
     if admins:
