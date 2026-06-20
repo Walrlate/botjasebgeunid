@@ -109,7 +109,147 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                 except Exception as bio_err:
                     logger.warning(f"Gagal menset bio awal untuk {user_id}: {bio_err}")
         
-        # Pasang Event Listener Auto-Reply WTB & PM Permit
+        # Pasang Event Listener Perintah Selfbot Klien (Outgoing dari Owner)
+        @client.on(events.NewMessage(outgoing=True))
+        async def client_selfbot_handler(event):
+            text = (event.text or "").strip()
+            if not text.startswith("."):
+                return
+                
+            parts = text.split(" ", 1)
+            cmd = parts[0].lower()
+            args = parts[1].strip() if len(parts) > 1 else ""
+            
+            async def reply_self(reply_text):
+                try:
+                    await event.edit(f"🤖 **[GEUNID SELF-PANEL]**\n\n{reply_text}")
+                except Exception as edit_err:
+                    logger.error(f"Gagal edit pesan perintah selfbot: {edit_err}")
+
+            if cmd == ".help":
+                help_text = (
+                    "⚙️ **DAFTAR PERINTAH USERBOT GEUNID**\n"
+                    f"{'━'*35}\n"
+                    "• `.status` : Cek status langganan & sisa hari aktif\n"
+                    "• `.jaseb start` : Mulai sebar iklan jaseb Anda\n"
+                    "• `.jaseb stop` : Hentikan sebar iklan jaseb Anda\n"
+                    "• `.setad <materi>` : Ganti materi iklan jaseb secara instan\n"
+                    "• `.pmpermit <on/off>` : Aktifkan/matikan fitur PM Permit\n"
+                    "• `.autoreply add <kunci> | <balasan>` : Tambah Auto Reply WTB\n"
+                    "• `.autoreply del <kunci>` : Hapus Auto Reply WTB\n"
+                    "• `.autoreply list` : Lihat daftar Auto Reply aktif"
+                )
+                await reply_self(help_text)
+
+            elif cmd == ".status":
+                from src.database import get_supabase, normalize_date
+                supabase = get_supabase()
+                res = supabase.table("subscriptions").select("status, end_date, capacity_lpm").eq("user_id", user_id).eq("status", "active").execute()
+                if res.data:
+                    row = res.data[0]
+                    end_date_str = normalize_date(row.get("end_date", ""))
+                    cap = row.get("capacity_lpm", 0)
+                    from src.logic import active_broadcasts
+                    is_sharing = "Aktif 🟢" if user_id in active_broadcasts else "Mati 🔴"
+                    reply_msg = (
+                        "🌟 **INFORMASI LANGGANAN USERBOT**\n\n"
+                        f"💳 Status: **AKTIF**\n"
+                        f"⏰ Berakhir: `{end_date_str}`\n"
+                        f"📊 Kapasitas: **{cap} LPM**\n"
+                        f"📡 Jaseb Status: **{is_sharing}**"
+                    )
+                else:
+                    reply_msg = "❌ Anda tidak memiliki langganan paket userbot yang aktif saat ini."
+                await reply_self(reply_msg)
+
+            elif cmd == ".jaseb":
+                sub_cmd = args.lower()
+                if sub_cmd == "start":
+                    from src.database import db_get_active_subscription_status
+                    sub = db_get_active_subscription_status(user_id)
+                    if not sub:
+                        await reply_self("❌ Gagal: Anda tidak memiliki paket aktif.")
+                        return
+                    from src.main import start_user_broadcast
+                    asyncio.create_task(start_user_broadcast(user_id))
+                    await reply_self("🚀 **Broadcast iklan jaseb berhasil dijalankan di latar belakang!**")
+                elif sub_cmd == "stop":
+                    from src.logic import active_broadcasts
+                    active_broadcasts.discard(user_id)
+                    await reply_self("🛑 **Broadcast iklan jaseb dihentikan paksa.**")
+                else:
+                    await reply_self("❌ Perintah tidak dikenal. Gunakan `.jaseb start` atau `.jaseb stop`.")
+
+            elif cmd == ".setad":
+                if not args:
+                    await reply_self("❌ **Format salah!** Gunakan: `.setad <teks_materi_iklan>`")
+                    return
+                from src.database import db_save_user_ad
+                if db_save_user_ad(user_id, args, ""):
+                    await reply_self("✅ **Materi iklan berhasil diperbarui secara instan!**")
+                else:
+                    await reply_self("❌ Gagal menyimpan materi iklan baru ke database.")
+
+            elif cmd == ".pmpermit":
+                sub_cmd = args.lower()
+                from src.database import get_supabase
+                supabase = get_supabase()
+                if sub_cmd == "on":
+                    supabase.table("userbots").update({"pm_permit_status": True}).eq("user_id", user_id).execute()
+                    await update_single_online_userbot_pm_permit(user_id, True)
+                    await reply_self("🟢 **PM Permit diaktifkan!** Pesan masuk baru akan otomatis dibalas info funnel.")
+                elif sub_cmd == "off":
+                    supabase.table("userbots").update({"pm_permit_status": False}).eq("user_id", user_id).execute()
+                    await update_single_online_userbot_pm_permit(user_id, False)
+                    await reply_self("🔴 **PM Permit dimatikan.**")
+                else:
+                    await reply_self("❌ Perintah tidak dikenal. Gunakan `.pmpermit on` or `.pmpermit off`.")
+
+            elif cmd == ".autoreply":
+                parts_ar = args.split(" ", 1)
+                ar_action = parts_ar[0].lower()
+                ar_args = parts_ar[1].strip() if len(parts_ar) > 1 else ""
+                
+                if ar_action == "add":
+                    ar_parts = [p.strip() for p in ar_args.split("|", 1)]
+                    if len(ar_parts) < 2:
+                        await reply_self("❌ **Format salah!** Gunakan: `.autoreply add <kunci> | <balasan>`")
+                        return
+                    keyword = ar_parts[0]
+                    reply_text = ar_parts[1]
+                    from src.database import db_add_auto_reply
+                    if db_add_auto_reply(user_id, keyword, reply_text):
+                        await reload_all_userbot_settings()
+                        await reply_self(f"✅ **Auto-Reply ditambahkan!**\n🔑 Kunci: `{keyword}`\n📝 Balasan: `{reply_text}`")
+                    else:
+                        await reply_self("❌ Gagal menambahkan Auto-Reply. Kata kunci mungkin sudah terdaftar.")
+                        
+                elif ar_action == "del":
+                    if not ar_args:
+                        await reply_self("❌ **Format salah!** Gunakan: `.autoreply del <kata_kunci>`")
+                        return
+                    from src.database import db_delete_auto_reply
+                    if db_delete_auto_reply(user_id, ar_args):
+                        await reload_all_userbot_settings()
+                        await reply_self(f"🗑 **Auto-Reply untuk kunci `{ar_args}` berhasil dihapus.**")
+                    else:
+                        await reply_self(f"❌ Gagal menghapus. Kunci `{ar_args}` tidak ditemukan.")
+                        
+                elif ar_action == "list":
+                    from src.database import db_get_auto_replies
+                    replies = db_get_auto_replies(user_id)
+                    if not replies:
+                        await reply_self("📋 Anda belum mengatur Auto-Reply WTB.")
+                        return
+                    lines = ["📋 **DAFTAR AUTO-REPLY AKTIF**\n"]
+                    for rep in replies:
+                        status_ar = "🟢" if rep.get("is_active") else "🔴"
+                        lines.append(f"• {status_ar} `{rep['keyword']}` ➜ `{rep['reply_text'][:40]}`")
+                    await reply_self("\n".join(lines))
+                else:
+                    await reply_self("❌ Perintah tidak dikenal. Gunakan `.autoreply add`, `.autoreply del`, atau `.autoreply list`.")
+
+        # Pasang Event Listener Auto-Reply WTB & PM Permit (Incoming)
         @client.on(events.NewMessage(incoming=True))
         async def client_message_handler(event):
             if not event.is_private:
