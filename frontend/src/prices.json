@@ -2,14 +2,30 @@
   "regular": [
     { "id": "reg_20_5d",  "duration": "5 Hari",  "lpm": 20, "originalPrice": 15000,  "promoPrice": 4900  },
     { "id": "reg_20_7d",  "duration": "7 Hari",  "lpm": 20, "bonus": "+2 Hari", "originalPrice": 25000,  "promoPrice": 7500  },
-    { "id": "reg_30_15d", "duration": "15 Hari", "lpm": 30, "originalPrice": 45000,  "promoPrice": 14900 },
-    { "id": "reg_50_30d", "duration": "30 Hari", "lpm": 50, "originalPrice": 85000,  "promoPrice": 24900 }
+    { "id": "reg_20_15d", "duration": "15 Hari", "lpm": 20, "originalPrice": 45000,  "promoPrice": 14900 },
+    { "id": "reg_20_30d", "duration": "30 Hari", "lpm": 20, "originalPrice": 85000,  "promoPrice": 24900 },
+    
+    { "id": "reg_30_7d",  "duration": "7 Hari",  "lpm": 30, "originalPrice": 30000,  "promoPrice": 9900  },
+    { "id": "reg_30_15d", "duration": "15 Hari", "lpm": 30, "originalPrice": 55000,  "promoPrice": 18900 },
+    { "id": "reg_30_30d", "duration": "30 Hari", "lpm": 30, "originalPrice": 95000,  "promoPrice": 32900 },
+    
+    { "id": "reg_50_7d",  "duration": "7 Hari",  "lpm": 50, "originalPrice": 45000,  "promoPrice": 14900 },
+    { "id": "reg_50_15d", "duration": "15 Hari", "lpm": 50, "originalPrice": 85000,  "promoPrice": 29900 },
+    { "id": "reg_50_30d", "duration": "30 Hari", "lpm": 50, "originalPrice": 150000, "promoPrice": 49900 }
   ],
   "forward": [
-    { "id": "fwd_20_3d",  "duration": "3 hari",  "lpm": 20, "originalPrice": 10000,  "promoPrice": 5900  },
+    { "id": "fwd_20_3d",  "duration": "3 Hari",  "lpm": 20, "originalPrice": 10000,  "promoPrice": 5900  },
     { "id": "fwd_20_7d",  "duration": "7 Hari",  "lpm": 20, "originalPrice": 25000,  "promoPrice": 9900  },
-    { "id": "fwd_30_15d", "duration": "15 Hari", "lpm": 30, "originalPrice": 50000,  "promoPrice": 18900 },
-    { "id": "fwd_50_30d", "duration": "30 Hari", "lpm": 50, "originalPrice": 95000,  "promoPrice": 34900 }
+    { "id": "fwd_20_15d", "duration": "15 Hari", "lpm": 20, "originalPrice": 45000,  "promoPrice": 18900 },
+    { "id": "fwd_20_30d", "duration": "30 Hari", "lpm": 20, "originalPrice": 80000,  "promoPrice": 29900 },
+    
+    { "id": "fwd_30_7d",  "duration": "7 Hari",  "lpm": 30, "originalPrice": 35000,  "promoPrice": 12900 },
+    { "id": "fwd_30_15d", "duration": "15 Hari", "lpm": 30, "originalPrice": 60000,  "promoPrice": 24900 },
+    { "id": "fwd_30_30d", "duration": "30 Hari", "lpm": 30, "originalPrice": 110000, "promoPrice": 39900 },
+    
+    { "id": "fwd_50_7d",  "duration": "7 Hari",  "lpm": 50, "originalPrice": 50000,  "promoPrice": 19900 },
+    { "id": "fwd_50_15d", "duration": "15 Hari", "lpm": 50, "originalPrice": 95000,  "promoPrice": 39900 },
+    { "id": "fwd_50_30d", "duration": "30 Hari", "lpm": 50, "originalPrice": 170000, "promoPrice": 59900 }
   ],
   "userbot": [
     { "id": "ub_7d",  "duration": "7 Hari",  "lpm": 0, "originalPrice": 15000, "promoPrice": 7900  },
