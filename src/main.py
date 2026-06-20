@@ -94,11 +94,30 @@ def load_prices():
         persistent_path = os.path.join("data", "prices.json")
         default_path = os.path.join("frontend", "src", "prices.json")
         
+        default_data = {}
+        if os.path.exists(default_path):
+            with open(default_path, "r", encoding="utf-8") as f:
+                default_data = json.load(f)
+                
         if not os.path.exists(persistent_path):
-            if os.path.exists(default_path):
+            if default_data:
                 import shutil
                 shutil.copy(default_path, persistent_path)
                 logger.info("ℹ️ prices.json default disalin ke penyimpanan persisten data/prices.json")
+        else:
+            try:
+                with open(persistent_path, "r", encoding="utf-8") as f:
+                    curr_data = json.load(f)
+                
+                def count_items(d):
+                    return len(d.get("regular", [])) + len(d.get("forward", [])) + len(d.get("userbot", []))
+                
+                if count_items(default_data) > count_items(curr_data):
+                    import shutil
+                    shutil.copy(default_path, persistent_path)
+                    logger.info("🔄 prices.json default lebih baru, menimpa data/prices.json")
+            except Exception as cmp_err:
+                logger.error(f"Gagal membandingkan prices.json: {cmp_err}")
                 
         if os.path.exists(persistent_path):
             with open(persistent_path, "r", encoding="utf-8") as f:
