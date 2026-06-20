@@ -174,7 +174,7 @@ def _register_handlers(bot):
         uid = event.sender_id
         from src.database import get_supabase
         supabase = get_supabase()
-        res_ad = supabase.table("user_ads").select("content").eq("user_id", uid).limit(1).execute()
+        res_ad = supabase.table("user_ads").select("content").eq("user_id", uid).eq("title", "Iklan Utama").limit(1).execute()
         content = res_ad.data[0].get("content") if res_ad.data else ""
         
         if not content:
@@ -515,7 +515,7 @@ async def show_features_geunid(event, edit=True):
     supabase = get_supabase()
     
     # Ambil ad client untuk demo spintax
-    res_ad = supabase.table("user_ads").select("content").eq("user_id", uid).limit(1).execute()
+    res_ad = supabase.table("user_ads").select("content").eq("user_id", uid).eq("title", "Iklan Utama").limit(1).execute()
     ad_content = res_ad.data[0].get("content") if res_ad.data else ""
     
     text = (
@@ -548,3 +548,5 @@ async def show_features_geunid(event, edit=True):
         await event.edit(text, buttons=buttons)
     else:
         await _bot.send_message(event.chat_id, text, buttons=buttons)
+
+

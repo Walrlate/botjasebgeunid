@@ -296,8 +296,8 @@ def db_save_user_ad(user_id: int, content: str, media_path: str):
     try:
         db_ensure_user(user_id)
         supabase = get_supabase()
-        # Hapus iklan lama
-        supabase.table("user_ads").delete().eq("user_id", user_id).execute()
+        # Hapus iklan lama yang bertitle "Iklan Utama"
+        supabase.table("user_ads").delete().eq("user_id", user_id).eq("title", "Iklan Utama").execute()
         # Simpan iklan baru
         supabase.table("user_ads").insert({
             "user_id": user_id,
@@ -337,6 +337,7 @@ def db_get_latest_user_ad_id(user_id: int):
         res = supabase.table("user_ads")\
             .select("id")\
             .eq("user_id", user_id)\
+            .eq("title", "Iklan Utama")\
             .order("created_at", desc=True)\
             .limit(1)\
             .execute()
@@ -1353,53 +1354,6 @@ def db_cooldown_client_userbot(user_id: int, until_str: str) -> bool:
         logger.error(f"Error in db_cooldown_client_userbot: {e}")
         return False
 
-def db_get_admin_slots_status() -> list:
-    """Mengambil status pemesanan (booking) slot bot admin pool."""
-    try:
-        supabase = get_supabase()
-        # Ambil semua admin userbots
-        res_admins = supabase.table("admin_userbots").select("id, phone_number, status").order("id", desc=False).execute()
-        admins = res_admins.data or []
-        if not admins:
-            return []
-            
-        now_str = datetime.now(timezone.utc).isoformat()
-        # Ambil subscription aktif yang memiliki assigned_admin_ub_id
-        res_subs = supabase.table("subscriptions")\
-            .select("assigned_admin_ub_id, end_date, user_id")\
-            .eq("status", "active")\
-            .gt("end_date", now_str)\
-            .execute()
-        subs = res_subs.data or []
-        
-        # Buat mapping admin_id ke data subscription-nya
-        subs_map = {s["assigned_admin_ub_id"]: s for s in subs if s.get("assigned_admin_ub_id")}
-        
-        results = []
-        for i, admin in enumerate(admins):
-            admin_id = admin["id"]
-            phone = admin["phone_number"]
-            visual_name = f"Bot GEUNID JASEB {i + 1}"
-            
-            sub_info = subs_map.get(admin_id)
-            if sub_info:
-                status_slot = "Penuh"
-                end_date = normalize_date(sub_info["end_date"])
-            else:
-                status_slot = "Tersedia"
-                end_date = ""
-                
-            results.append({
-                "id": admin_id,
-                "phone_number": phone,
-                "visual_name": visual_name,
-                "status": status_slot,
-                "end_date": end_date
-            })
-        return results
-    except Exception as e:
-        logger.error(f"Error in db_get_admin_slots_status: {e}")
-        return []
 
 def db_get_admin_userbot_by_id(aid: int):
     """Mengambil detail satu bot admin berdasarkan ID-nya."""
@@ -1645,7 +1599,3 @@ def db_update_custom_bio(user_id: int, bio: str) -> bool:
     except Exception as e:
         logger.error(f"Error in db_update_custom_bio: {e}")
         return False
-
-
-
-
