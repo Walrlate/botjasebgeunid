@@ -384,6 +384,18 @@ def register_edit_jaseb_btn(bot, login_states):
         success, msg = db_redeem_activation_token(token, event.sender_id)
         await event.respond(f"{'✅' if success else '❌'} {msg}")
 
+    @bot.on(events.CallbackQuery(data=b"claim_token_menu"))
+    async def claim_token_menu_callback(event):
+        uid = event.sender_id
+        login_states[uid] = {"state": "waiting_for_claim_token"}
+        await event.edit(
+            "🔑 **KLAIM TOKEN AKTIVASI**\n\n"
+            "Silakan kirimkan kode token aktivasi Anda langsung ke chat ini:\n"
+            "_(Contoh: `GEUNID-ABCD-1234`)_\n\n"
+            "Atau Anda bisa menggunakan format: `/claim <KODE_TOKEN>`",
+            buttons=[[Button.inline("❌ Batal", b"start")]]
+        )
+
     @bot.on(events.NewMessage(pattern='/transfer'))
     async def transfer_userbot_handler(event):
         text = event.text or ""

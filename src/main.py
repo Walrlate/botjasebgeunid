@@ -191,7 +191,10 @@ async def show_start_menu(event, edit=False):
             KeyboardButtonCallback(text="👤 Panel Klien", data=b"client_panel")
         ])
         buttons.append([
-            KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots"),
+            KeyboardButtonCallback(text="🔑 Klaim Token", data=b"claim_token_menu"),
+            KeyboardButtonCallback(text="🤖 Pool Admin", data=b"admin_ubots")
+        ])
+        buttons.append([
             KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
         ])
     else:
@@ -200,6 +203,7 @@ async def show_start_menu(event, edit=False):
             KeyboardButtonCallback(text="👤 Panel Kontrol", data=b"client_panel")
         ])
         buttons.append([
+            KeyboardButtonCallback(text="🔑 Klaim Token", data=b"claim_token_menu"),
             KeyboardButtonCallback(text="📖 Panduan & Help", data=b"help_main")
         ])
         
@@ -365,6 +369,20 @@ async def user_input_handler(event):
         del login_states[user_id]
         await event.respond("🎉 **Pendaftaran Selesai!** Bot mulai menyebar sekarang.")
         asyncio.create_task(start_user_broadcast(user_id))
+
+    elif current_state == "waiting_for_claim_token":
+        token = text.strip()
+        from src.database import db_redeem_activation_token
+        success, msg = db_redeem_activation_token(token, user_id)
+        if success:
+            del login_states[user_id]
+            await event.respond(f"✅ {msg}")
+            await show_start_menu(event, edit=False)
+        else:
+            await event.respond(
+                f"❌ {msg}\n\n"
+                "Silakan kirim kode token yang valid atau gunakan perintah `/start` untuk membatalkan:"
+            )
 
     elif current_state == "waiting_for_ar_keyword":
         login_states[user_id]["keyword"] = text
