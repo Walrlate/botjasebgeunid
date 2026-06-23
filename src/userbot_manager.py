@@ -34,11 +34,11 @@ async def reload_all_userbot_settings():
     try:
         from src.database import get_supabase
         supabase = get_supabase()
-        res = supabase.table("userbots").select("user_id, pm_permit_status, custom_bio").execute()
+        res = supabase.table("userbots").select("phone_number, pm_permit_status, custom_bio").execute()
         if res.data:
             for r in res.data:
-                uid = r["user_id"]
-                client_settings[uid] = {
+                phone = r["phone_number"]
+                client_settings[phone] = {
                     "pm_permit": r.get("pm_permit_status", False),
                     "bio": r.get("custom_bio", "")
                 }
@@ -49,23 +49,24 @@ async def reload_all_userbot_settings():
 async def update_all_online_userbot_bios(bio_text: str):
     """Mengubah bio Telegram secara fisik di akun klien yang sedang online."""
     from telethon.tl.functions.account import UpdateProfileRequest
-    for uid, client in list(active_clients.items()):
+    for phone, client in list(active_clients.items()):
         try:
             if client.is_connected():
                 await client(UpdateProfileRequest(about=bio_text[:70]))
-                logger.info(f"✅ Bio userbot {uid} berhasil diubah ke: {bio_text[:70]}")
+                logger.info(f"✅ Bio userbot {phone} berhasil diubah ke: {bio_text[:70]}")
         except Exception as e:
-            logger.error(f"Gagal mengubah bio Telegram untuk {uid}: {e}")
+            logger.error(f"Gagal mengubah bio Telegram untuk {phone}: {e}")
 
 async def start_client_userbot(user_id: int, session_name: str, phone: str):
     """Menghubungkan satu userbot klien dan memasang event listener Auto-Reply & PM Permit."""
-    if user_id in active_clients:
+    if phone in active_clients:
         return True
         
     session_path = f"data/sessions/{session_name}"
     if not os.path.exists(f"{session_path}.session"):
         logger.warning(f"Sesi file untuk {phone} (ID: {user_id}) tidak ditemukan secara lokal.")
-        db_update_userbot_status(user_id, 'disconnected')
+        from src.database import db_update_userbot_status
+        db_update_userbot_status(phone, 'disconnected')
         return False
         
     client = TelegramClient(
@@ -80,23 +81,24 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
     
     try:
         await client.connect()
+        from src.database import db_update_userbot_status
         if not await client.is_user_authorized():
             logger.warning(f"Userbot {phone} (ID: {user_id}) tidak terotorisasi. Disconnect.")
-            db_update_userbot_status(user_id, 'disconnected')
+            db_update_userbot_status(phone, 'disconnected')
             await client.disconnect()
             return False
             
         # Sukses Terhubung
-        db_update_userbot_status(user_id, 'connected')
-        active_clients[user_id] = client
+        db_update_userbot_status(phone, 'connected')
+        active_clients[phone] = client
         logger.info(f"🟢 Userbot Klien {phone} (ID: {user_id}) berhasil diaktifkan secara online.")
         
         # Load profile settings untuk client ini
         from src.database import get_supabase
         supabase = get_supabase()
-        res = supabase.table("userbots").select("pm_permit_status, custom_bio").eq("user_id", user_id).execute()
+        res = supabase.table("userbots").select("pm_permit_status, custom_bio").eq("phone_number", phone).execute()
         if res.data:
-            client_settings[user_id] = {
+            client_settings[phone] = {
                 "pm_permit": res.data[0].get("pm_permit_status", False),
                 "bio": res.data[0].get("custom_bio", "")
             }
@@ -107,7 +109,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                     from telethon.tl.functions.account import UpdateProfileRequest
                     await client(UpdateProfileRequest(about=bio_val[:70]))
                 except Exception as bio_err:
-                    logger.warning(f"Gagal menset bio awal untuk {user_id}: {bio_err}")
+                    logger.warning(f"Gagal menset bio awal untuk {phone}: {bio_err}")
         
         # Pasang Event Listener Perintah Selfbot Klien (Outgoing dari Owner)
         @client.on(events.NewMessage(outgoing=True))
@@ -264,7 +266,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             sender_id = event.sender_id
             
             # 1. PM Permit Auto-Funnels
-            uid_settings = client_settings.get(user_id, {})
+            uid_settings = client_settings.get(phone, {})
             pm_permit_active = uid_settings.get("pm_permit", False)
             
             if pm_permit_active:
@@ -284,7 +286,7 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                         async with client.action(event.chat_id, 'typing'):
                             await asyncio.sleep(2)
                         await event.reply(funnel_msg)
-                        logger.info(f"🎯 PM Permit Auto-Funnel dikirim ke {sender_id} via userbot {user_id}")
+                        logger.info(f"🎯 PM Permit Auto-Funnel dikirim ke {sender_id} via userbot {phone}")
                     except Exception as pm_err:
                         logger.error(f"Gagal mengirim PM Permit funnel: {pm_err}")
             
@@ -328,7 +330,8 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                     except FloodWaitError as fwe:
                         logger.warning(f"Userbot {phone} terkena FloodWait {fwe.seconds} detik.")
                         until = (datetime.now(timezone.utc) + timedelta(seconds=fwe.seconds)).strftime("%Y-%m-%d %H:%M:%S")
-                        db_cooldown_client_userbot(user_id, until)
+                        from src.database import db_cooldown_client_userbot
+                        db_cooldown_client_userbot(phone, until)
                     except Exception as e:
                         logger.error(f"Gagal mengirim auto-reply: {e}")
                     break
@@ -336,20 +339,21 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
         return True
     except Exception as e:
         logger.error(f"Error saat mengaktifkan userbot {phone}: {e}")
-        db_update_userbot_status(user_id, 'disconnected')
+        from src.database import db_update_userbot_status
+        db_update_userbot_status(phone, 'disconnected')
         return False
 
-async def stop_client_userbot(user_id: int):
-    """Mematikan sesi online satu userbot klien."""
-    client = active_clients.pop(user_id, None)
+async def stop_client_userbot(phone_number: str):
+    """Mematikan sesi online satu userbot klien berdasarkan nomor HP."""
+    client = active_clients.pop(phone_number, None)
     if client:
         try:
             if client.is_connected():
                 await client.disconnect()
-            logger.info(f"🔌 Userbot Klien (ID: {user_id}) berhasil dimatikan.")
+            logger.info(f"🔌 Userbot Klien (Nomor: {phone_number}) berhasil dimatikan.")
             return True
         except Exception as e:
-            logger.error(f"Error saat mematikan userbot {user_id}: {e}")
+            logger.error(f"Error saat mematikan userbot {phone_number}: {e}")
     return False
 
 async def start_all_connected_userbots():
@@ -372,21 +376,21 @@ async def start_all_connected_userbots():
         await asyncio.gather(*tasks, return_exceptions=True)
     logger.info(f"✅ Selesai menginisialisasi {len(tasks)} userbot klien.")
 
-async def update_single_online_userbot_bio(user_id: int, bio_text: str):
-    """Mengubah bio Telegram secara fisik di akun klien tertentu jika sedang online."""
-    client = active_clients.get(user_id)
+async def update_single_online_userbot_bio(phone: str, bio_text: str):
+    """Mengubah bio Telegram secara fisik di akun klien tertentu jika sedang online berdasarkan nomor HP."""
+    client = active_clients.get(phone)
     if client:
         try:
             if client.is_connected():
                 from telethon.tl.functions.account import UpdateProfileRequest
                 await client(UpdateProfileRequest(about=bio_text[:70]))
-                logger.info(f"✅ Bio userbot {user_id} berhasil diubah secara live ke: {bio_text[:70]}")
+                logger.info(f"✅ Bio userbot {phone} berhasil diubah secara live ke: {bio_text[:70]}")
         except Exception as e:
-            logger.error(f"Gagal mengubah bio Telegram live untuk {user_id}: {e}")
+            logger.error(f"Gagal mengubah bio Telegram live untuk {phone}: {e}")
 
-async def update_single_online_userbot_pm_permit(user_id: int, pm_status: bool):
-    """Memperbarui status cache PM Permit untuk klien tertentu secara instan."""
-    if user_id in client_settings:
-        client_settings[user_id]["pm_permit"] = pm_status
+async def update_single_online_userbot_pm_permit(phone: str, pm_status: bool):
+    """Memperbarui status cache PM Permit untuk klien tertentu secara instan berdasarkan nomor HP."""
+    if phone in client_settings:
+        client_settings[phone]["pm_permit"] = pm_status
     else:
-        client_settings[user_id] = {"pm_permit": pm_status, "bio": ""}
+        client_settings[phone] = {"pm_permit": pm_status, "bio": ""}

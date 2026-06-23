@@ -348,40 +348,98 @@ def _register_admin_handlers(bot):
         parts = args.strip().split()
         if not parts:
             prices = _load_prices_json()
-            lines = ["🔑 **PEMBUATAN VOUCHER AKTIVASI**\n\nGunakan format: `/gentoken <paket_id> [jumlah]`\n\nDaftar `paket_id` yang tersedia:\n"]
+            lines = [
+                "🔑 **PEMBUATAN VOUCHER AKTIVASI**\n",
+                "Gunakan salah satu format berikut:\n",
+                "1️⃣ **Format Pricelist (Paket Terdaftar):**",
+                "Gunakan format: `/gentoken <paket_id> [jumlah]`\n",
+                "Daftar `paket_id` yang tersedia:"
+            ]
             for k in ['regular', 'forward', 'userbot']:
                 for item in prices.get(k, []):
                     lines.append(f"• `{item['id']}` - {item['duration']}")
+            
+            lines.extend([
+                "\n2️⃣ **Format Kustom (Bebas Atur):**",
+                "Gunakan format: `/gentoken <tipe_paket> <durasi_hari> <kapasitas_lpm> [jumlah]`\n",
+                "• `<tipe_paket>` : `regular` / `forward` / `userbot` (atau `reg` / `fwd` / `ub`)",
+                "• `<durasi_hari>` : Angka hari (contoh: `30` untuk 30 hari)",
+                "• `<kapasitas_lpm>` : Angka LPM (contoh: `25` untuk 25 LPM, atau `0` jika userbot)",
+                "• `[jumlah]` : Jumlah voucher yang dicetak (default `1`)\n",
+                "_Contoh Kustom:_ `/gentoken regular 45 35 5`"
+            ])
             await event.respond("\n".join(lines))
             return
             
-        package_id = parts[0].strip()
-        count = 1
-        if len(parts) > 1 and parts[1].isdigit():
-            count = int(parts[1])
-            
-        prices = _load_prices_json()
-        target_item = None
-        for category in ['regular', 'forward', 'userbot']:
-            for item in prices.get(category, []):
-                if item.get('id') == package_id:
-                    target_item = item
-                    break
-            if target_item: break
-            
-        if not target_item:
-            await event.respond(f"❌ `paket_id` `{package_id}` tidak ditemukan di pricelist.")
-            return
-            
-        duration_str = target_item.get('duration', '')
-        import re
-        days = int(re.search(r'(\d+)', duration_str).group(1)) if re.search(r'(\d+)', duration_str) else 30
-        bonus = re.search(r'\+(\d+)', target_item.get('bonus', ''))
-        if bonus:
-            days += int(bonus.group(1))
-            
-        lpm_capacity = target_item.get('lpm', 20)
+        first_arg = parts[0].lower()
+        is_custom = first_arg in ['regular', 'forward', 'userbot', 'reg', 'fwd', 'ub']
         
+        package_id = ""
+        days = 30
+        lpm_capacity = 20
+        count = 1
+        duration_label = ""
+        package_label = ""
+        
+        if is_custom:
+            if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
+                await event.respond(
+                    "❌ **Format Kustom Salah!**\n\n"
+                    "Gunakan format: `/gentoken <tipe_paket> <durasi_hari> <kapasitas_lpm> [jumlah]`\n"
+                    "_Contoh:_ `/gentoken regular 45 35 5`"
+                )
+                return
+            
+            tipe_paket = "regular"
+            if first_arg in ['reg', 'regular']:
+                tipe_paket = "regular"
+            elif first_arg in ['fwd', 'forward']:
+                tipe_paket = "forward"
+            elif first_arg in ['ub', 'userbot']:
+                tipe_paket = "userbot"
+                
+            days = int(parts[1])
+            lpm_capacity = int(parts[2])
+            if tipe_paket == "userbot":
+                lpm_capacity = 0 # Paksa 0 untuk userbot
+                
+            if len(parts) > 3 and parts[3].isdigit():
+                count = int(parts[3])
+                
+            # Bentuk package_id kustom agar ketika diklaim, package_name disimpan dengan benar
+            package_id = f"{tipe_paket}_{lpm_capacity}_{days}d_custom" if tipe_paket != "userbot" else f"{tipe_paket}_{days}d_custom"
+            duration_label = f"{days} Hari"
+            package_label = f"{tipe_paket.upper()} (KUSTOM)"
+            
+        else:
+            package_id = parts[0].strip()
+            if len(parts) > 1 and parts[1].isdigit():
+                count = int(parts[1])
+                
+            prices = _load_prices_json()
+            target_item = None
+            for category in ['regular', 'forward', 'userbot']:
+                for item in prices.get(category, []):
+                    if item.get('id') == package_id:
+                        target_item = item
+                        break
+                if target_item: break
+                
+            if not target_item:
+                await event.respond(f"❌ `paket_id` `{package_id}` tidak ditemukan di pricelist.")
+                return
+                
+            duration_str = target_item.get('duration', '')
+            import re
+            days = int(re.search(r'(\d+)', duration_str).group(1)) if re.search(r'(\d+)', duration_str) else 30
+            bonus = re.search(r'\+(\d+)', target_item.get('bonus', ''))
+            if bonus:
+                days += int(bonus.group(1))
+                
+            lpm_capacity = target_item.get('lpm', 20)
+            duration_label = target_item.get('duration', f"{days} Hari")
+            package_label = package_id.upper()
+            
         import uuid
         from src.database import db_generate_activation_token
         
@@ -398,9 +456,9 @@ def _register_admin_handlers(bot):
         token_lines = [f"`{tok}`" for tok in generated_tokens]
         res_text = (
             f"🔑 **VOUCHER AKTIVASI SELESAI DICETAK**\n{'━'*30}\n\n"
-            f"📦 Paket: **{target_item['duration']}** ({package_id.upper()})\n"
+            f"📦 Paket: **{package_label}**\n"
             f"🎯 Kapasitas: **{lpm_capacity} LPM**\n"
-            f"⏳ Durasi: **{days} Hari**\n"
+            f"⏳ Durasi: **{duration_label}** ({days} Hari)\n"
             f"🔢 Jumlah: **{len(generated_tokens)} voucher**\n\n"
             f"**Daftar Token:** (sentuh untuk copy)\n" + "\n".join(token_lines)
         )
@@ -588,9 +646,11 @@ def _register_admin_handlers(bot):
     @bot.on(events.CallbackQuery(pattern=b"cub_dc_(\\d+)"))
     async def client_ubot_dc_callback(event):
         if not await _admin_only_check(event): return
-        uid = int(event.pattern_match.group(1).decode())
-        if db_admin_disconnect_client_userbot(uid):
-            await event.answer(f"✅ Userbot {uid} di-disconnect.", alert=True)
+        phone = "+" + event.pattern_match.group(1).decode()
+        from src.userbot_manager import stop_client_userbot
+        await stop_client_userbot(phone)
+        if db_admin_disconnect_client_userbot(phone):
+            await event.answer(f"✅ Userbot {phone} di-disconnect.", alert=True)
         else:
             await event.answer("❌ Gagal disconnect.", alert=True)
         await _show_client_ubots(event)
@@ -598,8 +658,10 @@ def _register_admin_handlers(bot):
     @bot.on(events.CallbackQuery(pattern=b"cub_del_(\\d+)"))
     async def client_ubot_del_callback(event):
         if not await _admin_only_check(event): return
-        uid = int(event.pattern_match.group(1).decode())
-        ok, session = db_admin_delete_client_userbot(uid)
+        phone = "+" + event.pattern_match.group(1).decode()
+        from src.userbot_manager import stop_client_userbot
+        await stop_client_userbot(phone)
+        ok, session = db_admin_delete_client_userbot(phone)
         if ok:
             if session:
                 for ext in [".session", ".session-journal"]:
@@ -607,7 +669,7 @@ def _register_admin_handlers(bot):
                     if os.path.exists(path):
                         try: os.remove(path)
                         except: pass
-            await event.answer(f"✅ Userbot {uid} dihapus.", alert=True)
+            await event.answer(f"✅ Userbot {phone} dihapus.", alert=True)
         else:
             await event.answer("❌ Gagal hapus.", alert=True)
         await _show_client_ubots(event)
@@ -2141,10 +2203,11 @@ async def _show_client_ubots(event):
             phone = ub.get("phone_number", "-")
             status = ub.get("status", "disconnected")
             icon = "🟢" if status == "connected" else "🔴"
+            phone_clean = phone.replace("+", "")
             text += f"{icon} `{uid}` | {phone} | {status}\n"
             buttons.append([
-                Button.inline(f"🔌 DC {uid}", f"cub_dc_{uid}".encode()),
-                Button.inline(f"🗑 Del {uid}", f"cub_del_{uid}".encode())
+                Button.inline(f"🔌 DC {phone}", f"cub_dc_{phone_clean}".encode()),
+                Button.inline(f"🗑 Del {phone}", f"cub_del_{phone_clean}".encode())
             ])
     buttons.append([Button.inline("⬅️ Kembali", b"admin_main")])
     if hasattr(event, "edit"):

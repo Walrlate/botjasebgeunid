@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     broadcast_interval_hours REAL DEFAULT 0.5,
     schedule_start_hour INTEGER DEFAULT 0,
     schedule_end_hour INTEGER DEFAULT 23,
-    assigned_admin_ub_id BIGINT
+    assigned_admin_ub_id BIGINT,
+    max_userbots INTEGER DEFAULT 1
 );
 
 -- 3. Table User Ads
@@ -65,7 +66,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount INTEGER,
     status TEXT DEFAULT 'pending',
     payment_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    quantity INTEGER DEFAULT 1
 );
 
 -- 6. Table Forward Logs
@@ -77,19 +79,21 @@ CREATE TABLE IF NOT EXISTS forward_logs (
     msg_link TEXT,
     status TEXT,
     error_msg TEXT,
-    sent_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    sent_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL
 );
 
 -- 7. Table Userbots (Client)
 CREATE TABLE IF NOT EXISTS userbots (
-    user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
-    phone_number TEXT,
-    session_name TEXT, 
+    phone_number TEXT PRIMARY KEY,
+    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+    session_name TEXT UNIQUE, 
     status TEXT DEFAULT 'disconnected',
     pm_permit_status BOOLEAN DEFAULT FALSE,
     custom_bio TEXT,
     cooldown_until TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL
 );
 
 -- 8. Table Admin Userbots (Pool)

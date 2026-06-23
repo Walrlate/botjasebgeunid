@@ -50,3 +50,11 @@ CREATE TABLE IF NOT EXISTS custom_target_messages (
 -- 6. Pasang foreign key constraint relasi bot admin pool
 ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS fk_assigned_admin_ub;
 ALTER TABLE subscriptions ADD CONSTRAINT fk_assigned_admin_ub FOREIGN KEY (assigned_admin_ub_id) REFERENCES admin_userbots(id) ON DELETE SET NULL;
+
+-- 7. Ubah skema tabel userbots agar mendukung bulk (One-to-Many)
+ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_pkey CASCADE;
+ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_user_id_fkey CASCADE;
+ALTER TABLE userbots ADD CONSTRAINT userbots_phone_number_pkey PRIMARY KEY (phone_number);
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
+ALTER TABLE userbots ADD CONSTRAINT userbots_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+ALTER TABLE userbots ADD CONSTRAINT userbots_session_name_key UNIQUE (session_name);

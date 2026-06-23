@@ -281,7 +281,29 @@ async def user_input_handler(event):
             await event.respond("❌ Format salah! Gunakan: `+628xxx`")
             return
         is_admin = (user_id == ADMIN_ID)
-        session = f"admin_{phone[1:]}" if is_admin else f"user_{user_id}"
+        if not is_admin:
+            from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+            subs = db_get_active_subscriptions_of_user(user_id)
+            userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+            if not userbot_sub:
+                await event.respond("❌ **Anda tidak memiliki paket userbot aktif!**\nSilakan beli paket userbot terlebih dahulu melalui Mini App.")
+                return
+            
+            sub_id = userbot_sub["id"]
+            max_ub = userbot_sub.get("max_userbots", 1) or 1
+            ubots = db_get_userbots_by_subscription(sub_id)
+            
+            # Cek apakah nomor yang diinput sudah ada di database (izinkan login ulang nomor yang sama)
+            existing_ub = next((u for u in ubots if u["phone_number"] == phone), None)
+            if not existing_ub and len(ubots) >= max_ub:
+                await event.respond(
+                    f"❌ **Kuota Userbot Penuh!**\n\n"
+                    f"Anda telah menyambungkan {len(ubots)}/{max_ub} akun userbot.\n"
+                    f"Silakan hapus sesi userbot lama Anda terlebih dahulu via Panel Kontrol (/panel) untuk mengosongkan slot."
+                )
+                return
+                
+        session = f"admin_{phone[1:]}" if is_admin else f"user_{phone[1:]}"
         client = TelegramClient(
             f"data/sessions/{session}", 
             API_ID, 
@@ -390,17 +412,23 @@ async def user_input_handler(event):
             await event.respond("❌ Gagal mengubah jam operasional sebar.")
 
     elif current_state == "waiting_for_bio_input":
+        phone = state_data.get("phone")
+        if not phone:
+            await event.respond("❌ Terjadi kesalahan data sesi. Silakan coba lagi.")
+            del login_states[user_id]
+            return
+            
         if len(text) > 70:
             await event.respond(f"❌ Bio terlalu panjang ({len(text)} karakter). Maksimal 70 karakter.")
             return
             
         from src.database import db_update_custom_bio
-        if db_update_custom_bio(user_id, text):
+        if db_update_custom_bio(phone, text):
             try:
                 from src.userbot_manager import update_single_online_userbot_bio
-                asyncio.create_task(update_single_online_userbot_bio(user_id, text))
+                asyncio.create_task(update_single_online_userbot_bio(phone, text))
             except Exception as e:
-                logger.error(f"Gagal update bio online: {e}")
+                logger.error(f"Gagal update bio online untuk {phone}: {e}")
                 
             del login_states[user_id]
             await event.respond("✅ **Bio Telegram Berhasil Diubah!**")
@@ -415,7 +443,7 @@ async def user_input_handler(event):
 async def _save_userbot_session(event, client, phone):
     user_id = event.sender_id
     is_admin = (user_id == ADMIN_ID)
-    session = f"admin_{phone.replace('+','')}" if is_admin else f"user_{user_id}"
+    session = f"admin_{phone.replace('+','')}" if is_admin else f"user_{phone.replace('+','')}"
     if is_admin:
         db_save_admin_userbot(phone, session)
     else:
@@ -557,6 +585,7 @@ async def handle_checkout_api(request):
     try:
         data = await request.json()
         uid, amt, pkg, method = int(data['user_id']), int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
+        quantity = int(data.get('quantity', 1))
         admin_ub_id = data.get("assigned_admin_ub_id")
         if admin_ub_id is not None:
             admin_ub_id = int(admin_ub_id)
@@ -571,13 +600,13 @@ async def handle_checkout_api(request):
             
         if method == 'manual':
             trx_id = f"MAN-{int(datetime.now().timestamp())}"
-            db_save_transaction(uid, trx_id, pkg, amt, "manual", admin_ub_id)
+            db_save_transaction(uid, trx_id, pkg, amt, "manual", admin_ub_id, quantity)
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
             await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke bot!")
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
-            db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'], admin_ub_id)
+            db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'], admin_ub_id, quantity)
             return web.json_response({"status": True, "data": trx}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error handle_checkout_api: {e}")
@@ -658,20 +687,24 @@ async def run_jaseb_scheduler():
     while True:
         await asyncio.sleep(60)
         now = datetime.now(timezone.utc)
-        users = db_get_active_users_for_scheduler()
-        for uid, iv_h in users:
-            iv = float(iv_h or 0.5)
-            if uid not in last_run:
-                last_db = db_get_last_broadcast_time(uid)
+        from src.database import db_get_active_subscriptions_for_scheduler, db_get_last_broadcast_time_by_sub
+        subs = db_get_active_subscriptions_for_scheduler()
+        for sub in subs:
+            sub_id = sub["id"]
+            uid = sub["user_id"]
+            iv = float(sub["broadcast_interval_hours"] or 0.5)
+            
+            if sub_id not in last_run:
+                last_db = db_get_last_broadcast_time_by_sub(sub_id)
                 if last_db:
                     if last_db.tzinfo is None:
                         last_db = last_db.replace(tzinfo=timezone.utc)
-                    last_run[uid] = last_db
+                    last_run[sub_id] = last_db
                 else:
-                    last_run[uid] = now - timedelta(hours=iv + 1)
-            if (now - last_run[uid]).total_seconds() >= iv * 3600:
-                last_run[uid] = now
-                asyncio.create_task(start_user_broadcast(uid))
+                    last_run[sub_id] = now - timedelta(hours=iv + 1)
+            if (now - last_run[sub_id]).total_seconds() >= iv * 3600:
+                last_run[sub_id] = now
+                asyncio.create_task(run_broadcast_cycle(bot, uid, API_ID, API_HASH, subscription_id=sub_id))
 
 async def run_expiry_reminder():
     from datetime import timezone

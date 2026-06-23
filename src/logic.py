@@ -81,7 +81,7 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     if not row:
         return False, "Transaksi tidak ditemukan."
     
-    uid, amt, pkg_name, status, assigned_admin_ub_id = row
+    uid, amt, pkg_name, status, assigned_admin_ub_id, quantity = row
     if status == 'success':
         return True, "Sudah aktif."
 
@@ -102,11 +102,11 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
             base_date = now
         new_end = (base_date + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
         final_assigned_id = old_assigned_id if old_assigned_id is not None else assigned_admin_ub_id
-        db_update_subscription_dates(sub_id, new_end, cap, pkg_name, final_assigned_id)
+        db_update_subscription_dates(sub_id, new_end, cap, pkg_name, final_assigned_id, max_userbots=quantity)
     else:
         # MODE BARU
         new_end = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        db_add_subscription(uid, pkg_name, cap, now_str, new_end, assigned_admin_ub_id)
+        db_add_subscription(uid, pkg_name, cap, now_str, new_end, assigned_admin_ub_id, max_userbots=quantity)
     
     # 4. Tandai transaksi sukses
     db_update_transaction_status(trx_id, "success")
@@ -140,7 +140,25 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
 # Core: Orkestrasi Broadcast (Multi-Admin)
 # ─────────────────────────────────────────
 
-async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
+async def run_single_userbot_broadcast(bot, user_id: int, ad_id: int, session_name: str, phone: str, chunk_links: list, api_id, api_hash, subscription_id: int):
+    from src.jaseb_engine import JasebEngine
+    eng = JasebEngine(f"data/sessions/{session_name}", api_id, api_hash)
+    try:
+        await eng.start()
+        res = await eng.broadcast_with_stealth(user_id, ad_id, chunk_links, 'slowly', subscription_id=subscription_id)
+        return res
+    except Exception as e:
+        logger.error(f"Gagal broadcast userbot pembeli {phone} ({user_id}): {e}")
+        from src.database import db_update_userbot_status
+        db_update_userbot_status(phone, 'disconnected')
+        try:
+            await bot.send_message(user_id, f"⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot `{phone}` terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
+        except: pass
+        return {"success_count": 0, "failed_count": len(chunk_links), "success_links": []}
+    finally:
+        await eng.stop()
+
+async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_id: int = None):
     """
     Eksekusi satu siklus broadcast. Menangani pemilihan pool admin atau ubot pembeli.
     """
@@ -148,14 +166,24 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
         logger.warning(f"⚠️ Broadcast untuk user {user_id} sedang berjalan. Siklus ganda diabaikan.")
         return
 
+    # Pastikan kita memiliki subscription_id
+    if subscription_id is None:
+        from src.database import db_get_active_subscription_id
+        sub_res = db_get_active_subscription_id(user_id)
+        if sub_res:
+            subscription_id = sub_res[0]
+        else:
+            logger.warning(f"Tidak ada subscription aktif untuk user_id {user_id}")
+            return
+
     active_broadcasts.add(user_id)
     try:
-        from src.jaseb_engine import JasebEngine
         from src.notifications import notify_client_broadcast_done
         from datetime import timezone
         
         # 1. Ambil Langganan
-        sub = db_get_active_subscription_broadcast_details(user_id)
+        from src.database import db_get_active_subscription_broadcast_details_by_id
+        sub = db_get_active_subscription_broadcast_details_by_id(subscription_id)
         if not sub: return
         
         pkg, cap, req_lpm, iv, assigned_admin_ub_id = sub
@@ -180,29 +208,46 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash):
             else:
                 links.extend(db_get_active_lpm_lists(sisa))
 
-
         if "userbot" in pkg.lower():
-            # JALUR USERBOT PEMBELI
-            ub = db_get_userbot_session_and_status(user_id)
-            if ub and ub[1] == 'connected':
-                eng = JasebEngine(f"data/sessions/{ub[0]}", api_id, api_hash)
-                try:
-                    await eng.start()
-                    res = await eng.broadcast_with_stealth(user_id, ad_id, links, 'slowly')
-                    success_links = res.get("success_links", [])
-                    await notify_client_broadcast_done(bot, user_id, res.get("success_count", 0), res.get("failed_count", 0), iv or 0.5, success_links)
-                except Exception as e:
-                    logger.error(f"Gagal broadcast userbot pembeli {user_id}: {e}")
-                    from src.database import db_update_userbot_status
-                    db_update_userbot_status(user_id, 'disconnected')
-                    try:
-                        await bot.send_message(user_id, "⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot Anda terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
-                    except: pass
-                finally:
-                    await eng.stop()
-            else:
-                try: await bot.send_message(user_id, "⚠️ Userbot terputus! Sambungkan kembali.");
+            # JALUR USERBOT PEMBELI (Mendukung Bulk / Sharding Akun Klien)
+            from src.database import db_get_userbots_by_subscription
+            ubots = db_get_userbots_by_subscription(subscription_id)
+            connected_ubots = [u for u in ubots if u["status"] == "connected"]
+            
+            if not connected_ubots:
+                try: await bot.send_message(user_id, "⚠️ Seluruh akun userbot Anda terputus! Sambungkan kembali melalui Panel.");
                 except: pass
+                return
+            
+            # Bagi target LPM secara merata ke seluruh ubot yang online
+            chunks = [links[i::len(connected_ubots)] for i in range(len(connected_ubots))]
+            
+            tasks = []
+            for idx, ub in enumerate(connected_ubots):
+                sess = ub["session_name"]
+                phone = ub["phone_number"]
+                chunk_links = chunks[idx]
+                if not chunk_links: continue
+                
+                tasks.append(run_single_userbot_broadcast(
+                    bot, user_id, ad_id, sess, phone, chunk_links, api_id, api_hash, subscription_id
+                ))
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            total_success = 0
+            total_failed = 0
+            all_success_links = []
+            
+            for r in results:
+                if isinstance(r, dict):
+                    total_success += r.get("success_count", 0)
+                    total_failed += r.get("failed_count", 0)
+                    all_success_links.extend(r.get("success_links", []))
+                elif isinstance(r, Exception):
+                    logger.error(f"Error in single userbot broadcast task: {r}")
+            
+            await notify_client_broadcast_done(bot, user_id, total_success, total_failed, iv or 0.5, all_success_links)
         else:
             # JALUR POOL ADMIN (Slot Terikat / Fallback Global)
             assigned_admin = None

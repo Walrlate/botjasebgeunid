@@ -71,7 +71,7 @@ class JasebEngine:
         except: pass
         self.is_running = False
 
-    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', is_promote=False):
+    async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', is_promote=False, subscription_id: int = None):
         """
         GEUNID ANTI-BAN BROADCAST ENGINE
         """
@@ -253,7 +253,7 @@ class JasebEngine:
                 else:
                     msg_link = "Private/Linked"
                 
-                db_insert_forward_log(user_id, ad_id, entity.id, msg_link, 'success')
+                db_insert_forward_log(user_id, ad_id, entity.id, msg_link, 'success', subscription_id=subscription_id)
                 
                 group_title = entity.title if hasattr(entity, 'title') else link
                 success_links.append((group_title, msg_link))
@@ -278,7 +278,7 @@ class JasebEngine:
                 if link in unprocessed_links:
                     unprocessed_links.remove(link)
                 ent_id = entity.id if ('entity' in locals() and entity) else 0
-                db_insert_forward_log(user_id, ad_id, ent_id, "", 'failed', str(e))
+                db_insert_forward_log(user_id, ad_id, ent_id, "", 'failed', str(e), subscription_id=subscription_id)
         
         self.is_running = False
         return {"success": True, "success_count": success_count, "failed_count": failed_count, "unprocessed_links": unprocessed_links, "floodwait_seconds": flood_seconds, "success_links": success_links}

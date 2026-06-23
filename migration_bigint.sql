@@ -26,3 +26,17 @@ ALTER TABLE admin_userbots ADD COLUMN IF NOT EXISTS lpm_description TEXT DEFAULT
 ALTER TABLE subscriptions ADD CONSTRAINT fk_assigned_admin_ub FOREIGN KEY (assigned_admin_ub_id) REFERENCES admin_userbots(id) ON DELETE SET NULL;
 ALTER TABLE forward_logs ADD CONSTRAINT forward_logs_ad_id_fkey FOREIGN KEY (ad_id) REFERENCES user_ads(id) ON DELETE CASCADE;
 
+-- 6. Ubah skema tabel userbots agar mendukung bulk (One-to-Many)
+ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_pkey CASCADE;
+ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_user_id_fkey CASCADE;
+ALTER TABLE userbots ADD CONSTRAINT userbots_phone_number_pkey PRIMARY KEY (phone_number);
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
+ALTER TABLE userbots ADD CONSTRAINT userbots_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+ALTER TABLE userbots ADD CONSTRAINT userbots_session_name_key UNIQUE (session_name);
+
+-- 7. Tambahkan kolom kuota dan pelacakan langganan
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS max_userbots INTEGER DEFAULT 1;
+ALTER TABLE forward_logs ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
+
+
