@@ -738,3 +738,175 @@ async def show_features_geunid(event, edit=True):
         await event.edit(text, buttons=buttons)
     else:
         await _bot.send_message(event.chat_id, text, buttons=buttons)
+
+
+# ─────────────────────────────────────────
+# DETIL SUB-PANDUAN KLIEN
+# ─────────────────────────────────────────
+
+async def _show_client_step1_help(event):
+    text = (
+        "📱 **PANDUAN 1: AKTIVASI & SAMBUNG USERBOT**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Aktivasi Paket**\n"
+        "• Buka menu utama dan klik **Launch GEUNID JASEB**.\n"
+        "• Pilih paket yang Anda inginkan (Regular / Forward / Userbot).\n"
+        "• Selesaikan pembayaran otomatis via QRIS (aktif seketika) atau secara manual. Kirim foto bukti transfer ke bot untuk verifikasi admin.\n\n"
+        "2️⃣ **Menghubungkan Akun (Khusus Paket Userbot)**\n"
+        "• Setelah paket aktif, masuk to **Panel Kontrol** -> **Hubungkan Userbot**.\n"
+        "• Masukkan nomor HP akun Telegram Anda dengan kode negara.\n"
+        "  *Contoh:* `+628123456789`\n"
+        "• Masukkan 5 digit kode OTP resmi dari Telegram yang dikirim ke aplikasi Telegram Anda.\n"
+        "• Jika akun Anda dilindungi Verifikasi 2-Langkah (2FA), masukkan password Anda saat diminta bot.\n"
+        "• Akun Anda berhasil online di server!"
+    )
+    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_client_step2")], [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]]
+    await event.edit(text, buttons=buttons)
+
+async def _show_client_step2_help(event):
+    text = (
+        "✍️ **PANDUAN 2: MATERI IKLAN & SMART SPINTAX**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Mengatur Materi Iklan**\n"
+        "• Masuk to **Panel Kontrol** -> **Edit Iklan**, atau gunakan command `/edit_jaseb`.\n"
+        "• **Paket Regular**: Kirim materi berupa teks biasa atau foto + teks.\n"
+        "• **Paket Forward**: Kirim iklan dengan cara **Forward (teruskan)** pesan asli dari channel/grup lain. Cocok untuk mempertahankan format tombol link, media, atau format teks asli.\n\n"
+        "2️⃣ **Fitur AI Spintax Rotator (Anti-Spam)**\n"
+        "• Gunakan format `{pilihan1|pilihan2|pilihan3}` agar kata-kata dalam iklan Anda diputar secara otomatis di setiap grup LPM.\n"
+        "• *Contoh:* `{Halo|Permisi} Kak, kami menawarkan {jasa|layanan} sebar iklan...`\n"
+        "• Setiap grup akan menerima variasi teks yang unik sehingga akun Anda aman dari deteksi spam Telegram."
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 1", b"help_client_step1"), Button.inline("➡️ Panduan 3", b"help_client_step3")],
+        [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_client_step3_help(event):
+    text = (
+        "📋 **PANDUAN 3: LPM CUSTOM & JADWAL OPERASIONAL**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Mengatur Target LPM Custom**\n"
+        "• Secara default, iklan disebarkan ke ratusan grup LPM bawaan pool bot.\n"
+        "• Jika ingin memakai grup target sendiri, masuk to **Panel Kontrol** -> **Target LPM**.\n"
+        "• Kirimkan daftar link/username grup target Anda (satu per baris).\n"
+        "  *Contoh:*\n"
+        "  `https://t.me/grupjual1`\n"
+        "  `@grupjual2`\n"
+        "• Ketik `/skip` atau kosongkan jika ingin kembali memakai LPM bawaan pool bot.\n\n"
+        "2️⃣ **Jadwal Operasional (Schedule)**\n"
+        "• Batasi jam aktif sebar iklan agar bot tidak mengirim pesan di tengah malam.\n"
+        "• Masuk to **Panel Kontrol** -> **Jam Ops (Schedule)**.\n"
+        "• Ketik rentang jam dengan format `jam_mulai | jam_selesai`.\n"
+        "  *Contoh:* `8 | 22` (sebar iklan hanya berjalan dari pukul 08.00 pagi sampai 22.00 malam waktu server)."
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 2", b"help_client_step2"), Button.inline("➡️ Panduan 4", b"help_client_step4")],
+        [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_client_step4_help(event):
+    text = (
+        "🛡️ **PANDUAN 4: AUTO REPLY & PM PERMIT**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Auto Reply WTB (WTB Funnel)**\n"
+        "• Membalas chat masuk secara otomatis berdasarkan kata kunci tertentu.\n"
+        "• Gunakan command `/autoreply` -> klik **Tambah Kata Kunci**.\n"
+        "• Masukkan kata kunci (misal: `order`) lalu masukkan teks balasan (misal: `Halo! Hubungi admin di @Geun_ID`).\n\n"
+        "2️⃣ **PM Permit (Funnel Pengaman)**\n"
+        "• Mengamankan akun userbot Anda dengan memandu otomatis chat masuk orang asing ke PM agar menuju ke bot utama. Ini mencegah akun Anda dilaporkan sebagai spam.\n"
+        "• Aktifkan/nonaktifkan via **Panel Kontrol** -> klik nomor HP -> klik **PM Permit**.\n\n"
+        "3️⃣ **Kustom Bio & Transfer Paket**\n"
+        "• **Kustom Bio**: Ganti bio akun userbot Anda secara otomatis langsung lewat bot. Maksimal 70 karakter.\n"
+        "• **Transfer Paket**: Pindahkan sisa lisensi paket beserta sesi userbot aktif ke User ID Telegram lain. Gunakan format: `/transfer <ID_TUJUAN>` (contoh: `/transfer 8844645901`)."
+    )
+    buttons = [[Button.inline("⬅️ Panduan 3", b"help_client_step3")], [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]]
+    await event.edit(text, buttons=buttons)
+
+# ─────────────────────────────────────────
+# DETIL SUB-PANDUAN ADMIN
+# ─────────────────────────────────────────
+
+async def _show_admin_step1_help(event):
+    text = (
+        "🔑 **ADMIN 1: CETAK TOKEN & EDIT HARGA**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Cetak Voucher / Token Aktivasi**\n"
+        "• Gunakan command `/gentoken` untuk mencetak kode aktivasi bagi pembeli.\n"
+        "• **Format Pricelist (Paket Terdaftar):**\n"
+        "  `/gentoken <paket_id> [jumlah]`\n"
+        "  *Contoh:* `/gentoken reg_20_3d 5` (mencetak 5 voucher paket regular 20 LPM 3 Hari).\n"
+        "• **Format Kustom / Trial Bebas:**\n"
+        "  `/gentoken <tipe_paket> <durasi> <kapasitas_lpm> [jumlah]`\n"
+        "  *Suffix Durasi:* `d` (hari), `h` (jam).\n"
+        "  *Contoh:* `/gentoken regular 12h 35 2` (mencetak 2 voucher regular kustom, 12 Jam, 35 LPM).\n"
+        "  *Contoh Trial Userbot:* `/gentoken userbot 2h 0 1` (mencetak 1 voucher trial userbot, 2 Jam, 0 LPM).\n\n"
+        "2️⃣ **Mengatur Harga Pricelist**\n"
+        "• Gunakan command `/setprice` untuk mengubah daftar harga paket di Mini App secara interaktif. Anda dapat mengedit harga promo, harga asli, durasi, LPM, dan bonus paket."
+    )
+    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_admin_step2")], [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]]
+    await event.edit(text, buttons=buttons)
+
+async def _show_admin_step2_help(event):
+    text = (
+        "🤖 **ADMIN 2: MANAJEMEN POOL & USERBOT KLIEN**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Instalasi Pool Admin Userbot**\n"
+        "• Sambungkan akun Telegram baru ke pool bot admin menggunakan command `/install`.\n"
+        "• Masukkan nomor HP pool admin (`+628xxx`), masukkan OTP, dan masukkan password 2FA (jika ada). Akun ini akan digunakan untuk menyebarkan iklan paket Regular/Forward milik pembeli.\n\n"
+        "2️⃣ **Kelola Pool Admin (`/ubots`)**\n"
+        "• Buka menu `/ubots` untuk memantau status online/offline akun pool admin.\n"
+        "• Anda dapat mengubah deskripsi slot LPM (misal: \"Khusus Grup Crypto\") atau memutuskan koneksi (`DC`) akun pool admin dari server.\n\n"
+        "3️⃣ **Kelola Userbot Pembeli (`/clientubots`)**\n"
+        "• Buka menu `/clientubots` untuk memantau userbot milik pembeli yang aktif.\n"
+        "• Anda dapat memaksa disconnect (`DC`) nomor tertentu atau menghapus sesi secara permanen (`Reset`) guna membebaskan kuota slot paket pembeli."
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 1", b"help_admin_step1"), Button.inline("➡️ Panduan 3", b"help_admin_step3")],
+        [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_admin_step3_help(event):
+    text = (
+        "📋 **ADMIN 3: MANAJEMEN LPM POOL & SCRAPER**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Scrape LPM Massal (`/scrape_lpm`)**\n"
+        "• Ekstrak link grup LPM secara otomatis dari channel/grup referensi ke dalam database pool.\n"
+        "• Format: `/scrape_lpm <@username_target> [limit]`\n"
+        "  *Contoh:* `/scrape_lpm @LPMSharingChannel 150` (mengambil hingga 150 link grup dari channel tersebut).\n\n"
+        "2️⃣ **Impor LPM Massal (`/import_lpm`)**\n"
+        "• Memasukkan daftar link LPM dari teks mentah ke database.\n"
+        "• Format: `/import_lpm <teks_daftar_link>`\n"
+        "  *Contoh:* `/import_lpm @lpm1 @lpm2 https://t.me/lpm3`\n\n"
+        "3️⃣ **Kelola LPM Pool (`/lpm`)**\n"
+        "• Buka menu `/lpm` untuk memantau total grup LPM, menambah link satu per satu, mengedit nama grup & jumlah member, atau mem-blacklist grup mati.\n\n"
+        "4️⃣ **Gradual Join (`/join_pool`)**\n"
+        "• Memerintahkan seluruh akun pool admin untuk bergabung ke grup-grup LPM baru di database secara bertahap (gradual) guna menghindari deteksi spam dan ban dari Telegram."
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 2", b"help_admin_step2"), Button.inline("➡️ Panduan 4", b"help_admin_step4")],
+        [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_admin_step4_help(event):
+    text = (
+        "📤 **ADMIN 4: KELOLA BILLING & PROMOSI ADMIN**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ **Manajemen Billing Klien (`/billing`)**\n"
+        "• Cari dan pilih User ID aktif untuk melakukan tindakan:\n"
+        "  - **Perpanjang**: Menambah durasi aktif langganan klien (dalam hari).\n"
+        "  - **Ubah Jeda**: Mengubah interval waktu broadcast klien (misal dari 0.5 jam menjadi 2 jam).\n"
+        "  - **Ubah LPM**: Mengubah kapasitas batas LPM klien.\n"
+        "  - **Cabut Paket**: Memaksa masa aktif berakhir seketika.\n\n"
+        "2️⃣ **Materi Promosi Admin (`/promote`)**\n"
+        "• Kelola sebar materi promosi resmi milik GeunID ke seluruh database grup LPM.\n"
+        "• Masuk ke `/promote` untuk:\n"
+        "  - **Edit Teks**: Mengubah materi iklan promosi admin (HTML didukung).\n"
+        "  - **Edit Tombol**: Mengubah tombol inline link (format: `Teks | URL`).\n"
+        "  - **Mulai/Hentikan**: Menjalankan atau menghentikan sebar iklan promosi admin secara massal."
+    )
+    buttons = [[Button.inline("⬅️ Panduan 3", b"help_admin_step3")], [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]]
+    await event.edit(text, buttons=buttons)
