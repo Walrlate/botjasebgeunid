@@ -52,6 +52,46 @@ def _register_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"help_client_only"))
     async def help_client_only_callback(event): await _show_client_help(event)
 
+    @bot.on(events.CallbackQuery(data=b"help_client_step1"))
+    async def help_client_step1_callback(event): await _show_client_step1_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_client_step2"))
+    async def help_client_step2_callback(event): await _show_client_step2_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_client_step3"))
+    async def help_client_step3_callback(event): await _show_client_step3_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_client_step4"))
+    async def help_client_step4_callback(event): await _show_client_step4_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_admin_step1"))
+    async def help_admin_step1_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step1_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_admin_step2"))
+    async def help_admin_step2_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step2_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_admin_step3"))
+    async def help_admin_step3_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step3_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_admin_step4"))
+    async def help_admin_step4_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step4_help(event)
+
     @bot.on(events.NewMessage(pattern='/mystatus'))
     async def mystatus_command_handler(event): await _show_mystatus(event, event.sender_id)
 
@@ -266,29 +306,16 @@ def _register_handlers(bot):
 
 async def _show_help_main(event):
     if event.sender_id == ADMIN_ID:
-        text = (
-            "⚙️ **PANDUAN SISTEM GEUNID JASEB**\n\n"
-            "Halo Admin! Silakan pilih kategori panduan yang ingin Anda baca di bawah ini:"
-        )
-        buttons = [
-            [Button.inline("⚡ Perintah Superadmin", b"help_admin_only")],
-            [Button.inline("👥 Panduan Pembeli", b"help_client_only")],
-            [Button.inline("⬅️ Kembali ke Start", b"start")]
-        ]
-        if hasattr(event, "edit"):
-            try:
-                await event.edit(text, buttons=buttons)
-                return
-            except Exception:
-                pass
-        try:
-            await event.delete()
-        except: pass
-        await _bot.send_message(event.chat_id, text, buttons=buttons)
+        await _show_admin_help(event)
     else:
         await _show_client_help(event)
 
 async def _show_admin_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
     text = (
         "⚡ **DAFTAR PERINTAH SUPERADMIN**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -306,8 +333,8 @@ async def _show_admin_help(event):
         "• `/setprice` - Kelola & edit harga pricelist secara langsung."
     )
     buttons = [
-        [Button.inline("👥 Panduan Pembeli", b"help_client_only")],
-        [Button.inline("⬅️ Kembali ke Pilihan", b"help_main"), Button.inline("⬅️ Kembali ke Start", b"start")]
+        [Button.inline("➡️ Lanjut ke Panduan 1", b"help_admin_step1")],
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     if hasattr(event, "edit"):
         try:
@@ -340,10 +367,13 @@ async def _show_client_help(event):
         "• Masuk ke menu **Status Saya** untuk melihat log pengiriman, edit materi iklan, atau melakukan sebar ulang.\n\n"
         "Hubungi Admin di @Geun_ID jika butuh bantuan tambahan."
     )
-    buttons = [[KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)]]
+    buttons = [
+        [KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)],
+        [Button.inline("📖 Baca Panduan Lengkap", b"help_client_step1")],
+        [Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
     if event.sender_id == ADMIN_ID:
-        buttons.append([Button.inline("⚡ Panduan Admin", b"help_admin_only")])
-    buttons.append([Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali ke Start", b"start")])
+        buttons.insert(2, [Button.inline("⚡ Panduan Admin", b"help_admin_only")])
     
     if hasattr(event, "edit"):
         try:
@@ -829,6 +859,11 @@ async def _show_client_step4_help(event):
 # ─────────────────────────────────────────
 
 async def _show_admin_step1_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
     text = (
         "🔑 **ADMIN 1: CETAK TOKEN & EDIT HARGA**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -849,6 +884,11 @@ async def _show_admin_step1_help(event):
     await event.edit(text, buttons=buttons)
 
 async def _show_admin_step2_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
     text = (
         "🤖 **ADMIN 2: MANAJEMEN POOL & USERBOT KLIEN**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -869,6 +909,11 @@ async def _show_admin_step2_help(event):
     await event.edit(text, buttons=buttons)
 
 async def _show_admin_step3_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
     text = (
         "📋 **ADMIN 3: MANAJEMEN LPM POOL & SCRAPER**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -892,6 +937,11 @@ async def _show_admin_step3_help(event):
     await event.edit(text, buttons=buttons)
 
 async def _show_admin_step4_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
     text = (
         "📤 **ADMIN 4: KELOLA BILLING & PROMOSI ADMIN**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
