@@ -360,13 +360,13 @@ def _register_admin_handlers(bot):
                     lines.append(f"• `{item['id']}` - {item['duration']}")
             
             lines.extend([
-                "\n2️⃣ **Format Kustom (Bebas Atur):**",
-                "Gunakan format: `/gentoken <tipe_paket> <durasi_hari> <kapasitas_lpm> [jumlah]`\n",
+                "\n2️⃣ **Format Kustom (Bebas Atur / Trial):**",
+                "Gunakan format: `/gentoken <tipe_paket> <durasi> <kapasitas_lpm> [jumlah]`\n",
                 "• `<tipe_paket>` : `regular` / `forward` / `userbot` (atau `reg` / `fwd` / `ub`)",
-                "• `<durasi_hari>` : Angka hari (contoh: `30` untuk 30 hari)",
+                "• `<durasi>` : Angka dengan suffix `d` (hari) atau `h` (jam) (contoh: `30d`, `12h`, `6h`)",
                 "• `<kapasitas_lpm>` : Angka LPM (contoh: `25` untuk 25 LPM, atau `0` jika userbot)",
                 "• `[jumlah]` : Jumlah voucher yang dicetak (default `1`)\n",
-                "_Contoh Kustom:_ `/gentoken regular 45 35 5`"
+                "_Contoh Kustom:_ `/gentoken regular 12h 35 5` (membuat 5 voucher regular, 12 jam, 35 LPM)"
             ])
             await event.respond("\n".join(lines))
             return
@@ -382,11 +382,16 @@ def _register_admin_handlers(bot):
         package_label = ""
         
         if is_custom:
-            if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            import re
+            duration_arg = parts[1].lower() if len(parts) > 1 else ""
+            m_dur = re.match(r'^(\d+)(h|d)?$', duration_arg)
+            
+            if len(parts) < 3 or not m_dur or not parts[2].isdigit():
                 await event.respond(
                     "❌ **Format Kustom Salah!**\n\n"
-                    "Gunakan format: `/gentoken <tipe_paket> <durasi_hari> <kapasitas_lpm> [jumlah]`\n"
-                    "_Contoh:_ `/gentoken regular 45 35 5`"
+                    "Gunakan format: `/gentoken <tipe_paket> <durasi> <kapasitas_lpm> [jumlah]`\n"
+                    "• `<durasi>` : Angka dengan suffix 'd' (hari) atau 'h' (jam). Contoh: `30d` atau `12h`\n"
+                    "_Contoh:_ `/gentoken regular 12h 35 5`"
                 )
                 return
             
@@ -398,7 +403,16 @@ def _register_admin_handlers(bot):
             elif first_arg in ['ub', 'userbot']:
                 tipe_paket = "userbot"
                 
-            days = int(parts[1])
+            val_dur = int(m_dur.group(1))
+            unit_dur = m_dur.group(2) or 'd'
+            
+            if unit_dur == 'h':
+                days = -val_dur # Simpan negatif untuk menandakan jam
+                duration_label = f"{val_dur} Jam"
+            else:
+                days = val_dur
+                duration_label = f"{val_dur} Hari"
+                
             lpm_capacity = int(parts[2])
             if tipe_paket == "userbot":
                 lpm_capacity = 0 # Paksa 0 untuk userbot
@@ -407,8 +421,7 @@ def _register_admin_handlers(bot):
                 count = int(parts[3])
                 
             # Bentuk package_id kustom agar ketika diklaim, package_name disimpan dengan benar
-            package_id = f"{tipe_paket}_{lpm_capacity}_{days}d_custom" if tipe_paket != "userbot" else f"{tipe_paket}_{days}d_custom"
-            duration_label = f"{days} Hari"
+            package_id = f"{tipe_paket}_{lpm_capacity}_{val_dur}{unit_dur}_custom" if tipe_paket != "userbot" else f"{tipe_paket}_{val_dur}{unit_dur}_custom"
             package_label = f"{tipe_paket.upper()} (KUSTOM)"
             
         else:
@@ -454,11 +467,15 @@ def _register_admin_handlers(bot):
             return
             
         token_lines = [f"`{tok}`" for tok in generated_tokens]
+        
+        # Format durasi teks yang rapi di output telegram
+        detail_duration = f"{abs(days)} Jam" if days < 0 else f"{days} Hari"
+        
         res_text = (
             f"🔑 **VOUCHER AKTIVASI SELESAI DICETAK**\n{'━'*30}\n\n"
             f"📦 Paket: **{package_label}**\n"
             f"🎯 Kapasitas: **{lpm_capacity} LPM**\n"
-            f"⏳ Durasi: **{duration_label}** ({days} Hari)\n"
+            f"⏳ Durasi: **{duration_label}** ({detail_duration})\n"
             f"🔢 Jumlah: **{len(generated_tokens)} voucher**\n\n"
             f"**Daftar Token:** (sentuh untuk copy)\n" + "\n".join(token_lines)
         )

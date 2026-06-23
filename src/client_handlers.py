@@ -334,16 +334,26 @@ async def _show_mystatus(event, user_id: int):
         max_ub = sub_active.get("max_userbots", 1) or 1
         sub_id = sub_active["id"]
         
+        time_left_str = "Tidak diketahui"
         try:
-            end_dt = datetime.strptime(end.split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
-            days = max(0, (end_dt - datetime.now()).days)
-        except Exception:
-            try:
-                clean_end = end.replace("T", " ").split(".")[0].split("+")[0].strip()
-                end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
-                days = max(0, (end_dt - datetime.now()).days)
-            except Exception:
-                days = 0
+            clean_end = end.replace("T", " ").split(".")[0].split("+")[0].strip()
+            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
+            delta = end_dt - datetime.now()
+            
+            if delta.total_seconds() <= 0:
+                time_left_str = "Kedaluwarsa"
+            elif delta.days > 0:
+                time_left_str = f"{delta.days} hari lagi"
+            else:
+                hours_left = int(delta.total_seconds() // 3600)
+                mins_left = int((delta.total_seconds() % 3600) // 60)
+                if hours_left > 0:
+                    time_left_str = f"{hours_left} jam {mins_left} menit lagi"
+                else:
+                    time_left_str = f"{mins_left} menit lagi"
+        except Exception as e:
+            logger.error(f"Gagal memformat sisa waktu trial: {e}")
+            time_left_str = "Tidak diketahui"
                 
         iv_label = f"{int(iv*60)}m" if iv < 1 else f"{iv}j"
         
@@ -353,7 +363,7 @@ async def _show_mystatus(event, user_id: int):
             conn_count = len([u for u in ubots if u["status"] == "connected"])
             ub_line = f"\n🤖 Akun Userbot: **{conn_count}/{max_ub} Online**"
             
-        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:10]} ({days} hari lagi)\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
+        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:16]} ({time_left_str})\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
         buttons = [[Button.inline("🔄 Sebar Ulang", b"resend_jaseb"), Button.inline("✍️ Edit Iklan", b"edit_jaseb_btn")], [Button.inline("⬅️ Kembali", b"start")]]
 
     if hasattr(event, "edit"):

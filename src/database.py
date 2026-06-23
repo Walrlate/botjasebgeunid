@@ -1268,7 +1268,10 @@ def db_redeem_activation_token(token: str, user_id: int) -> tuple:
             except:
                 start_date = now
                 
-        end_date = start_date + timedelta(days=duration_days)
+        if duration_days < 0:
+            end_date = start_date + timedelta(hours=abs(duration_days))
+        else:
+            end_date = start_date + timedelta(days=duration_days)
         
         # Simpan ke tabel subscriptions
         package_name = f"Jaseb {package_id.upper()}"
