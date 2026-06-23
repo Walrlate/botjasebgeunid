@@ -46,6 +46,12 @@ def _register_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"help_main"))
     async def help_main_callback(event): await _show_help_main(event)
 
+    @bot.on(events.CallbackQuery(data=b"help_admin_only"))
+    async def help_admin_only_callback(event): await _show_admin_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_client_only"))
+    async def help_client_only_callback(event): await _show_client_help(event)
+
     @bot.on(events.NewMessage(pattern='/mystatus'))
     async def mystatus_command_handler(event): await _show_mystatus(event, event.sender_id)
 
@@ -259,6 +265,62 @@ def _register_handlers(bot):
         asyncio.create_task(start_user_broadcast(uid))
 
 async def _show_help_main(event):
+    if event.sender_id == ADMIN_ID:
+        text = (
+            "⚙️ **PANDUAN SISTEM GEUNID JASEB**\n\n"
+            "Halo Admin! Silakan pilih kategori panduan yang ingin Anda baca di bawah ini:"
+        )
+        buttons = [
+            [Button.inline("⚡ Perintah Superadmin", b"help_admin_only")],
+            [Button.inline("👥 Panduan Pembeli", b"help_client_only")],
+            [Button.inline("⬅️ Kembali ke Start", b"start")]
+        ]
+        if hasattr(event, "edit"):
+            try:
+                await event.edit(text, buttons=buttons)
+                return
+            except Exception:
+                pass
+        try:
+            await event.delete()
+        except: pass
+        await _bot.send_message(event.chat_id, text, buttons=buttons)
+    else:
+        await _show_client_help(event)
+
+async def _show_admin_help(event):
+    text = (
+        "⚡ **DAFTAR PERINTAH SUPERADMIN**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "• `/admin` - Membuka Panel Admin interaktif (Kelola harga, billing, LPM pool, dll).\n"
+        "• `/gentoken` - Cetak voucher aktivasi (kustom durasi/LPM/tipe atau sesuai pricelist).\n"
+        "• `/promote` - Kelola iklan & sebar materi promosi resmi GeunID.\n"
+        "• `/install` - Sambungkan/install akun userbot baru ke Admin Pool.\n"
+        "• `/ubots` - Kelola & monitoring akun di Admin Pool.\n"
+        "• `/clientubots` - Kelola & pantau status userbot milik pembeli.\n"
+        "• `/billing` - Kelola langganan aktif user (perpanjang, cabut, ubah interval, lpm cap).\n"
+        "• `/lpm` - Kelola pool grup LPM (lihat list, tambah, hapus, blacklist).\n"
+        "• `/scrape_lpm <@target> [limit]` - Scrape link LPM dari channel target.\n"
+        "• `/import_lpm <list>` - Impor massal link LPM dari teks.\n"
+        "• `/join_pool` - Sinkronisasi gradual join bertahap untuk semua Admin Pool.\n"
+        "• `/setprice` - Kelola & edit harga pricelist secara langsung."
+    )
+    buttons = [
+        [Button.inline("👥 Panduan Pembeli", b"help_client_only")],
+        [Button.inline("⬅️ Kembali ke Pilihan", b"help_main"), Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons)
+            return
+        except Exception:
+            pass
+    try:
+        await event.delete()
+    except: pass
+    await _bot.send_message(event.chat_id, text, buttons=buttons)
+
+async def _show_client_help(event):
     from src.main import get_web_app_url
     from telethon.tl.types import KeyboardButtonWebView
     url = await get_web_app_url(event.sender_id)
@@ -278,43 +340,21 @@ async def _show_help_main(event):
         "• Masuk ke menu **Status Saya** untuk melihat log pengiriman, edit materi iklan, atau melakukan sebar ulang.\n\n"
         "Hubungi Admin di @Geun_ID jika butuh bantuan tambahan."
     )
-    
-    # Cek apakah pengakses adalah Admin
+    buttons = [[KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)]]
     if event.sender_id == ADMIN_ID:
-        text += (
-            "\n\n⚡ **PANDUAN PERINTAH ADMIN (Hanya Anda)**\n"
-            f"{'━'*22}\n"
-            "• `/admin` - Membuka Panel Admin interaktif (Kelola harga, billing, LPM pool, dll).\n"
-            "• `/setprice` - Kelola & edit harga paket secara langsung.\n"
-            "• `/lpm` - Kelola pool grup LPM (Lihat list, tambah, hapus, blacklist).\n"
-            "• `/billing` - Kelola langganan aktif user (Perpanjang, cabut, ubah interval, lpm cap).\n"
-            "• `/ubots` - Kelola akun Telegram di Admin Pool.\n"
-            "• `/clientubots` - Kelola status userbot pembeli (Disconnect paksa, hapus sesi).\n"
-            "• `/scrape_lpm <@target> [limit]` - Scrape username/link LPM massal dari channel referensi.\n"
-            "• `/import_lpm <list>` - Impor massal username/link LPM dari teks secara langsung.\n"
-            "• `/join_pool` - Sinkronisasi gradual join bertahap untuk semua Admin Pool agar aman dari ban."
-        )
-
-    buttons = [
-        [KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)],
-        [Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali", b"start")]
-    ]
+        buttons.append([Button.inline("⚡ Panduan Admin", b"help_admin_only")])
+    buttons.append([Button.inline("📊 Status Saya", b"my_status"), Button.inline("⬅️ Kembali ke Start", b"start")])
+    
     if hasattr(event, "edit"):
         try:
             await event.edit(text, buttons=buttons)
+            return
         except Exception:
-            # Jika gagal edit (misal pesan lama adalah foto, atau teks admin terlalu panjang), 
-            # hapus pesan lama agar chat bersih dan kirim pesan teks baru.
-            try:
-                await event.delete()
-            except: pass
-            try:
-                await _bot.send_message(event.chat_id, text, buttons=buttons)
-            except Exception as e2:
-                logger.error(f"Gagal mengirim help: {e2}")
-                await event.respond(text, buttons=buttons)
-    else:
-        await event.respond(text, buttons=buttons)
+            pass
+    try:
+        await event.delete()
+    except: pass
+    await _bot.send_message(event.chat_id, text, buttons=buttons)
 
 async def _show_mystatus(event, user_id: int):
     user_id = int(user_id)
