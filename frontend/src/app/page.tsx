@@ -408,7 +408,8 @@ const Dashboard = () => {
         package_type: selectedPackage.type,
         request_lpm: "",
         payment_method: selectedPaymentMethod,
-        assigned_admin_ub_id: selectedPackage.type === 'userbot' ? null : (adminId || selectedAdminSlot)
+        assigned_admin_ub_id: selectedPackage.type === 'userbot' ? null : (adminId || selectedAdminSlot),
+        quantity: selectedPackage.type === 'userbot' ? accountCount : 1
       };
 
       const response = await fetch('/api/checkout', {
