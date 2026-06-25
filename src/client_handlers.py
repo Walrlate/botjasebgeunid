@@ -733,19 +733,19 @@ async def show_client_panel(event, edit=False):
     iv_label = f"{int(iv*60)} menit" if iv < 1 else f"{iv} jam"
     
     text = (
-        "👤 **PANEL KONTROL PEMBELI GEUNID**\n"
+        "👤 𝖯𝖠𝖭𝖤𝖫 𝖪𝖮𝖭𝖳𝖱𝖮𝖫 𝖯𝖤𝖬𝖡𝖤𝖫𝖨 𝖦𝖤𝖴𝖭𝖨𝖣\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 Paket Aktif: **{pkg}**\n"
-        f"⏰ Jeda Broadcast: **Setiap {iv_label}**\n"
-        f"📅 Tanggal Expired: **{end[:10]}**\n"
-        f"👥 Akun Terhubung: **{len(ubots)}/{max_ub} Userbot**\n\n"
-        "**💡 PANDUAN PANEL:**\n"
-        "• ✍️ **Edit Jaseb**: Atur teks, foto, atau forward promosi Anda.\n"
-        "• ⏰ **Jam Ops**: Batasi jam broadcast otomatis (contoh: 08:00 - 22:00).\n"
-        "• 🤖 **Auto Reply**: Balas otomatis jika ada chat masuk dari grup.\n"
-        "• 📋 **Target LPM**: Atur daftar grup target secara kustom.\n"
-        "• 🔄 **Transfer Paket**: Kirim lisensi paket aktif ke User ID lain.\n\n"
-        "👇 **DAFTAR USERBOT ANDA** (Klik nomor untuk mengatur PM Permit/Bio/Koneksi):"
+        f"📦 Paket : **{pkg}**\n"
+        f"⏰ Jeda  : **Setiap {iv_label}**\n"
+        f"⏳ Exp   : **{end[:10]}**\n"
+        f"👥 Slot  : **{len(ubots)}/{max_ub} Userbot**\n\n"
+        "💡 𝖥𝖨𝖳𝖴𝖱 𝖯𝖠𝖭𝖤𝖫:\n"
+        "• ✍️ **Edit Jaseb** — Atur materi promosi\n"
+        "• ⏰ **Jam Ops** — Batasi jam broadcast aktif\n"
+        "• 🤖 **Auto Reply** — Balas pesan prospek otomatis\n"
+        "• 📋 **Target LPM** — Atur target grup kustom\n"
+        "• 🔄 **Transfer** — Kirim paket ke user lain\n\n"
+        "👇 𝖣𝖠𝖥𝖳𝖠𝖱 𝖴𝖲𝖤𝖱𝖡𝖮𝖳 (Klik nomor di bawah):"
     )
     
     buttons = []
