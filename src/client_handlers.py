@@ -818,7 +818,7 @@ async def show_features_geunid(event, edit=True):
     text = (
         "🏆 **KEUNGGULAN PREMIUM GEUNID JASEB**\n"
         f"{'━'*30}\n\n"
-        "1️⃣ **AI Auto-Ban Redirect (Smart Safeguard)**\n"
+        "1️⃣ **Auto-Ban Redirect & Smart Safeguard**\n"
         "🟢 Status: **Aktif (Siaga)**\n"
         "💡 Sistem memantau respons server Telegram secara real-time. Jika akun mengalami FloodWait (limit), target LPM akan langsung dialihkan ke bot cadangan agar promosi Anda tetap jalan tanpa henti!\n\n"
         "2️⃣ **Humanoid Stealth Delay & Typing Simulator**\n"
@@ -827,7 +827,7 @@ async def show_features_geunid(event, edit=True):
         "3️⃣ **Shadow Clone Smart Allocator**\n"
         "🟢 Alokasi LPM: **Bebas Tumpang Tindih**\n"
         "💡 Jika Anda mengaktifkan lebih dari 1 userbot, sistem secara otomatis membagi target LPM agar tidak ada grup yang dikirimi iklan ganda oleh akun berbeda secara bersamaan.\n\n"
-        "4️⃣ **AI Smart Wording Spintax Rotator**\n"
+        "4️⃣ **Smart Wording Spintax Rotator**\n"
         "💡 Putar kata secara otomatis menggunakan format `{pilihan1|pilihan2}` pada iklan Anda untuk mencegah deteksi duplikasi pesan oleh Telegram.\n"
     )
     
@@ -878,7 +878,7 @@ async def _show_client_step2_help(event):
         "• Masuk to **Panel Kontrol** -> **Edit Iklan**, atau gunakan command `/edit_jaseb`.\n"
         "• **Paket Regular**: Kirim materi berupa teks biasa atau foto + teks.\n"
         "• **Paket Forward**: Kirim iklan dengan cara **Forward (teruskan)** pesan asli dari channel/grup lain. Cocok untuk mempertahankan format tombol link, media, atau format teks asli.\n\n"
-        "2️⃣ **Fitur AI Spintax Rotator (Anti-Spam)**\n"
+        "2️⃣ **Fitur Spintax Rotator (Anti-Spam)**\n"
         "• Gunakan format `{pilihan1|pilihan2|pilihan3}` agar kata-kata dalam iklan Anda diputar secara otomatis di setiap grup LPM.\n"
         "• *Contoh:* `{Halo|Permisi} Kak, kami menawarkan {jasa|layanan} sebar iklan...`\n"
         "• Setiap grup akan menerima variasi teks yang unik sehingga akun Anda aman dari deteksi spam Telegram."

@@ -1,5 +1,5 @@
 """
-logic.py — Pusat Logika Bisnis GEUNID JASEB (AUDITED BY JARVIS)
+logic.py — Pusat Logika Bisnis GEUNID JASEB
 ==============================================================
 Menangani aktivasi paket, durasi, kapasitas, dan orkestrasi broadcast.
 Mencegah circular import antara main.py dan admin_handlers.py.

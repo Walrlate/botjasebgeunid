@@ -90,7 +90,7 @@ class JasebEngine:
 
     async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', is_promote=False, subscription_id: int = None):
         """
-        GEUNID ANTI-BAN BROADCAST ENGINE
+        Mengirim pesan ke daftar grup target dengan jeda dinamis dan simulasi perilaku pengguna nyata.
         """
         self.is_running = True
         unprocessed_links = group_links.copy()
@@ -198,7 +198,7 @@ class JasebEngine:
                         # Jeda acak manusia saat join
                         await asyncio.sleep(random.uniform(15, 25))
 
-                # 3. JARVIS PROACTIVE: Simulasi Manusia (Typing) jika sudah bergabung
+                # 3. Simulasi Manusia (Typing) sebelum mengirim pesan
                 try:
                     async with self.client.action(entity, 'typing'):
                         # Simulasi mengetik 2-5 detik acak
@@ -220,7 +220,7 @@ class JasebEngine:
                 elif entity and hasattr(entity, 'username') and entity.username and entity.username.lower() in custom_map:
                     final_content = custom_map[entity.username.lower()]
 
-                # Putar kata iklan secara dinamis (AI Smart Wording Auto-Rotation)
+                # Putar kata iklan secara dinamis (Spintax Auto-Rotation)
                 final_content = resolve_spintax(final_content)
 
                 if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:

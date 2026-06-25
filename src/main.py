@@ -1,5 +1,5 @@
 """
-main.py — Core Bot GEUNID JASEB (AUDITED BY JARVIS - 100% CLEAN ARCHITECTURE)
+main.py — Core Bot GEUNID JASEB
 ==========================================================================
 """
 
