@@ -392,7 +392,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
                 if client:
                     try:
                         ub_groups_count = 0
-                        async for dialog in client.iter_dialogs(limit=100):
+                        async for dialog in client.iter_dialogs(limit=300):
                             if dialog.is_group or dialog.is_channel:
                                 title = dialog.name or "Grup Tanpa Nama"
                                 username = getattr(dialog.entity, 'username', None)
@@ -439,6 +439,9 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
             # Fallback jika target link kosong sama sekali, ambil dari LPM global
             if not target_links:
                 target_links = db_get_active_lpm_lists(cap if cap > 0 else 50)
+                
+            # Acak urutan target agar sebar secara acak (Random Sebar)
+            random.shuffle(target_links)
                 
             # Bagi target LPM secara merata ke seluruh ubot yang online
             chunks = [target_links[i::len(connected_ubots)] for i in range(len(connected_ubots))]

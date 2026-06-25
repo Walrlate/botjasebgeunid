@@ -1252,8 +1252,8 @@ async def handle_user_stats_api(request):
                     client = active_clients.get(phone)
                     if client:
                         try:
-                            # Iterasi dialog dengan limit 80 untuk efisiensi
-                            async for dialog in client.iter_dialogs(limit=80):
+                            # Iterasi dialog dengan limit 300 untuk efisiensi
+                            async for dialog in client.iter_dialogs(limit=300):
                                 if dialog.is_group or dialog.is_channel:
                                     title = dialog.name or "Grup Tanpa Nama"
                                     username = getattr(dialog.entity, 'username', None)
