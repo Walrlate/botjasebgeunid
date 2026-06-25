@@ -112,6 +112,7 @@ const Dashboard = () => {
     userInterval: 0,
     is_admin: false,
     userbots_list: [] as any[],
+    broadcastProgress: null as any,
   });
 
   const fetchUserStats = async (userId: number) => {
@@ -137,6 +138,7 @@ const Dashboard = () => {
           userInterval: d.interval,
           is_admin: d.is_admin,
           userbots_list: d.userbots_list || [],
+          broadcastProgress: d.broadcast_progress || null,
         }));
       }
     } catch (err) {
@@ -164,7 +166,7 @@ const Dashboard = () => {
       const days = parseInt(params.get('days') || '0', 10);
       const interval = parseFloat(params.get('int') || '0');
 
-      setStats({
+       setStats({
         broadcasts: b,
         lpm: l,
         userbots: u,
@@ -176,11 +178,12 @@ const Dashboard = () => {
         userInterval: interval,
         is_admin: false,
         userbots_list: [],
+        broadcastProgress: null,
       });
     }
   }, []);
 
-  // Effect untuk Auto-Update Stats (Real-time polling 30 detik)
+  // Effect untuk Auto-Update Stats (Real-time polling 30 detik secara default, 5 detik jika broadcast berjalan)
   useEffect(() => {
     if (user?.id) {
       fetchUserStats(user.id);
@@ -193,10 +196,13 @@ const Dashboard = () => {
         fetchHistory(user.id);
       }
 
-      const intervalId = setInterval(() => fetchUserStats(user.id), 30000);
+      const isRunning = stats.broadcastProgress?.status === 'running';
+      const delay = isRunning ? 5000 : 30000;
+
+      const intervalId = setInterval(() => fetchUserStats(user.id), delay);
       return () => clearInterval(intervalId);
     }
-  }, [user?.id]);
+  }, [user?.id, stats.broadcastProgress?.status]);
 
   const triggerHaptic = (style: 'light' | 'medium' | 'heavy' = 'light') => {
     if (typeof window !== 'undefined') {

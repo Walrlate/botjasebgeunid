@@ -137,8 +137,20 @@ def _register_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"client_edit_ad"))
     async def client_edit_ad_callback(event):
         uid = event.sender_id
+        from src.database import db_get_active_subscription_status
+        sub = db_get_active_subscription_status(uid)
+        if sub and "userbot" in sub[0].lower():
+            from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+            subs = db_get_active_subscriptions_of_user(uid)
+            userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+            if userbot_sub:
+                ubots = db_get_userbots_by_subscription(userbot_sub["id"])
+                connected_ubots = [u for u in ubots if u["status"] == "connected"]
+                if not connected_ubots:
+                    await event.answer("❌ Hubungkan userbot Anda terlebih dahulu di Panel sebelum mengedit materi!", alert=True)
+                    return
         _login_states[uid] = {"state": "waiting_for_ad"}
-        await event.edit("✍️ **Kirim teks/materi jaseb baru Anda sekarang:**\n(Teks, Foto+Caption, atau Forward)")
+        await event.edit("✍️ **Kirim teks/materi jaseb baru Anda sekarang:**\n(Teks, Foto+Caption, atau Forward)", buttons=[[Button.inline("❌ Batal", b"client_panel")]])
 
     @bot.on(events.CallbackQuery(pattern=b"manage_ub_(.+)"))
     async def manage_ub_callback(event):
@@ -267,9 +279,23 @@ def _register_handlers(bot):
             buttons=[[Button.inline("⬅️ Kembali ke Panel", b"client_panel")]]
         )
 
-    @bot.on(events.CallbackQuery(data=b"client_features_geunid"))
-    async def client_features_geunid_callback(event):
-        await show_features_geunid(event, edit=True)
+    @bot.on(events.CallbackQuery(data=b"client_simulator_spintax"))
+    async def client_simulator_spintax_callback(event):
+        uid = event.sender_id
+        _login_states[uid] = {"state": "waiting_for_spintax_sim"}
+        text = (
+            "⚡ **GEUNID SMART SPINTAX SIMULATOR** ⚡\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Silakan kirimkan teks iklan Anda yang menggunakan format spintax `{kata1|kata2|kata3}` ke chat bot ini sekarang.\n\n"
+            "Sistem akan memproses dan menampilkan:\n"
+            "1. **5 variasi teks acak** yang dihasilkan secara live.\n"
+            "2. **Skor Keunikan (Spintax Uniqueness Score)** iklan Anda.\n"
+            "3. Analisis & rekomendasi keamanan anti-spam Telegram.\n\n"
+            "**Contoh spintax:**\n"
+            "`{Halo|Permisi|Misi} Kak, kami menawarkan {jasa|layanan} sebar iklan kustom.`"
+        )
+        buttons = [[Button.inline("❌ Batal", b"client_panel")]]
+        await event.edit(text, buttons=buttons)
 
     @bot.on(events.CallbackQuery(data=b"client_panel_back"))
     async def client_panel_back_callback(event):
@@ -742,7 +768,7 @@ async def show_client_panel(event, edit=False):
         "💡 𝖥𝖨𝖳𝖴𝖱 𝖯𝖠𝖭𝖤𝖫:\n"
         "• ✍️ **Edit Jaseb** — Atur materi promosi\n"
         "• ⏰ **Jam Ops** — Batasi jam broadcast aktif\n"
-        "• 🤖 **Auto Reply** — Balas pesan prospek otomatis\n"
+        "• 🤖 **Auto Reply** — Balas chat masuk otomatis\n"
         "• 📋 **Target LPM** — Atur target grup kustom\n"
         "• 🔄 **Transfer** — Kirim paket ke user lain\n\n"
         "👇 𝖣𝖠𝖥𝖳𝖠𝖱 𝖴𝖲𝖤𝖱𝖡𝖮𝖳 (Klik nomor di bawah):"
@@ -771,7 +797,7 @@ async def show_client_panel(event, edit=False):
     ])
     buttons.append([
         Button.inline("🔄 Transfer Paket", b"client_tf_pkg"),
-        Button.inline("🏆 Keunggulan GeunID", b"client_features_geunid")
+        Button.inline("⚡ Simulator Spintax", b"client_simulator_spintax")
     ])
     buttons.append([Button.inline("⬅️ Kembali ke Status Saya", b"my_status")])
     

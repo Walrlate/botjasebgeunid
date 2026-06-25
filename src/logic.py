@@ -530,3 +530,9 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
             await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5, total_success_links)
     finally:
         active_broadcasts.discard(user_id)
+        try:
+            from src.jaseb_engine import broadcast_progress
+            if user_id in broadcast_progress:
+                broadcast_progress[user_id]["status"] = "done"
+        except:
+            pass

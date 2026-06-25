@@ -752,6 +752,72 @@ async def user_input_handler(event):
         else:
             await event.respond("❌ Gagal menyimpan bio baru Anda.")
 
+    elif current_state == "waiting_for_spintax_sim":
+        if text.lower() == "/skip":
+            del login_states[user_id]
+            await event.respond("❌ Simulasi spintax dibatalkan.")
+            from src.client_handlers import show_client_panel
+            await show_client_panel(event, edit=False)
+            return
+
+        blocks = re.findall(r'\{([^{}]+)\}', text)
+        total_comb = 1
+        if blocks:
+            for b in blocks:
+                choices = b.split('|')
+                total_comb *= len(choices)
+        else:
+            total_comb = 0
+            
+        if total_comb == 0:
+            score = 0
+            status_sec = "🔴 **Sangat Bahaya (0%):** Iklan tidak menggunakan spintax sama sekali. Sangat mudah terdeteksi sebagai spam oleh Telegram."
+        elif total_comb < 5:
+            score = min(40, total_comb * 8)
+            status_sec = f"🔴 **Bahaya ({score}%):** Hanya ada {total_comb} kemungkinan variasi unik. Tambahkan lebih banyak variasi kata agar akun aman dari ban."
+        elif total_comb < 15:
+            score = 40 + (total_comb * 2.5)
+            status_sec = f"🟡 **Cukup Aman ({int(score)}%):** Ada {total_comb} variasi unik. Cukup bagus, tapi disarankan menambah beberapa pilihan kata lagi."
+        else:
+            score = min(99, 75 + (total_comb * 0.5))
+            status_sec = f"🟢 **Sangat Aman ({int(score)}%):** Ada {total_comb} kemungkinan kombinasi unik. Sangat bagus untuk meminimalisir risiko deteksi spam Telegram!"
+
+        from src.jaseb_engine import resolve_spintax
+        variations = []
+        for _ in range(5):
+            var_text = resolve_spintax(text)
+            if var_text not in variations:
+                variations.append(var_text)
+        
+        attempts = 0
+        while len(variations) < min(5, total_comb if total_comb > 0 else 1) and attempts < 15:
+            var_text = resolve_spintax(text)
+            if var_text not in variations:
+                variations.append(var_text)
+            attempts += 1
+
+        del login_states[user_id]
+        
+        result_lines = []
+        for i, var in enumerate(variations, 1):
+            preview = var if len(var) <= 150 else f"{var[:150]}..."
+            result_lines.append(f"{i}. \"{preview}\"")
+            
+        list_var_str = "\n\n".join(result_lines)
+        
+        report = (
+            "⚡ **HASIL SIMULASI SPINTAX VISUAL GEUNID** ⚡\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📊 **Skor Keunikan:**\n{status_sec}\n\n"
+            f"📝 **5 Contoh Variasi Teks Hasil Rotasi:**\n\n"
+            f"{list_var_str}\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 *Tips:* Gunakan spintax `{pilihan1|pilihan2}` pada kata kerja, kata sapaan, atau tanda baca agar pesan Anda selalu terlihat unik bagi robot deteksi Telegram."
+        )
+        await event.respond(report)
+        from src.client_handlers import show_client_panel
+        await show_client_panel(event, edit=False)
+
     elif current_state.startswith("setprice_") or current_state.startswith("admin_"):
         await handle_setprice_input(event, state_data)
  
@@ -1075,6 +1141,10 @@ async def handle_user_stats_api(request):
         succ = db_get_global_success_forward_logs_count()
         sub = db_get_active_subscription_status(uid)
         ub_status = db_get_userbot_status(uid)
+        
+        from src.jaseb_engine import broadcast_progress
+        user_progress = broadcast_progress.get(uid)
+        
         res = {
             "total_sent": succ, 
             "package_name": "Tidak Aktif", 
@@ -1082,7 +1152,15 @@ async def handle_user_stats_api(request):
             "seconds_left": 0, 
             "userbot_status": ub_status,
             "is_admin": (uid == ADMIN_ID),
-            "userbots_list": []
+            "userbots_list": [],
+            "broadcast_progress": user_progress if user_progress else {
+                "total": 0,
+                "success": 0,
+                "failed": 0,
+                "current_index": 0,
+                "current_group": "",
+                "status": "idle"
+            }
         }
         
         # Ambil daftar userbot secara realtime untuk dirender di tab Pengaturan Mini App

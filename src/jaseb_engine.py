@@ -32,6 +32,21 @@ def resolve_spintax(text: str) -> str:
         text = new_text
     return text
 
+# Menyimpan status progress broadcast live per user_id
+# Format:
+# broadcast_progress = {
+#     user_id: {
+#         "total": int,
+#         "success": int,
+#         "failed": int,
+#         "current_index": int,
+#         "current_group": str,
+#         "status": "running" | "done" | "idle"
+#     }
+# }
+broadcast_progress = {}
+
+
 class JasebEngine:
     def __init__(self, user_session_name, api_id, api_hash, existing_client=None):
         self._existing_client = existing_client
@@ -99,6 +114,23 @@ class JasebEngine:
         flood_seconds = 0
         success_links = []
 
+        # Inisialisasi progress live
+        from src.jaseb_engine import broadcast_progress
+        from datetime import datetime, timezone
+        if user_id not in broadcast_progress or broadcast_progress[user_id].get("status") != "running":
+            broadcast_progress[user_id] = {
+                "total": len(group_links),
+                "success": 0,
+                "failed": 0,
+                "current_index": 0,
+                "current_group": "",
+                "status": "running",
+                "start_time": datetime.now(timezone.utc).isoformat()
+            }
+        else:
+            already_done = broadcast_progress[user_id]["success"] + broadcast_progress[user_id]["failed"]
+            broadcast_progress[user_id]["total"] = already_done + len(group_links)
+
         ad = db_get_user_ad_by_id(ad_id)
         if not ad:
             self.is_running = False
@@ -139,6 +171,13 @@ class JasebEngine:
                 logger.info(f"Broadcast untuk user {user_id} dihentikan paksa (dibatalkan oleh admin/sistem).")
                 self.is_running = False
                 break
+            
+            # Update progress current index & current group
+            current_idx = success_count + failed_count + 1
+            broadcast_progress[user_id].update({
+                "current_index": min(broadcast_progress[user_id]["total"], current_idx),
+                "current_group": link
+            })
             
             entity = None
             try:
@@ -271,6 +310,7 @@ class JasebEngine:
                 success_links.append((group_title, msg_link))
                 
                 success_count += 1
+                broadcast_progress[user_id]["success"] = success_count
                 unprocessed_links.remove(link)
 
                 # PERSISTENT PROTOCOL & Dynamic Random Delay Simulator
@@ -287,11 +327,14 @@ class JasebEngine:
             except Exception as e:
                 logger.error(f"Error {link}: {e}")
                 failed_count += 1
+                broadcast_progress[user_id]["failed"] = failed_count
                 if link in unprocessed_links:
                     unprocessed_links.remove(link)
                 ent_id = entity.id if ('entity' in locals() and entity) else 0
                 db_insert_forward_log(user_id, ad_id, ent_id, "", 'failed', str(e), subscription_id=subscription_id)
         
+        if not unprocessed_links:
+            broadcast_progress[user_id]["status"] = "done"
         self.is_running = False
         return {"success": True, "success_count": success_count, "failed_count": failed_count, "unprocessed_links": unprocessed_links, "floodwait_seconds": flood_seconds, "success_links": success_links}
 
