@@ -33,20 +33,34 @@ def resolve_spintax(text: str) -> str:
     return text
 
 class JasebEngine:
-    def __init__(self, user_session_name, api_id, api_hash):
-        self.client = TelegramClient(
-            user_session_name, 
-            api_id, 
-            api_hash, 
-            receive_updates=False,
-            connection=ConnectionTcpObfuscated,
-            timeout=30,
-            connection_retries=10,
-            retry_delay=5
-        )
+    def __init__(self, user_session_name, api_id, api_hash, existing_client=None):
+        self._existing_client = existing_client
+        self._owns_client = existing_client is None
+        
+        if existing_client:
+            # Gunakan client yang sudah aktif — TIDAK buka koneksi baru
+            self.client = existing_client
+        else:
+            # Fallback: buat client baru dari file sesi (untuk admin pool)
+            self.client = TelegramClient(
+                user_session_name, 
+                api_id, 
+                api_hash, 
+                receive_updates=False,
+                connection=ConnectionTcpObfuscated,
+                timeout=30,
+                connection_retries=10,
+                retry_delay=5
+            )
         self.is_running = False
 
     async def start(self):
+        if self._existing_client:
+            # Client sudah terhubung — tidak perlu connect lagi
+            if not self.client.is_connected():
+                await self.client.connect()
+            return
+            
         if not self.client.is_connected():
             retries = 5
             while retries > 0:
@@ -66,10 +80,12 @@ class JasebEngine:
                 raise RuntimeError("Gagal membuka sesi Telegram karena berkas terkunci oleh proses lain.")
 
     async def stop(self):
-        try:
-            if self.client.is_connected():
-                await self.client.disconnect()
-        except: pass
+        # Hanya disconnect jika kita yang membuat client-nya (bukan client yang diinjeksi)
+        if self._owns_client:
+            try:
+                if self.client.is_connected():
+                    await self.client.disconnect()
+            except: pass
         self.is_running = False
 
     async def broadcast_with_stealth(self, user_id, ad_id, group_links, delay_mode='slowly', is_promote=False, subscription_id: int = None):

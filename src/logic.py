@@ -208,9 +208,18 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
 
 async def run_single_userbot_broadcast(bot, user_id: int, ad_id: int, session_name: str, phone: str, chunk_links: list, api_id, api_hash, subscription_id: int):
     from src.jaseb_engine import JasebEngine
-    from src.userbot_manager import get_session_lock
+    from src.userbot_manager import get_session_lock, active_clients
+    
+    # Ambil client aktif yang sudah terhubung — hindari membuka koneksi duplikat
+    existing_client = active_clients.get(phone)
+    
     async with get_session_lock(session_name):
-        eng = JasebEngine(f"data/sessions/{session_name}", api_id, api_hash)
+        eng = JasebEngine(
+            f"data/sessions/{session_name}",
+            api_id,
+            api_hash,
+            existing_client=existing_client  # Injeksi client aktif jika ada
+        )
         try:
             await eng.start()
             res = await eng.broadcast_with_stealth(user_id, ad_id, chunk_links, 'slowly', subscription_id=subscription_id)
