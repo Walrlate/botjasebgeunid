@@ -126,13 +126,23 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     else:
         notif_msg += "✍️ Silakan kirimkan **Materi Iklan** Anda (teks, foto, atau forward):"
         
+    # Kirim ke user secara independen
     try:
         await bot.send_message(uid, notif_msg)
+    except Exception as e:
+        logger.error(f"Gagal kirim notif aktivasi ke user {uid} (kemungkinan bot diblokir): {e}")
+        
+    # Kirim ke admin secara independen dengan info profil dinamis
+    try:
+        from src.database import db_get_user_info
+        u_info = db_get_user_info(uid)
         from src.config import ADMIN_ID
         from src.notifications import notify_admin_payment_success
-        await notify_admin_payment_success(bot, int(ADMIN_ID), uid, "Client", "", pkg_name, amt, new_end[:10])
+        await notify_admin_payment_success(
+            bot, int(ADMIN_ID), uid, u_info["full_name"], u_info["username"], pkg_name, amt, new_end[:10]
+        )
     except Exception as e:
-        logger.error(f"Gagal kirim notif aktivasi: {e}")
+        logger.error(f"Gagal kirim notif aktivasi ke admin untuk user {uid}: {e}")
         
     return True, new_end
 
@@ -142,21 +152,34 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
 
 async def run_single_userbot_broadcast(bot, user_id: int, ad_id: int, session_name: str, phone: str, chunk_links: list, api_id, api_hash, subscription_id: int):
     from src.jaseb_engine import JasebEngine
-    eng = JasebEngine(f"data/sessions/{session_name}", api_id, api_hash)
-    try:
-        await eng.start()
-        res = await eng.broadcast_with_stealth(user_id, ad_id, chunk_links, 'slowly', subscription_id=subscription_id)
-        return res
-    except Exception as e:
-        logger.error(f"Gagal broadcast userbot pembeli {phone} ({user_id}): {e}")
-        from src.database import db_update_userbot_status
-        db_update_userbot_status(phone, 'disconnected')
+    from src.userbot_manager import get_session_lock
+    async with get_session_lock(session_name):
+        eng = JasebEngine(f"data/sessions/{session_name}", api_id, api_hash)
         try:
-            await bot.send_message(user_id, f"⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot `{phone}` terputus atau kedaluwarsa. Silakan sambungkan kembali via Bot.")
-        except: pass
-        return {"success_count": 0, "failed_count": len(chunk_links), "success_links": []}
-    finally:
-        await eng.stop()
+            await eng.start()
+            res = await eng.broadcast_with_stealth(user_id, ad_id, chunk_links, 'slowly', subscription_id=subscription_id)
+            return res
+        except Exception as e:
+            logger.error(f"Gagal broadcast userbot pembeli {phone} ({user_id}): {e}")
+            from src.database import db_update_userbot_status
+            db_update_userbot_status(phone, 'disconnected')
+            
+            try:
+                await bot.send_message(user_id, f"⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot `{phone}` terputus or kedaluwarsa. Silakan sambungkan kembali via Bot.")
+            except: pass
+            
+            try:
+                from src.database import db_get_user_info
+                u_info = db_get_user_info(user_id)
+                from src.config import ADMIN_ID
+                from src.notifications import notify_admin_userbot_disconnected
+                await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), user_id, u_info["full_name"], u_info["username"])
+            except Exception as notif_err:
+                logger.error(f"Gagal kirim notif diskoneksi userbot ke admin: {notif_err}")
+                
+            return {"success_count": 0, "failed_count": len(chunk_links), "success_links": []}
+        finally:
+            await eng.stop()
 
 async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_id: int = None):
     """
@@ -307,34 +330,36 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
                         await bot.send_message(user_id, f"🔄 **Smart Redirect:** Bot utama Anda sedang beristirahat (limit). Pengiriman dialihkan ke bot cadangan `{phone}` agar iklan tetap selesai terkirim.")
                     except: pass
                 
-                eng = JasebEngine(f"data/sessions/{sess}", api_id, api_hash)
-                try:
-                    await eng.start()
-                    res = await eng.broadcast_with_stealth(user_id, ad_id, unprocessed, 'slowly' if 'regular' in pkg.lower() else 'instant')
-                    total_succ += res.get("success_count", 0)
-                    total_fail += res.get("failed_count", 0)
-                    total_success_links.extend(res.get("success_links", []))
-                    unprocessed = res.get("unprocessed_links", [])
-                    
-                    if res.get("floodwait_seconds", 0) > 300:
-                        until = (datetime.now(timezone.utc) + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
-                        db_cooldown_admin_userbot(aid, until)
+                from src.userbot_manager import get_session_lock
+                async with get_session_lock(sess):
+                    eng = JasebEngine(f"data/sessions/{sess}", api_id, api_hash)
+                    try:
+                        await eng.start()
+                        res = await eng.broadcast_with_stealth(user_id, ad_id, unprocessed, 'slowly' if 'regular' in pkg.lower() else 'instant')
+                        total_succ += res.get("success_count", 0)
+                        total_fail += res.get("failed_count", 0)
+                        total_success_links.extend(res.get("success_links", []))
+                        unprocessed = res.get("unprocessed_links", [])
                         
-                        # Jika bot admin limit/floodwait, ubah statusnya ke disconnected agar Mini App tahu ada gangguan
+                        if res.get("floodwait_seconds", 0) > 300:
+                            until = (datetime.now(timezone.utc) + timedelta(seconds=res["floodwait_seconds"])).strftime("%Y-%m-%d %H:%M:%S")
+                            db_cooldown_admin_userbot(aid, until)
+                            
+                            # Jika bot admin limit/floodwait, ubah statusnya ke disconnected agar Mini App tahu ada gangguan
+                            from src.database import db_update_admin_userbot_status
+                            db_update_admin_userbot_status(aid, "disconnected")
+                            continue
+                        
+                        if not unprocessed:
+                            break
+                    except Exception as ex:
+                        logger.error(f"Error pada bot admin {phone} saat broadcast: {ex}")
+                        # Jika error koneksi/kredensial, ubah status admin ke disconnected
                         from src.database import db_update_admin_userbot_status
                         db_update_admin_userbot_status(aid, "disconnected")
                         continue
-                    
-                    if not unprocessed:
-                        break
-                except Exception as ex:
-                    logger.error(f"Error pada bot admin {phone} saat broadcast: {ex}")
-                    # Jika error koneksi/kredensial, ubah status admin ke disconnected
-                    from src.database import db_update_admin_userbot_status
-                    db_update_admin_userbot_status(aid, "disconnected")
-                    continue
-                finally:
-                    await eng.stop()
+                    finally:
+                        await eng.stop()
                 
             await notify_client_broadcast_done(bot, user_id, total_succ, total_fail, iv or 0.5, total_success_links)
     finally:

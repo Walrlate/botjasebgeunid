@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     status TEXT DEFAULT 'pending',
     payment_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    quantity INTEGER DEFAULT 1
+    quantity INTEGER DEFAULT 1,
+    assigned_admin_ub_id BIGINT REFERENCES admin_userbots(id) ON DELETE SET NULL
 );
 
 -- 6. Table Forward Logs

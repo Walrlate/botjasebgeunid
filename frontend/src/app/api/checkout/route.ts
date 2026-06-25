@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-telegram-init-data': request.headers.get('x-telegram-init-data') || '',
       },
       body: JSON.stringify(payload),
       next: { revalidate: 0 }

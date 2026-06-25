@@ -8,7 +8,16 @@ logger = logging.getLogger(__name__)
 
 async def create_qris_transaction(amount, description):
     url = "https://klikqris.com/api/qris/create"
-    order_id = f"INV-{int(time.time())}{random.randint(100, 999)}"
+    
+    desc_lower = str(description).lower()
+    if "userbot" in desc_lower:
+        prefix = "USERBOT"
+    elif "forward" in desc_lower or "fwd" in desc_lower:
+        prefix = "FORWARD"
+    else:
+        prefix = "REGULAR"
+        
+    order_id = f"{prefix}-{int(time.time())}{random.randint(100, 999)}"
     
     headers = {
         "Content-Type": "application/json",

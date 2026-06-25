@@ -412,9 +412,15 @@ const Dashboard = () => {
         quantity: selectedPackage.type === 'userbot' ? accountCount : 1
       };
 
+      const webapp = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
+      const initData = webapp?.initData || '';
+
       const response = await fetch('/api/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-telegram-init-data': initData
+        },
         body: JSON.stringify(payload),
       });
 

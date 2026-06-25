@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telethon import events, Button
 
@@ -47,10 +47,14 @@ def _register_handlers(bot):
     async def help_main_callback(event): await _show_help_main(event)
 
     @bot.on(events.CallbackQuery(data=b"help_admin_only"))
-    async def help_admin_only_callback(event): await _show_admin_help(event)
+    async def help_admin_only_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step1_help(event)
 
     @bot.on(events.CallbackQuery(data=b"help_client_only"))
-    async def help_client_only_callback(event): await _show_client_help(event)
+    async def help_client_only_callback(event): await _show_client_step1_help(event)
 
     @bot.on(events.CallbackQuery(data=b"help_client_step1"))
     async def help_client_step1_callback(event): await _show_client_step1_help(event)
@@ -306,9 +310,9 @@ def _register_handlers(bot):
 
 async def _show_help_main(event):
     if event.sender_id == ADMIN_ID:
-        await _show_admin_help(event)
+        await _show_admin_step1_help(event)
     else:
-        await _show_client_help(event)
+        await _show_client_step1_help(event)
 
 async def _show_admin_help(event):
     if event.sender_id != ADMIN_ID:
@@ -407,8 +411,8 @@ async def _show_mystatus(event, user_id: int):
         time_left_str = "Tidak diketahui"
         try:
             clean_end = end.replace("T", " ").split(".")[0].split("+")[0].strip()
-            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S")
-            delta = end_dt - datetime.now()
+            end_dt = datetime.strptime(clean_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            delta = end_dt - datetime.now(timezone.utc)
             
             if delta.total_seconds() <= 0:
                 time_left_str = "Kedaluwarsa"
@@ -499,11 +503,36 @@ def register_edit_jaseb_btn(bot, login_states):
     @bot.on(events.CallbackQuery(pattern=b"confirm_tf_(.+)"))
     async def confirm_transfer_callback(event):
         target_uid = int(event.pattern_match.group(1).decode())
+        
+        from src.database import get_supabase
+        from src.userbot_manager import stop_client_userbot
+        
+        phone_number = None
+        try:
+            supabase = get_supabase()
+            res_ub = supabase.table("userbots").select("phone_number").eq("user_id", event.sender_id).execute()
+            if res_ub.data:
+                phone_number = res_ub.data[0]["phone_number"]
+        except Exception as e:
+            logger.error(f"Gagal mendapatkan nomor HP untuk transfer: {e}")
+            
+        if phone_number:
+            logger.info(f"Menghentikan userbot {phone_number} sebelum transfer...")
+            await stop_client_userbot(phone_number)
+            
         success, msg = db_transfer_userbot_session(event.sender_id, target_uid)
-        if success:
-            from src.userbot_manager import stop_client_userbot
-            await stop_client_userbot(event.sender_id)
         await event.edit(f"{'✅' if success else '❌'} {msg}")
+        
+        if success and phone_number:
+            try:
+                from src.userbot_manager import start_client_userbot
+                phone_clean = phone_number.replace("+", "").replace(" ", "")
+                session_name = f"user_{phone_clean}"
+                import asyncio
+                asyncio.create_task(start_client_userbot(target_uid, session_name, phone_number))
+                logger.info(f"Userbot {phone_number} berhasil dinyalakan untuk pemilik baru {target_uid} secara realtime.")
+            except Exception as start_err:
+                logger.error(f"Gagal menyalakan userbot client hasil transfer secara realtime: {start_err}")
 
     @bot.on(events.NewMessage(pattern='/autoreply'))
     async def autoreply_command_handler(event):
@@ -790,7 +819,7 @@ async def _show_client_step1_help(event):
         "• Jika akun Anda dilindungi Verifikasi 2-Langkah (2FA), masukkan password Anda saat diminta bot.\n"
         "• Akun Anda berhasil online di server!"
     )
-    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_client_step2")], [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]]
+    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_client_step2")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
     await event.edit(text, buttons=buttons)
 
 async def _show_client_step2_help(event):
@@ -808,7 +837,7 @@ async def _show_client_step2_help(event):
     )
     buttons = [
         [Button.inline("⬅️ Panduan 1", b"help_client_step1"), Button.inline("➡️ Panduan 3", b"help_client_step3")],
-        [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     await event.edit(text, buttons=buttons)
 
@@ -832,7 +861,7 @@ async def _show_client_step3_help(event):
     )
     buttons = [
         [Button.inline("⬅️ Panduan 2", b"help_client_step2"), Button.inline("➡️ Panduan 4", b"help_client_step4")],
-        [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     await event.edit(text, buttons=buttons)
 
@@ -851,7 +880,7 @@ async def _show_client_step4_help(event):
         "• **Kustom Bio**: Ganti bio akun userbot Anda secara otomatis langsung lewat bot. Maksimal 70 karakter.\n"
         "• **Transfer Paket**: Pindahkan sisa lisensi paket beserta sesi userbot aktif ke User ID Telegram lain. Gunakan format: `/transfer <ID_TUJUAN>` (contoh: `/transfer 8844645901`)."
     )
-    buttons = [[Button.inline("⬅️ Panduan 3", b"help_client_step3")], [Button.inline("⬅️ Kembali ke Menu Panduan", b"help_client_only")]]
+    buttons = [[Button.inline("⬅️ Panduan 3", b"help_client_step3")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
     await event.edit(text, buttons=buttons)
 
 # ─────────────────────────────────────────
@@ -880,7 +909,7 @@ async def _show_admin_step1_help(event):
         "2️⃣ **Mengatur Harga Pricelist**\n"
         "• Gunakan command `/setprice` untuk mengubah daftar harga paket di Mini App secara interaktif. Anda dapat mengedit harga promo, harga asli, durasi, LPM, dan bonus paket."
     )
-    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_admin_step2")], [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]]
+    buttons = [[Button.inline("➡️ Lanjut ke Panduan 2", b"help_admin_step2")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
     await event.edit(text, buttons=buttons)
 
 async def _show_admin_step2_help(event):
@@ -904,7 +933,7 @@ async def _show_admin_step2_help(event):
     )
     buttons = [
         [Button.inline("⬅️ Panduan 1", b"help_admin_step1"), Button.inline("➡️ Panduan 3", b"help_admin_step3")],
-        [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     await event.edit(text, buttons=buttons)
 
@@ -932,7 +961,7 @@ async def _show_admin_step3_help(event):
     )
     buttons = [
         [Button.inline("⬅️ Panduan 2", b"help_admin_step2"), Button.inline("➡️ Panduan 4", b"help_admin_step4")],
-        [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     await event.edit(text, buttons=buttons)
 
@@ -958,5 +987,5 @@ async def _show_admin_step4_help(event):
         "  - **Edit Tombol**: Mengubah tombol inline link (format: `Teks | URL`).\n"
         "  - **Mulai/Hentikan**: Menjalankan atau menghentikan sebar iklan promosi admin secara massal."
     )
-    buttons = [[Button.inline("⬅️ Panduan 3", b"help_admin_step3")], [Button.inline("⬅️ Kembali ke Menu Owner", b"help_admin_only")]]
+    buttons = [[Button.inline("⬅️ Panduan 3", b"help_admin_step3")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
     await event.edit(text, buttons=buttons)

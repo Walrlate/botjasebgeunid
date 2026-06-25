@@ -5,7 +5,7 @@ Semua pesan notifikasi yang dikirim ke admin atau client dikelola di sini
 agar mudah diubah/diperbaiki tanpa perlu sentuh file lain.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ async def notify_admin_new_order(bot, admin_id: int, user_id: int, full_name: st
         f"📦 Paket: `{package_name}`\n"
         f"💰 Nominal: Rp {amount:,}\n"
         f"🔖 Invoice: `{trx_id}`\n"
-        f"🕐 Waktu: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"🕐 Waktu: {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} UTC\n\n"
         "⏳ _Menunggu konfirmasi pembayaran..._"
     )
     try:
@@ -136,7 +136,7 @@ async def notify_admin_userbot_disconnected(bot, admin_id: int, user_id: int,
     text = (
         "🔌 **Userbot Terputus!**\n\n"
         f"👤 Milik: **{full_name}** ({uname_str})\n"
-        f"📅 Waktu: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"📅 Waktu: {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} UTC\n\n"
         "⚠️ _Jaseb untuk client ini dihentikan sementara sampai userbot disambungkan kembali._"
     )
     try:

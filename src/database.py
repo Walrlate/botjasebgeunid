@@ -70,6 +70,21 @@ def db_ensure_user(user_id: int, username: str = "", full_name: str = ""):
     except Exception as e:
         logger.error(f"Error in db_ensure_user untuk {user_id}: {e}")
 
+def db_get_user_info(user_id: int) -> dict:
+    """Mengambil username dan full_name user berdasarkan user_id dari Supabase."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("users").select("username, full_name").eq("user_id", user_id).execute()
+        if res.data:
+            row = res.data[0]
+            return {
+                "username": row.get("username") or "",
+                "full_name": row.get("full_name") or "Client"
+            }
+    except Exception as e:
+        logger.error(f"Error in db_get_user_info untuk {user_id}: {e}")
+    return {"username": "", "full_name": "Client"}
+
 # ─────────────────────────────────────────
 # HELPER LANGGANAN (SUBSCRIPTIONS)
 # ─────────────────────────────────────────
@@ -801,7 +816,7 @@ def db_insert_forward_log(user_id: int, ad_id: int, group_id: int, msg_link: str
             "msg_link": msg_link or "",
             "status": status,
             "error_msg": error_msg or "",
-            "sent_at": datetime.now().isoformat(),
+            "sent_at": datetime.now(timezone.utc).isoformat(),
             "subscription_id": subscription_id
         }).execute()
         return True
@@ -1011,7 +1026,7 @@ def db_get_all_subscriptions_detail(limit: int = 20):
             .select("id, user_id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
             .eq("status", "active")\
             .gt("end_date", now_str)\
-            .order("end_date", desc=False)\
+            .order("end_date", desc=True)\
             .limit(limit)\
             .execute()
         return res.data or []
@@ -1230,26 +1245,29 @@ def db_generate_activation_token(token: str, package_id: str, lpm_capacity: int,
         return False
 
 def db_redeem_activation_token(token: str, user_id: int) -> tuple:
-    """Klaim token aktivasi untuk mengaktifkan subscription."""
+    """Klaim token aktivasi untuk mengaktifkan subscription secara aman dan atomik."""
     try:
         supabase = get_supabase()
         db_ensure_user(user_id)
-        # Cari token
-        res = supabase.table("activation_tokens").select("*").eq("token", token).execute()
-        if not res.data:
-            return False, "Token tidak valid atau tidak ditemukan."
         
-        token_data = res.data[0]
-        if token_data.get("used_by"):
-            return False, "Token sudah pernah digunakan."
+        # 1. Tandai token telah digunakan secara atomik dahulu untuk mengunci (cegah race condition / double claim)
+        now = datetime.now(timezone.utc)
+        now_str = now.isoformat()
+        
+        res_update = supabase.table("activation_tokens").update({
+            "used_by": user_id,
+            "used_at": now_str
+        }).eq("token", token).is_("used_by", "null").execute()
+        
+        if not res_update.data:
+            return False, "Token tidak valid atau sudah pernah digunakan."
             
+        token_data = res_update.data[0]
         package_id = token_data["package_id"]
         lpm_capacity = token_data["lpm_capacity"]
         duration_days = token_data["duration_days"]
         
         # Tambah atau perpanjang subscription
-        now = datetime.now(timezone.utc)
-        now_str = now.isoformat()
         res_sub = supabase.table("subscriptions")\
             .select("id, end_date")\
             .eq("user_id", user_id)\
@@ -1286,13 +1304,8 @@ def db_redeem_activation_token(token: str, user_id: int) -> tuple:
             "broadcast_interval_hours": 0.5
         }).execute()
         
-        # Tandai token telah digunakan
-        supabase.table("activation_tokens").update({
-            "used_by": user_id,
-            "used_at": now.isoformat()
-        }).eq("token", token).execute()
-        
-        return True, f"Berhasil mengaktifkan {package_name} selama {duration_days} hari!"
+        duration_label = f"{abs(duration_days)} jam" if duration_days < 0 else f"{duration_days} hari"
+        return True, f"Berhasil mengaktifkan {package_name} selama {duration_label}!"
     except Exception as e:
         logger.error(f"Error in db_redeem_activation_token: {e}")
         return False, f"Terjadi kesalahan database: {e}"
@@ -1330,13 +1343,23 @@ def db_add_auto_reply(user_id: int, keyword: str, reply_text: str, skip_links: b
         return False
 
 def db_delete_auto_reply(user_id: int, reply_id: int) -> bool:
-    """Hapus kata kunci auto reply milik user."""
+    """Hapus kata kunci auto reply milik user berdasarkan ID."""
     try:
         supabase = get_supabase()
         supabase.table("auto_replies").delete().eq("id", reply_id).eq("user_id", user_id).execute()
         return True
     except Exception as e:
         logger.error(f"Error in db_delete_auto_reply: {e}")
+        return False
+
+def db_delete_auto_reply_by_keyword(user_id: int, keyword: str) -> bool:
+    """Hapus kata kunci auto reply milik user berdasarkan string kata kunci."""
+    try:
+        supabase = get_supabase()
+        supabase.table("auto_replies").delete().eq("user_id", user_id).eq("keyword", keyword.strip().lower()).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_delete_auto_reply_by_keyword: {e}")
         return False
 
 def db_get_custom_target_messages(user_id: int) -> list:
@@ -1509,37 +1532,35 @@ def db_transfer_userbot_session(old_uid: int, new_uid: int) -> tuple:
         ub_data = res_ub.data[0]
         phone = ub_data["phone_number"]
         old_session = ub_data["session_name"]
-        new_session = f"user_{new_uid}"
+        phone_clean = phone.replace("+", "").replace(" ", "")
+        new_session = f"user_{phone_clean}"
         
-        # 2. Pindahkan file fisik .session secara lokal
-        old_path = f"data/sessions/{old_session}.session"
-        new_path = f"data/sessions/{new_session}.session"
+        # Pindahkan file fisik .session secara lokal hanya jika nama sesinya berbeda
+        if old_session != new_session:
+            old_path = f"data/sessions/{old_session}.session"
+            new_path = f"data/sessions/{new_session}.session"
+            
+            if os.path.exists(old_path):
+                try:
+                    import shutil
+                    shutil.move(old_path, new_path)
+                    # Pindahkan file journal jika ada
+                    old_journal = f"{old_path}-journal"
+                    new_journal = f"{new_path}-journal"
+                    if os.path.exists(old_journal):
+                        try: shutil.move(old_journal, new_journal)
+                        except: pass
+                except Exception as file_err:
+                    logger.error(f"Gagal memindahkan file sesi fisik: {file_err}")
+                    return False, f"Gagal memindahkan file sesi: {file_err}"
         
-        if os.path.exists(old_path):
-            try:
-                import shutil
-                shutil.move(old_path, new_path)
-                # Pindahkan file journal jika ada
-                old_journal = f"{old_path}-journal"
-                new_journal = f"{new_path}-journal"
-                if os.path.exists(old_journal):
-                    try: shutil.move(old_journal, new_journal)
-                    except: pass
-            except Exception as file_err:
-                logger.error(f"Gagal memindahkan file sesi fisik: {file_err}")
-                return False, f"Gagal memindahkan file sesi: {file_err}"
-        
-        # 3. Update tabel userbots (hapus old_uid, masukkan new_uid)
-        # Hapus data userbot new_uid lama jika ada untuk menghindari konflik primary key
+        # 3. Update tabel userbots (hapus new_uid lama jika ada, lalu update phone lama ke user baru)
         supabase.table("userbots").delete().eq("user_id", new_uid).execute()
         
-        supabase.table("userbots").insert({
+        supabase.table("userbots").update({
             "user_id": new_uid,
-            "phone_number": phone,
-            "session_name": new_session,
-            "status": ub_data["status"]
-        }).execute()
-        supabase.table("userbots").delete().eq("user_id", old_uid).execute()
+            "session_name": new_session
+        }).eq("phone_number", phone).execute()
         
         # 4. Pindahkan subskripsi aktif jika ada
         res_sub = supabase.table("subscriptions").select("*").eq("user_id", old_uid).eq("status", "active").execute()
@@ -1687,7 +1708,7 @@ def db_get_active_subscriptions_for_scheduler():
         supabase = get_supabase()
         now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
-            .select("id, user_id, package_name, broadcast_interval_hours")\
+            .select("id, user_id, package_name, broadcast_interval_hours, schedule_start_hour, schedule_end_hour")\
             .eq("status", "active")\
             .gt("end_date", now_str)\
             .execute()

@@ -54,9 +54,10 @@ class JasebEngine:
                     await self.client.connect()
                     break
                 except Exception as e:
+                    import sqlite3
                     err_str = str(e).lower()
-                    if "lock" in err_str or "locked" in err_str:
-                        logger.warning(f"⚠️ Berkas sesi terkunci, mencoba kembali dalam 3 detik... (Sisa retry: {retries-1})")
+                    if isinstance(e, sqlite3.OperationalError) or "lock" in err_str or "locked" in err_str:
+                        logger.warning(f"⚠️ Berkas sesi terkunci, mencoba kembali dalam 3 detik... (Sisa retry: {retries-1}) | Detail: {e}")
                         await asyncio.sleep(3)
                         retries -= 1
                     else:

@@ -9,7 +9,7 @@ import re
 import os
 import json
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiohttp import web
 
 from telethon import TelegramClient, events, Button
@@ -48,6 +48,7 @@ from src.payments import create_qris_transaction, check_transaction_status
 from src.jaseb_engine import JasebEngine
 from src.notifications import (
     notify_client_subscription_expiring,
+    notify_admin_new_order,
 )
 from src.logic import process_activation, run_broadcast_cycle, get_package_duration_days
 from src.admin_handlers import init_admin_handlers, handle_setprice_input
@@ -161,11 +162,15 @@ async def get_web_app_url(user_id: int) -> str:
     days = 0
     if sub_row:
         try:
-            end_dt = datetime.strptime(sub_row[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
-            delta = end_dt - datetime.now()
+            end_str = sub_row[2].replace("T", " ").split(".")[0].strip()
+            if "+" in end_str:
+                end_str = end_str.split("+")[0].strip()
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            delta = end_dt - datetime.now(timezone.utc)
             days = max(0, delta.days)
             if days == 0 and delta.total_seconds() > 0: days = 1
-        except: pass
+        except Exception as parse_err:
+            logger.error(f"Error parsing date in get_web_app_url: {parse_err}")
     import urllib.parse
     params = {"b": succ_user, "l": total_lpm, "u": total_ub, "ub": ub_status, "pkg": pkg_name, "ulpm": cap, "days": days, "int": iv}
     return f"{MINI_APP_URL.rstrip('/')}/?{urllib.parse.urlencode(params)}"
@@ -336,14 +341,18 @@ async def user_input_handler(event):
         except SessionPasswordNeededError:
             login_states[user_id].update({"state": "waiting_for_password"})
             await event.respond("🔒 **AKUN ANDA MENGGUNAKAN 2FA!**\n\nMasukkan password verifikasi 2-langkah akun Telegram Anda:")
-        except Exception as e: await event.respond(f"❌ OTP Salah atau Gagal: {e}")
+        except Exception as e:
+            await event.respond(f"❌ OTP Salah atau Gagal: {e}")
+            await clear_login_state(user_id)
 
     elif current_state == "waiting_for_password":
         try:
             client = state_data["client"]
             await client.sign_in(password=text)
             await _save_userbot_session(event, client, state_data["phone"])
-        except Exception as e: await event.respond(f"❌ Password Salah atau Gagal: {e}")
+        except Exception as e:
+            await event.respond(f"❌ Password Salah atau Gagal: {e}")
+            await clear_login_state(user_id)
 
     elif current_state == "waiting_for_ad":
         sub = db_get_active_subscription_status(user_id)
@@ -470,6 +479,13 @@ async def _save_userbot_session(event, client, phone):
     if not is_admin:
         login_states[user_id] = {"state": "waiting_for_ad"}
         await event.respond("✅ **Userbot Terhubung!**\n\nSekarang silakan **KIRIM MATERI IKLAN** Anda ke sini:")
+        
+        # Jalankan daemon userbot client secara live & realtime (Auto Reply & PM Permit)
+        try:
+            from src.userbot_manager import start_client_userbot
+            asyncio.create_task(start_client_userbot(user_id, session, phone))
+        except Exception as start_err:
+            logger.error(f"Gagal menyalakan daemon userbot client {phone} secara live: {start_err}")
     else:
         del login_states[user_id]
         await event.respond("✅ **Pool Admin Ditambahkan!**")
@@ -501,7 +517,14 @@ async def order_format_parser(event):
     except Exception:
         target_uid = event.sender_id
     import random
-    trx_id = f"MAN-{int(datetime.now().timestamp())}{random.randint(100, 999)}"
+    paket_lower = paket.lower()
+    if "userbot" in paket_lower:
+        prefix = "USERBOT"
+    elif "forward" in paket_lower or "fwd" in paket_lower:
+        prefix = "FORWARD"
+    else:
+        prefix = "REGULAR"
+    trx_id = f"{prefix}-MAN-{int(datetime.now(timezone.utc).timestamp())}{random.randint(100, 999)}"
     
     # Parse assigned_admin_ub_id dari "pilihan bot" jika ada
     admin_ub_id = None
@@ -510,8 +533,16 @@ async def order_format_parser(event):
         m_admin = re.search(r'(\d+)', pilihan_bot)
         if m_admin:
             admin_ub_id = int(m_admin.group(1))
+
+    # Parse kuantitas (quantity) dari "jumlah akun"
+    quantity = 1
+    raw_qty = data.get("jumlah akun", "").strip()
+    if raw_qty:
+        m_qty = re.search(r'(\d+)', raw_qty)
+        if m_qty:
+            quantity = int(m_qty.group(1))
             
-    db_save_transaction(target_uid, trx_id, paket, amount, "manual", admin_ub_id)
+    db_save_transaction(target_uid, trx_id, paket, amount, "manual", admin_ub_id, quantity)
     await process_activation(bot, trx_id, load_prices(), login_states)
     await event.respond(f"✅ **Aktivasi Sukses!** (ID: {trx_id})")
 
@@ -597,12 +628,42 @@ def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
         logger.error(f"Error dalam verifikasi initData: {e}")
         return None
 
+def is_authenticated_user(uid: int, init_data: str) -> bool:
+    """
+    Memverifikasi apakah user terotentikasi.
+    Di production, wajib memverifikasi initData Telegram secara ketat.
+    Di dev mode (jika DEV_MODE=True disetel di env), bypass verifikasi jika tidak ada initData.
+    """
+    if uid == ADMIN_ID:
+        return True
+        
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    if dev_mode and not init_data:
+        logger.info(f"Dev mode bypass auth untuk user_id {uid}")
+        return True
+        
+    if not init_data:
+        return False
+        
+    verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
+    if verified_user and int(verified_user.get("id", 0)) == uid:
+        return True
+        
+    return False
+
 async def handle_prices_api(request): return web.json_response(load_prices(), headers={"Access-Control-Allow-Origin": "*"})
 
 async def handle_checkout_api(request):
     try:
         data = await request.json()
-        uid, amt, pkg, method = int(data['user_id']), int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
+        uid = int(data['user_id'])
+        
+        # Validasi initData Telegram (SEC-02 & SEC-03)
+        init_data = request.headers.get("x-telegram-init-data", "")
+        if not is_authenticated_user(uid, init_data):
+            return web.json_response({"status": False, "error": "Akses Ditolak. Otentikasi Telegram tidak valid."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+            
+        amt, pkg, method = int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
         quantity = int(data.get('quantity', 1))
         admin_ub_id = data.get("assigned_admin_ub_id")
         if admin_ub_id is not None:
@@ -617,14 +678,41 @@ async def handle_checkout_api(request):
                 }, status=400, headers={"Access-Control-Allow-Origin": "*"})
             
         if method == 'manual':
-            trx_id = f"MAN-{int(datetime.now().timestamp())}"
+            pkg_lower = pkg.lower()
+            if "userbot" in pkg_lower:
+                prefix = "USERBOT"
+            elif "forward" in pkg_lower or "fwd" in pkg_lower:
+                prefix = "FORWARD"
+            else:
+                prefix = "REGULAR"
+            trx_id = f"{prefix}-MAN-{int(datetime.now(timezone.utc).timestamp())}"
             db_save_transaction(uid, trx_id, pkg, amt, "manual", admin_ub_id, quantity)
             login_states[uid] = {"state": "waiting_for_proof", "trx_id": trx_id, "amount": amt, "package_name": pkg}
             await bot.send_message(uid, f"📥 **INSTRUKSI MANUAL**\n\nID: {trx_id}\nTotal: Rp {amt:,}\n\nKirim foto bukti transfer ke bot!")
+            
+            try:
+                from src.database import db_get_user_info
+                u_info = db_get_user_info(uid)
+                asyncio.create_task(notify_admin_new_order(
+                    bot, int(ADMIN_ID), uid, u_info["full_name"], u_info["username"], pkg, amt, trx_id
+                ))
+            except Exception as notif_err:
+                logger.error(f"Gagal kirim notif order manual baru ke admin: {notif_err}")
+
             return web.json_response({"status": True, "data": {"transaction_id": trx_id, "payment_url": "manual"}}, headers={"Access-Control-Allow-Origin": "*"})
         trx = await create_qris_transaction(amt, pkg)
         if trx:
             db_save_transaction(uid, trx['transaction_id'], pkg, amt, trx['payment_url'], admin_ub_id, quantity)
+            
+            try:
+                from src.database import db_get_user_info
+                u_info = db_get_user_info(uid)
+                asyncio.create_task(notify_admin_new_order(
+                    bot, int(ADMIN_ID), uid, u_info["full_name"], u_info["username"], pkg, amt, trx['transaction_id']
+                ))
+            except Exception as notif_err:
+                logger.error(f"Gagal kirim notif order QRIS baru ke admin: {notif_err}")
+
             return web.json_response({"status": True, "data": trx}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error handle_checkout_api: {e}")
@@ -634,20 +722,10 @@ async def handle_user_stats_api(request):
     try:
         uid = int(request.match_info['user_id'])
         
-        # Otorisasi & Validasi Privasi Tingkat Tinggi
+        # Otorisasi & Validasi Privasi Tingkat Tinggi (SEC-02 & SEC-03)
         init_data = request.headers.get("x-telegram-init-data", "")
-        is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
-        
-        # Bypass validasi untuk ADMIN_ID (tidak perlu initData)
-        if uid == ADMIN_ID:
-            pass  # Admin selalu diizinkan
-        elif is_production or init_data:
-            # Di production, wajib ada initData yang valid
-            if not init_data:
-                return web.json_response({"status": False, "error": "Akses Ditolak. Init data tidak ditemukan."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
-            verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
-            if not verified_user or int(verified_user.get("id", 0)) != uid:
-                return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+        if not is_authenticated_user(uid, init_data):
+            return web.json_response({"status": False, "error": "Akses Ditolak. Otentikasi Telegram tidak valid."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
                 
         succ = db_get_global_success_forward_logs_count()
         sub = db_get_active_subscription_status(uid)
@@ -655,11 +733,15 @@ async def handle_user_stats_api(request):
         res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub_status}
         if sub:
             try:
-                end_dt = datetime.strptime(sub[2].split(".")[0].strip(), "%Y-%m-%d %H:%M:%S")
-                delta = end_dt - datetime.now()
+                end_str = sub[2].replace("T", " ").split(".")[0].strip()
+                if "+" in end_str:
+                    end_str = end_str.split("+")[0].strip()
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                delta = end_dt - datetime.now(timezone.utc)
                 res.update({"package_name": sub[0], "capacity_lpm": sub[1], "days_left": max(0, delta.days), "seconds_left": max(0, int(delta.total_seconds())), "interval": sub[3]})
                 if res["days_left"] == 0 and res["seconds_left"] > 0: res["days_left"] = 1
-            except: pass
+            except Exception as parse_err:
+                logger.error(f"Error parsing user stats date: {parse_err}")
         return web.json_response({"status": True, "data": res}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error handle_user_stats_api: {e}")
@@ -669,19 +751,10 @@ async def handle_history_api(request):
     try:
         uid = int(request.match_info['user_id'])
         
-        # Otorisasi & Validasi Privasi Tingkat Tinggi
+        # Otorisasi & Validasi Privasi Tingkat Tinggi (SEC-02 & SEC-03)
         init_data = request.headers.get("x-telegram-init-data", "")
-        is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("RAILWAY_STATIC_URL") is not None
-        
-        # Bypass validasi untuk ADMIN_ID (tidak perlu initData)
-        if uid == ADMIN_ID:
-            pass  # Admin selalu diizinkan
-        elif is_production or init_data:
-            if not init_data:
-                return web.json_response({"status": False, "error": "Akses Ditolak. Init data tidak ditemukan."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
-            verified_user = verify_telegram_init_data(init_data, BOT_TOKEN)
-            if not verified_user or int(verified_user.get("id", 0)) != uid:
-                return web.json_response({"status": False, "error": "Akses Ditolak. Pelanggaran Privasi."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+        if not is_authenticated_user(uid, init_data):
+            return web.json_response({"status": False, "error": "Akses Ditolak. Otentikasi Telegram tidak valid."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
                 
         rows = db_get_forward_history(uid)
         return web.json_response({"status": True, "data": [{"group_name": r[0] or "Grup LPM", "msg_link": r[1], "status": r[2], "error_msg": r[3], "sent_at": r[4]} for r in rows]}, headers={"Access-Control-Allow-Origin": "*"})
@@ -703,26 +776,58 @@ async def run_jaseb_scheduler():
     last_run = {}
     from datetime import timezone
     while True:
-        await asyncio.sleep(60)
-        now = datetime.now(timezone.utc)
-        from src.database import db_get_active_subscriptions_for_scheduler, db_get_last_broadcast_time_by_sub
-        subs = db_get_active_subscriptions_for_scheduler()
-        for sub in subs:
-            sub_id = sub["id"]
-            uid = sub["user_id"]
-            iv = float(sub["broadcast_interval_hours"] or 0.5)
+        try:
+            await asyncio.sleep(60)
+            now = datetime.now(timezone.utc)
+            # Konversi UTC ke WIB (GMT+7) untuk kecocokan jam operasional lokal Indonesia
+            wib_hour = (now + timedelta(hours=7)).hour
             
-            if sub_id not in last_run:
-                last_db = db_get_last_broadcast_time_by_sub(sub_id)
-                if last_db:
-                    if last_db.tzinfo is None:
-                        last_db = last_db.replace(tzinfo=timezone.utc)
-                    last_run[sub_id] = last_db
-                else:
-                    last_run[sub_id] = now - timedelta(hours=iv + 1)
-            if (now - last_run[sub_id]).total_seconds() >= iv * 3600:
-                last_run[sub_id] = now
-                asyncio.create_task(run_broadcast_cycle(bot, uid, API_ID, API_HASH, subscription_id=sub_id))
+            from src.database import db_get_active_subscriptions_for_scheduler, db_get_last_broadcast_time_by_sub
+            subs = db_get_active_subscriptions_for_scheduler()
+            for sub in subs:
+                try:
+                    sub_id = sub["id"]
+                    uid = sub["user_id"]
+                    iv = float(sub["broadcast_interval_hours"] or 0.5)
+                    
+                    # Saring berdasarkan jam operasional
+                    start_h = sub.get("schedule_start_hour", 0)
+                    end_h = sub.get("schedule_end_hour", 23)
+                    
+                    if start_h <= end_h:
+                        in_schedule = (start_h <= wib_hour <= end_h)
+                    else:
+                        # Menangani rentang jam melewati tengah malam (contoh: 22 s.d. 4)
+                        in_schedule = (wib_hour >= start_h or wib_hour <= end_h)
+                        
+                    if not in_schedule:
+                        # Lewati siklus broadcast jika di luar jam operasional
+                        continue
+                    
+                    if sub_id not in last_run:
+                        last_db = db_get_last_broadcast_time_by_sub(sub_id)
+                        if last_db:
+                            if last_db.tzinfo is None:
+                                last_db = last_db.replace(tzinfo=timezone.utc)
+                            else:
+                                last_db = last_db.astimezone(timezone.utc)
+                            last_run[sub_id] = last_db
+                        else:
+                            last_run[sub_id] = now - timedelta(hours=iv + 1)
+                    
+                    l_run = last_run[sub_id]
+                    if l_run.tzinfo is None:
+                        l_run = l_run.replace(tzinfo=timezone.utc)
+                    else:
+                        l_run = l_run.astimezone(timezone.utc)
+                        
+                    if (now - l_run).total_seconds() >= iv * 3600:
+                        last_run[sub_id] = now
+                        asyncio.create_task(run_broadcast_cycle(bot, uid, API_ID, API_HASH, subscription_id=sub_id))
+                except Exception as sub_err:
+                    logger.error(f"Error memproses subskripsi {sub.get('id')} di scheduler: {sub_err}")
+        except Exception as e:
+            logger.error(f"Error di run_jaseb_scheduler main loop: {e}")
 
 async def run_expiry_reminder():
     from datetime import timezone
@@ -754,6 +859,12 @@ async def handle_klikqris_webhook(request):
         status = str(data.get("status", "")).lower()
         
         if trx_id and status in ("success", "settlement", "paid", "terbayar"):
+            # Double-check: Lakukan verifikasi balik ke API KlikQRIS (SEC-01)
+            verification = await check_transaction_status(trx_id)
+            if not verification or verification.get("data", {}).get("status") != "success":
+                logger.warning(f"⚠️ Webhook warning: Status KlikQRIS webhook 'success' untuk {trx_id} tetapi gagal saat diverifikasi balik ke API. Mengabaikan aktivasi.")
+                return web.json_response({"status": "fail", "message": "Verification failed"}, headers={"Access-Control-Allow-Origin": "*"})
+                
             from src.logic import process_activation
             success, msg = await process_activation(bot, trx_id, load_prices(), login_states)
             if success:
@@ -825,8 +936,9 @@ async def main():
     init_client_handlers(bot, login_states, load_prices); register_edit_jaseb_btn(bot, login_states)
     
     # Inisialisasi daemon userbot klien (Auto Reply & PM Permit)
-    from src.userbot_manager import start_all_connected_userbots
+    from src.userbot_manager import start_all_connected_userbots, run_expired_userbots_cleaner
     asyncio.create_task(start_all_connected_userbots())
+    asyncio.create_task(run_expired_userbots_cleaner(bot))
     
     asyncio.create_task(run_jaseb_scheduler()); asyncio.create_task(run_expiry_reminder()); asyncio.create_task(run_web_server())
     await bot.run_until_disconnected()

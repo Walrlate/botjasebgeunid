@@ -58,3 +58,6 @@ ALTER TABLE userbots ADD CONSTRAINT userbots_phone_number_pkey PRIMARY KEY (phon
 ALTER TABLE userbots ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
 ALTER TABLE userbots ADD CONSTRAINT userbots_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
 ALTER TABLE userbots ADD CONSTRAINT userbots_session_name_key UNIQUE (session_name);
+
+-- 8. Tambah kolom assigned_admin_ub_id ke transactions (sinkronisasi dengan kode Python)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS assigned_admin_ub_id BIGINT REFERENCES admin_userbots(id) ON DELETE SET NULL;
