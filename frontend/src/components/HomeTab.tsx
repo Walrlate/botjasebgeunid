@@ -125,83 +125,78 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         </div>
       </div>
 
-      {/* Live Broadcast Progress Tracker (GeunID Premium Custom Tool) */}
+      {/* Live Broadcast Progress Tracker (GeunID Light Premium Theme) */}
       {stats.broadcastProgress && stats.broadcastProgress.status === 'running' && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 5 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -5 }}
-          className="relative overflow-hidden rounded-3xl p-5 border border-slate-800 bg-gradient-to-br from-slate-900 via-[#13192b] to-[#0b0e1b] text-white shadow-xl shadow-indigo-950/15"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="glass-panel rounded-3xl p-5 shadow-soft space-y-4"
         >
-          {/* Grid visual decor */}
-          <div className="absolute inset-0 opacity-[0.04] bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:14px_18px] pointer-events-none" />
-
-          <div className="relative z-10 space-y-4.5">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
-                </span>
-                <span className="text-[9px] font-black tracking-widest uppercase text-indigo-400">⚡ SIARAN LANGSUNG AKTIF</span>
-              </div>
-              <span className="text-[10px] font-mono text-indigo-300 font-bold bg-white/5 border border-white/5 px-2 py-0.5 rounded-md">
-                {stats.broadcastProgress.current_index}/{stats.broadcastProgress.total} Grup
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-geun-blue" />
               </span>
+              <span className="text-[8.5px] font-black tracking-widest uppercase text-geun-blue">SEBAR IKLAN AKTIF</span>
             </div>
+            <span className="text-[9.5px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+              {stats.broadcastProgress.current_index}/{stats.broadcastProgress.total} Grup
+            </span>
+          </div>
 
-            {/* Current Target Detail */}
-            <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-3 flex.5 items-center justify-between flex gap-2">
-              <div className="space-y-0.5 min-w-0 flex-1">
-                <span className="text-[8px] text-slate-500 block uppercase font-bold tracking-wider">Target Saat Ini</span>
-                <p className="text-[11.5px] font-bold text-slate-200 truncate">
-                  {stats.broadcastProgress.current_group || 'Menyiapkan koneksi...'}
-                </p>
-              </div>
-              <span className="flex items-center gap-1 bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-indigo-500/20 animate-pulse">
-                Sending
-              </span>
+          {/* Current Target Detail */}
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center justify-between gap-2">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <span className="text-[7.5px] text-slate-400 block uppercase font-bold tracking-wider">Target Saat Ini</span>
+              <p className="text-[11px] font-bold text-slate-700 truncate">
+                {stats.broadcastProgress.current_group || 'Menghubungkan...'}
+              </p>
             </div>
+            <span className="flex items-center gap-1 bg-blue-50 text-geun-blue px-2.5 py-0.5 rounded-full text-[7.5px] font-extrabold uppercase tracking-wider border border-blue-100/60 animate-pulse">
+              Sending
+            </span>
+          </div>
 
-            {/* Live Progress Bar */}
-            {(() => {
-              const total = stats.broadcastProgress.total || 1;
-              const current = stats.broadcastProgress.current_index || 0;
-              const percent = Math.min(100, Math.round((current / total) * 100));
-              return (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-bold text-slate-400 tracking-wider">
-                    <span>Kemajuan Pengiriman</span>
-                    <span className="text-indigo-400">{percent}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-white/[0.06] rounded-full overflow-hidden p-[1px] border border-white/5">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${percent}%` }}
-                      transition={{ duration: 0.5, ease: "easeOut" }}
-                      className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.4)]"
-                    />
-                  </div>
+          {/* Live Progress Bar */}
+          {(() => {
+            const total = stats.broadcastProgress.total || 1;
+            const current = stats.broadcastProgress.current_index || 0;
+            const percent = Math.min(100, Math.round((current / total) * 100));
+            return (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-[8.5px] font-bold text-slate-400">
+                  <span>Progres Pengiriman</span>
+                  <span className="text-geun-blue">{percent}%</span>
                 </div>
-              );
-            })()}
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden p-[1px]">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percent}%` }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="h-full bg-gradient-to-r from-blue-400 to-geun-blue rounded-full"
+                  />
+                </div>
+              </div>
+            );
+          })()}
 
-            {/* Real-time stats numbers */}
-            <div className="grid grid-cols-3 gap-2 pt-1">
-              <div className="bg-emerald-500/[0.05] border border-emerald-500/10 rounded-2xl py-2.5 text-center transition-all duration-300">
-                <span className="text-[7.5px] font-bold text-emerald-400 block uppercase tracking-widest">Sukses 🟢</span>
-                <span className="text-[15px] font-black text-emerald-300 mt-0.5 block">{stats.broadcastProgress.success}</span>
-              </div>
-              <div className="bg-rose-500/[0.05] border border-rose-500/10 rounded-2xl py-2.5 text-center transition-all duration-300">
-                <span className="text-[7.5px] font-bold text-rose-400 block uppercase tracking-widest">Gagal 🔴</span>
-                <span className="text-[15px] font-black text-rose-300 mt-0.5 block">{stats.broadcastProgress.failed}</span>
-              </div>
-              <div className="bg-indigo-500/[0.05] border border-indigo-500/10 rounded-2xl py-2.5 text-center transition-all duration-300">
-                <span className="text-[7.5px] font-bold text-indigo-400 block uppercase tracking-widest">Sisa ⏳</span>
-                <span className="text-[15px] font-black text-indigo-300 mt-0.5 block">
-                  {Math.max(0, stats.broadcastProgress.total - stats.broadcastProgress.current_index)}
-                </span>
-              </div>
+          {/* Real-time stats numbers */}
+          <div className="grid grid-cols-3 gap-2.5 pt-0.5">
+            <div className="bg-emerald-50/40 border border-emerald-100/60 rounded-xl py-2 text-center">
+              <span className="text-[7px] font-bold text-emerald-600 block uppercase tracking-widest">Sukses</span>
+              <span className="text-[14px] font-black text-emerald-700 mt-0.5 block">{stats.broadcastProgress.success}</span>
+            </div>
+            <div className="bg-rose-50/40 border border-rose-100/60 rounded-xl py-2 text-center">
+              <span className="text-[7px] font-bold text-rose-600 block uppercase tracking-widest">Gagal</span>
+              <span className="text-[14px] font-black text-rose-700 mt-0.5 block">{stats.broadcastProgress.failed}</span>
+            </div>
+            <div className="bg-slate-50 border border-slate-100 rounded-xl py-2 text-center">
+              <span className="text-[7px] font-bold text-slate-500 block uppercase tracking-widest">Sisa</span>
+              <span className="text-[14px] font-black text-slate-600 mt-0.5 block">
+                {Math.max(0, stats.broadcastProgress.total - stats.broadcastProgress.current_index)}
+              </span>
             </div>
           </div>
         </motion.div>
