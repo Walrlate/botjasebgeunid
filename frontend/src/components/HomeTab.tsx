@@ -106,7 +106,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
       </div>
 
       <div className="space-y-3">
-        <div className="glass-panel rounded-2xl p-4.5 flex justify-between items-center shadow-soft bg-white/80 backdrop-blur-md border border-slate-200/50">
+        <div className="glass-panel rounded-2xl px-5 py-4 flex justify-between items-center shadow-soft bg-white/80 backdrop-blur-md border border-slate-200/50">
           <div className="space-y-0.5 text-left">
             <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest block">Total Pesan Terkirim</span>
             <p className="text-[9px] font-bold text-slate-500/90 leading-none">Menggunakan Layanan GEUNID</p>
