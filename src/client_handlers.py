@@ -240,6 +240,7 @@ def _register_handlers(bot):
     async def client_connect_session_callback(event):
         uid = event.sender_id
         _login_states[uid] = {"state": "waiting_for_phone"}
+        logger.info(f"🔑 client_connect_session_callback: set uid={uid} (type={type(uid)}) to waiting_for_phone, _login_states={list(_login_states.keys())}")
         await event.edit("📱 **SAMBUNGKAN USERBOT BARU**\n\nMasukkan nomor HP akun Telegram Anda (+628xxx):", buttons=[[Button.inline("❌ Batal", b"client_panel")]])
 
     @bot.on(events.CallbackQuery(data=b"client_target_lpm"))

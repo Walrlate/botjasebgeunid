@@ -294,6 +294,7 @@ async def install_handler(event):
 async def user_input_handler(event):
     text = (event.text or "").strip()
     user_id = event.sender_id
+    logger.info(f"📩 user_input_handler: user_id={user_id} (type={type(user_id)}), text='{text}', login_states={list(login_states.keys())}")
     
     # Daftarkan/update profil user ke database secara otomatis dan realtime
     try:
