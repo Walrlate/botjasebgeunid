@@ -566,13 +566,52 @@ def register_edit_jaseb_btn(bot, login_states):
 
     @bot.on(events.CallbackQuery(data=b"sch_edit"))
     async def sch_edit_callback(event):
-        login_states[event.sender_id] = {"state": "waiting_for_schedule_input"}
-        await event.edit(
+        text = (
             "⏰ **UBAH JAM OPERASIONAL SEBAR**\n\n"
-            "Ketik rentang jam operasional (format: `jam_mulai | jam_selesai` dalam format 24 jam).\n\n"
-            "_Contoh:_ `8 | 22` (sebar iklan hanya akan berjalan dari jam 8 pagi sampai jam 10 malam lokal server).",
-            buttons=[[Button.inline("❌ Batal", b"schedule_main")]]
+            "Silakan pilih opsi rentang jam operasional di bawah ini secara instan, atau pilih Kustom untuk mengetik manual:"
         )
+        buttons = [
+            [Button.inline("🕒 24 Jam Penuh (00:00 - 23:00)", b"sch_set_24")],
+            [Button.inline("💼 Jam Kerja (08:00 - 17:00)", b"sch_set_office")],
+            [Button.inline("☀️ Pagi - Malam (08:00 - 22:00)", b"sch_set_day")],
+            [Button.inline("🌙 Siang - Tengah Malam (12:00 - 23:00)", b"sch_set_night")],
+            [Button.inline("✏️ Kustom Jam (Ketik Manual)", b"sch_set_custom")],
+            [Button.inline("❌ Batal", b"schedule_main")]
+        ]
+        await event.edit(text, buttons=buttons)
+
+    @bot.on(events.CallbackQuery(pattern=b"sch_set_(.+)"))
+    async def sch_set_preset_callback(event):
+        preset = event.pattern_match.group(1).decode()
+        uid = event.sender_id
+        from src.database import db_update_subscription_schedule
+        
+        if preset == "24":
+            start_h, end_h = 0, 23
+        elif preset == "office":
+            start_h, end_h = 8, 17
+        elif preset == "day":
+            start_h, end_h = 8, 22
+        elif preset == "night":
+            start_h, end_h = 12, 23
+        elif preset == "custom":
+            login_states[event.sender_id] = {"state": "waiting_for_schedule_input"}
+            await event.edit(
+                "⏰ **UBAH JAM OPERASIONAL (KUSTOM)**\n\n"
+                "Ketik rentang jam operasional (format: `jam_mulai | jam_selesai` dalam format 24 jam).\n\n"
+                "_Contoh:_ `8 | 22` (sebar iklan dari jam 8 pagi s/d jam 10 malam).",
+                buttons=[[Button.inline("❌ Batal", b"sch_edit")]]
+            )
+            return
+        else:
+            await event.answer("❌ Opsi tidak valid.", alert=True)
+            return
+            
+        if db_update_subscription_schedule(uid, start_h, end_h):
+            await event.answer("✅ Jam operasional berhasil diperbarui!", alert=True)
+        else:
+            await event.answer("❌ Gagal menyimpan ke database.", alert=True)
+        await _show_schedule_menu(event)
 
 async def _show_autoreply_menu(event):
     uid = event.sender_id

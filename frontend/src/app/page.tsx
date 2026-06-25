@@ -392,7 +392,7 @@ const Dashboard = () => {
     const finalAmount = basePrice + qrisFee;
 
     const packName = selectedPackage.type === 'userbot'
-      ? `Jaseb Userbot ${selectedPackage.duration}`
+      ? `Paket Userbot ${selectedPackage.duration}`
       : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
 
     try {

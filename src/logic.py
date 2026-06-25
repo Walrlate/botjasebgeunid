@@ -234,6 +234,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
         if "userbot" in pkg.lower():
             # JALUR USERBOT PEMBELI (Mendukung Bulk / Sharding Akun Klien)
             from src.database import db_get_userbots_by_subscription
+            from src.userbot_manager import active_clients
             ubots = db_get_userbots_by_subscription(subscription_id)
             connected_ubots = [u for u in ubots if u["status"] == "connected"]
             
@@ -242,8 +243,59 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
                 except: pass
                 return
             
+            # Ambil semua grup lokal yang diikuti oleh akun userbot ini secara otomatis
+            userbot_local_groups = []
+            userbot_local_links = []
+            
+            for ub in connected_ubots:
+                phone = ub["phone_number"]
+                client = active_clients.get(phone)
+                if client:
+                    try:
+                        async for dialog in client.iter_dialogs(limit=100):
+                            if dialog.is_group or dialog.is_channel:
+                                title = dialog.name or "Grup Tanpa Nama"
+                                username = getattr(dialog.entity, 'username', None)
+                                group_link = f"https://t.me/{username}" if username else None
+                                group_id = dialog.entity.id
+                                member_count = getattr(dialog.entity, 'participants_count', 0) or 0
+                                
+                                # Siapkan data untuk database LPM admin
+                                userbot_local_groups.append({
+                                    "name": title,
+                                    "link": group_link,
+                                    "group_id": group_id,
+                                    "member_count": member_count
+                                })
+                                
+                                # Siapkan target kirim (utamakan link username, fallback ke ID grup jika privat)
+                                target_send = group_link if group_link else str(group_id)
+                                if target_send:
+                                    userbot_local_links.append(target_send)
+                    except Exception as ex_dlg:
+                        logger.error(f"Error fetching local dialogs for broadcast on {phone}: {ex_dlg}")
+            
+            # Sinkronisasikan grup-grup tersebut ke tabel lpm_lists admin
+            if userbot_local_groups:
+                from src.database import db_save_userbot_groups_to_lpm
+                db_save_userbot_groups_to_lpm(userbot_local_groups)
+                
+            # Gabungkan dengan target khusus pembeli (req_lpm)
+            custom_links = [l.strip() for l in (req_lpm or "").split() if l.strip()]
+            
+            # Gabungkan target (hindari duplikat)
+            target_links = list(dict.fromkeys(custom_links + userbot_local_links))
+            
+            # Batasi target_links agar tidak melebihi kapasitas (cap) jika cap > 0
+            if cap > 0:
+                target_links = target_links[:cap]
+            
+            # Fallback jika target link kosong sama sekali, ambil dari LPM global
+            if not target_links:
+                target_links = db_get_active_lpm_lists(cap if cap > 0 else 50)
+                
             # Bagi target LPM secara merata ke seluruh ubot yang online
-            chunks = [links[i::len(connected_ubots)] for i in range(len(connected_ubots))]
+            chunks = [target_links[i::len(connected_ubots)] for i in range(len(connected_ubots))]
             
             tasks = []
             for idx, ub in enumerate(connected_ubots):

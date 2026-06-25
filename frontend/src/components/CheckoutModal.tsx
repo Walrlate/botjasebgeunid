@@ -448,13 +448,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
             <a
-              href={`https://t.me/Geun_ID?text=${encodeURIComponent(getOrderFormatText())}`}
+              href={`https://t.me/GeunID_bot?start=manual_${manualTrxData?.transaction_id}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => triggerHaptic('heavy')}
               className="bg-gradient-to-r from-geun-blue to-geun-purple text-white py-3.5 rounded-2xl text-[10px] font-black uppercase text-center block shadow-premium"
             >
-              💬 Kirim ke Admin
+              💬 Kirim Bukti ke Bot
             </a>
           </div>
         )}

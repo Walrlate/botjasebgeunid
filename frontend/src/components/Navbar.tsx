@@ -33,22 +33,26 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, handleTabChange }) => {
   return (
-    <nav className="absolute bottom-6 left-4 right-4 h-16 bg-white border border-slate-200/80 rounded-3xl flex items-center justify-around px-2 shadow-premium z-40">
-      <button onClick={() => handleTabChange('home')} className={`flex flex-col items-center justify-center w-12 h-12 transition-spring relative ${activeTab === 'home' ? 'scale-105' : 'text-slate-400'}`}>
+    <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[calc(448px-2rem)] h-20 bg-white border border-slate-200/80 rounded-3xl flex items-center justify-around px-2 shadow-premium z-40">
+      <button onClick={() => handleTabChange('home')} className={`flex flex-col items-center justify-center w-16 h-16 transition-spring relative pb-2 ${activeTab === 'home' ? 'scale-105' : 'text-slate-400'}`}>
         <HomeIcon active={activeTab === 'home'} />
-        {activeTab === 'home' && <span className="absolute bottom-1 w-1.5 h-1.5 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
+        <span className={`text-[10px] mt-1 transition-all duration-300 ${activeTab === 'home' ? 'text-geun-blue font-bold scale-105' : 'text-slate-400 font-medium'}`}>Home</span>
+        {activeTab === 'home' && <span className="absolute bottom-1.5 w-1 h-1 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
       </button>
-      <button onClick={() => handleTabChange('tools')} className={`flex flex-col items-center justify-center w-12 h-12 transition-spring relative ${activeTab === 'tools' ? 'scale-105' : 'text-slate-400'}`}>
+      <button onClick={() => handleTabChange('tools')} className={`flex flex-col items-center justify-center w-16 h-16 transition-spring relative pb-2 ${activeTab === 'tools' ? 'scale-105' : 'text-slate-400'}`}>
         <ToolsIcon active={activeTab === 'tools'} />
-        {activeTab === 'tools' && <span className="absolute bottom-1 w-1.5 h-1.5 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
+        <span className={`text-[10px] mt-1 transition-all duration-300 ${activeTab === 'tools' ? 'text-geun-blue font-bold scale-105' : 'text-slate-400 font-medium'}`}>Tools</span>
+        {activeTab === 'tools' && <span className="absolute bottom-1.5 w-1 h-1 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
       </button>
-      <button onClick={() => handleTabChange('history')} className={`flex flex-col items-center justify-center w-12 h-12 transition-spring relative ${activeTab === 'history' ? 'scale-105' : 'text-slate-400'}`}>
+      <button onClick={() => handleTabChange('history')} className={`flex flex-col items-center justify-center w-16 h-16 transition-spring relative pb-2 ${activeTab === 'history' ? 'scale-105' : 'text-slate-400'}`}>
         <HistoryIcon active={activeTab === 'history'} />
-        {activeTab === 'history' && <span className="absolute bottom-1 w-1.5 h-1.5 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
+        <span className={`text-[10px] mt-1 transition-all duration-300 ${activeTab === 'history' ? 'text-geun-blue font-bold scale-105' : 'text-slate-400 font-medium'}`}>Riwayat</span>
+        {activeTab === 'history' && <span className="absolute bottom-1.5 w-1 h-1 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
       </button>
-      <button onClick={() => handleTabChange('profile')} className={`flex flex-col items-center justify-center w-12 h-12 transition-spring relative ${activeTab === 'profile' ? 'scale-105' : 'text-slate-400'}`}>
+      <button onClick={() => handleTabChange('profile')} className={`flex flex-col items-center justify-center w-16 h-16 transition-spring relative pb-2 ${activeTab === 'profile' ? 'scale-105' : 'text-slate-400'}`}>
         <UserIcon active={activeTab === 'profile'} />
-        {activeTab === 'profile' && <span className="absolute bottom-1 w-1.5 h-1.5 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
+        <span className={`text-[10px] mt-1 transition-all duration-300 ${activeTab === 'profile' ? 'text-geun-blue font-bold scale-105' : 'text-slate-400 font-medium'}`}>Profil</span>
+        {activeTab === 'profile' && <span className="absolute bottom-1.5 w-1 h-1 bg-geun-blue rounded-full animate-pulse shadow-[0_0_8px_rgba(0,122,255,0.8)]"></span>}
       </button>
     </nav>
   );

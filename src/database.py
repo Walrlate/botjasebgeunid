@@ -376,6 +376,11 @@ def db_get_userbot_status(user_id: int) -> str:
         supabase = get_supabase()
         res = supabase.table("userbots").select("status").eq("user_id", user_id).execute()
         if res.data:
+            # Jika ada minimal satu akun userbot yang terhubung, status global adalah connected
+            for row in res.data:
+                if row.get("status") == "connected":
+                    return "connected"
+            # Jika semua terputus, kembalikan status baris pertama
             return res.data[0]["status"]
         return "disconnected"
     except Exception as e:
@@ -459,6 +464,18 @@ def db_save_userbot(user_id: int, phone: str, session: str):
         return True
     except Exception as e:
         logger.error(f"Error in db_save_userbot: {e}")
+        return False
+
+def db_update_userbot_profile(phone: str, display_name: str, photo_url: str = None) -> bool:
+    try:
+        supabase = get_supabase()
+        payload = {"display_name": display_name}
+        if photo_url:
+            payload["photo_url"] = photo_url
+        supabase.table("userbots").update(payload).eq("phone_number", phone).execute()
+        return True
+    except Exception as e:
+        logger.warning(f"Gagal update profil userbot di database (kemungkinan kolom display_name/photo_url belum dibuat): {e}")
         return False
 
 def db_update_userbot_status(session_name_or_phone: str, status: str):
@@ -889,6 +906,59 @@ def db_get_forward_history(user_id: int, limit: int = 50):
         return []
 
 
+def db_search_proof_by_group_name(user_id: int, query: str):
+    """Mencari riwayat kirim dan bukti link berdasarkan nama grup atau link grup."""
+    try:
+        supabase = get_supabase()
+        query = query.strip()
+        if not query:
+            return []
+        
+        # Cari grup di lpm_lists yang mirip nama atau link-nya
+        res_groups = supabase.table("lpm_lists")\
+            .select("group_id, group_name, group_link")\
+            .or_(f"group_name.ilike.%{query}%,group_link.ilike.%{query}%")\
+            .execute()
+        
+        g_data = res_groups.data or []
+        if not g_data:
+            return []
+        
+        group_ids = [g["group_id"] for g in g_data if g.get("group_id")]
+        if not group_ids:
+            return []
+            
+        # Ambil riwayat kiriman sukses terbaru untuk user_id ke grup-grup tersebut
+        res_logs = supabase.table("forward_logs")\
+            .select("group_id, msg_link, status, sent_at")\
+            .eq("user_id", user_id)\
+            .eq("status", "success")\
+            .in_("group_id", group_ids)\
+            .order("sent_at", desc=True)\
+            .limit(10)\
+            .execute()
+            
+        logs = res_logs.data or []
+        if not logs:
+            return []
+            
+        group_map = {g["group_id"]: g["group_name"] for g in g_data if g.get("group_id")}
+        
+        results = []
+        for l in logs:
+            g_name = group_map.get(l.get("group_id")) or "Grup LPM"
+            results.append({
+                "group_name": g_name,
+                "msg_link": l.get("msg_link"),
+                "status": l.get("status"),
+                "sent_at": normalize_date(l.get("sent_at"))
+            })
+        return results
+    except Exception as e:
+        logger.error(f"Error in db_search_proof_by_group_name: {e}")
+        return []
+
+
 # ─────────────────────────────────────────
 # HELPER STATISTIK GLOBAL ADMIN
 # ─────────────────────────────────────────
@@ -971,6 +1041,35 @@ def db_bulk_add_lpm_entries(links: list) -> int:
         if db_add_lpm_entry(link):
             count += 1
     return count
+
+
+def db_save_userbot_groups_to_lpm(groups: list):
+    """Menyimpan atau meng-upsert daftar grup dari userbot pembeli ke dalam tabel lpm_lists secara bulk."""
+    try:
+        supabase = get_supabase()
+        insert_data = []
+        for g in groups:
+            link = g.get("link")
+            if not link:
+                continue
+            link = link.strip().lstrip("@")
+            if not link.startswith("https://t.me/") and not link.startswith("http"):
+                link = f"https://t.me/{link}"
+            
+            insert_data.append({
+                "group_link": link,
+                "group_name": g.get("name") or link,
+                "member_count": g.get("member_count") or 0,
+                "is_active": True,
+                "is_blacklisted": False,
+                "group_id": g.get("group_id")
+            })
+            
+        if insert_data:
+            supabase.table("lpm_lists").upsert(insert_data, on_conflict="group_link").execute()
+            logger.info(f"✅ Berhasil menyelaraskan {len(insert_data)} grup userbot ke tabel lpm_lists.")
+    except Exception as e:
+        logger.error(f"Error in db_save_userbot_groups_to_lpm: {e}")
 
 def db_delete_lpm_entry(lpm_id: int) -> bool:
     """Hapus LPM dari pool berdasarkan ID."""

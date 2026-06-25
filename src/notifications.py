@@ -34,13 +34,15 @@ async def notify_admin_payment_success(bot, admin_id: int, user_id: int, full_na
                                         end_date_str: str):
     """Kirim notifikasi ke admin saat pembayaran client berhasil."""
     uname_str = f"@{username}" if username else f"ID: {user_id}"
+    is_ubot = "userbot" in package_name.lower()
+    status_msg = "🤖 _Bot sedang meminta nomor HP userbot dari client..._" if is_ubot else "🤖 _Bot sedang meminta teks jaseb dari client..._"
     text = (
         "✅ **PEMBAYARAN SUKSES!**\n\n"
         f"👤 Client: **{full_name}** ({uname_str})\n"
         f"📦 Paket: `{package_name}`\n"
         f"💰 Total: Rp {amount:,}\n"
         f"📅 Aktif Hingga: `{end_date_str}`\n\n"
-        "🤖 _Bot sedang meminta teks jaseb dari client..._"
+        f"{status_msg}"
     )
     try:
         await bot.send_message(admin_id, text)
@@ -66,31 +68,15 @@ async def notify_client_broadcast_done(bot, user_id: int, success_count: int,
                                         failed_count: int, next_broadcast_hours: float,
                                         success_links: list = None):
     """Kirim laporan broadcast ke client setelah siklus selesai."""
-    import html as pyhtml
-    total = success_count + failed_count
-    rate = round((success_count / total * 100) if total > 0 else 0, 1)
-    
     interval_text = f"{int(next_broadcast_hours * 60)} menit" if next_broadcast_hours < 1 else f"{next_broadcast_hours} jam"
     
-    links_text = ""
-    if success_links:
-        links_text = "\n🔗 <b>Bukti Kirim:</b>\n"
-        for title, link in success_links[:5]:
-            if link and (link.startswith("http") or "t.me" in link):
-                safe_title = pyhtml.escape(title)
-                short_title = safe_title[:20] + "..." if len(safe_title) > 20 else safe_title
-                links_text += f"• {short_title}: <a href=\"{link}\">Bukti Kirim ↗</a>\n"
-        if len(success_links) > 5:
-            links_text += f"• <i>dan {len(success_links) - 5} grup lainnya...</i>\n"
-            
     text = (
         "📊 <b>Laporan Jaseb</b>\n\n"
-        f"✅ Terkirim: <b>{success_count} grup</b>\n"
+        "📢 <b>Iklan Anda telah selesai disebarkan ke grup/LPM!</b>\n"
+        f"✅ Sukses: <b>{success_count} grup</b>\n"
         f"❌ Gagal: <b>{failed_count} grup</b>\n"
-        f"📈 Success Rate: <b>{rate}%</b>\n"
-        f"{links_text}\n"
         f"⏰ Broadcast berikutnya: <b>{interval_text} lagi</b> (otomatis)\n\n"
-        "💡 <i>Ketik /mystatus untuk cek detail atau /edit_jaseb untuk ganti teks.</i>"
+        "💡 <i>Jika ingin bukti kirim di grup tertentu, cukup kirimkan nama/username grup ke bot ini, maka saya akan mencarikan link bukti kirimnya.</i>"
     )
     
     from src.main import get_web_app_url

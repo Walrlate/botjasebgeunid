@@ -21,6 +21,8 @@ interface StatsType {
   userDays: number;
   userSecondsLeft: number;
   userInterval: number;
+  is_admin?: boolean;
+  userbots_list?: any[];
 }
 
 interface ProfileTabProps {
@@ -40,6 +42,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   getUsername,
   triggerHaptic,
 }) => {
+  const [expandedUbot, setExpandedUbot] = React.useState<string | null>(null);
   
   const formatRemainingTime = (seconds: number, days: number) => {
     if (seconds <= 0 && days <= 0) return "Expired";
@@ -137,6 +140,90 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             <p className="text-xs font-bold text-emerald-600 mt-1">Stabil</p>
           </div>
         </div>
+
+        {/* Real-time Userbots List Section */}
+        {stats.userbots_list && stats.userbots_list.length > 0 && (
+          <div className="mt-4 text-left space-y-2 border-t border-slate-100 pt-4">
+            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest pb-1.5 flex justify-between items-center">
+              <span>{stats.is_admin ? "👥 KONTROL USERBOT PEMBELI (OWNER)" : "🤖 DAFTAR USERBOT ANDA"}</span>
+              <span className="text-[7.5px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full lowercase">realtime</span>
+            </h4>
+            <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+              {stats.userbots_list.map((ub: any, index: number) => {
+                const isOnline = ub.status === 'connected';
+                const ownerName = stats.is_admin && ub.users 
+                  ? (ub.users.username ? `@${ub.users.username}` : ub.users.full_name || `ID: ${ub.user_id}`)
+                  : null;
+                const isExpanded = expandedUbot === ub.phone_number;
+                return (
+                  <div key={index} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-2 transition-all duration-300">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        {ub.photo_url ? (
+                          <img src={ub.photo_url} alt="Ubot avatar" className="w-9 h-9 rounded-xl border border-slate-200 object-cover shadow-sm" />
+                        ) : (
+                          <div className="w-9 h-9 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-xl flex items-center justify-center font-black text-white text-xs shadow-sm">
+                            {ub.display_name ? ub.display_name.charAt(0) : "🤖"}
+                          </div>
+                        )}
+                        
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-slate-700 leading-tight">{ub.display_name || ub.phone_number}</p>
+                          {ub.display_name && (
+                            <p className="text-[8.5px] text-slate-400 font-semibold leading-none">{ub.phone_number}</p>
+                          )}
+                          {ownerName && (
+                            <p className="text-[8.5px] text-geun-blue font-extrabold leading-none mt-0.5">{ownerName}</p>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`font-bold uppercase tracking-wider text-[8px] px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                        {isOnline ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+
+                    {isOnline && ub.joined_groups && ub.joined_groups.length > 0 && (
+                      <div className="pt-2 border-t border-slate-200/60">
+                        <button
+                          onClick={() => {
+                            triggerHaptic('light');
+                            setExpandedUbot(isExpanded ? null : ub.phone_number);
+                          }}
+                          className="flex items-center justify-between w-full text-[9px] font-black text-slate-500 hover:text-geun-blue tracking-wider uppercase"
+                        >
+                          <span>📁 Lihat Grup ({ub.joined_groups.length})</span>
+                          <span>{isExpanded ? '▲' : '▼'}</span>
+                        </button>
+                        
+                        {isExpanded && (
+                          <div className="mt-2 space-y-1 max-h-36 overflow-y-auto pl-2 border-l-2 border-slate-200 pr-1">
+                            {ub.joined_groups.map((group: any, gIdx: number) => (
+                              <div key={gIdx} className="flex justify-between items-center text-[10px] py-1 border-b border-slate-100 last:border-b-0">
+                                <span className="font-bold text-slate-600 truncate max-w-[170px]">{group.name}</span>
+                                {group.link ? (
+                                  <a
+                                    href={group.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[9px] text-geun-blue font-extrabold hover:underline"
+                                  >
+                                    Grup ↗
+                                  </a>
+                                ) : (
+                                  <span className="text-[8px] text-slate-400 font-bold uppercase italic">Privat</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

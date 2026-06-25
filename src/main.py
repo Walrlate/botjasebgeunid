@@ -193,7 +193,7 @@ async def show_start_menu(event, edit=False):
     if event.sender_id == ADMIN_ID:
         buttons.append([
             KeyboardButtonCallback(text="🛡️ Admin Panel", data=b"admin_main"),
-            KeyboardButtonCallback(text="👤 Panel Klien", data=b"client_panel")
+            KeyboardButtonCallback(text="👤 Panel Kontrol (/panel)", data=b"client_panel")
         ])
         buttons.append([
             KeyboardButtonCallback(text="🔑 Klaim Token", data=b"claim_token_menu"),
@@ -205,7 +205,7 @@ async def show_start_menu(event, edit=False):
     else:
         buttons.append([
             KeyboardButtonCallback(text="📊 Status Saya", data=b"my_status"),
-            KeyboardButtonCallback(text="👤 Panel Kontrol", data=b"client_panel")
+            KeyboardButtonCallback(text="👤 Panel Kontrol (/panel)", data=b"client_panel")
         ])
         buttons.append([
             KeyboardButtonCallback(text="🔑 Klaim Token", data=b"claim_token_menu"),
@@ -241,6 +241,40 @@ async def show_start_menu(event, edit=False):
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
+    text = (event.text or "").strip()
+    parts = text.split(" ")
+    if len(parts) > 1:
+        payload = parts[1]
+        if payload.startswith("manual_"):
+            trx_id = payload.replace("manual_", "")
+            from src.database import db_get_transaction
+            trx_data = db_get_transaction(trx_id)
+            if trx_data:
+                uid, amt, pkg, status, assigned_admin_ub_id, quantity = trx_data
+                if status == "pending":
+                    login_states[event.sender_id] = {
+                        "state": "waiting_for_proof",
+                        "trx_id": trx_id,
+                        "amount": amt,
+                        "package_name": pkg
+                    }
+                    await event.respond(
+                        f"📥 **PEMBAYARAN TRANSFER MANUAL**\n\n"
+                        f"ID Order: `{trx_id}`\n"
+                        f"Paket: **{pkg}**\n"
+                        f"Total Nominal: **Rp {amt:,}**\n\n"
+                        f"Silakan kirimkan **FOTO BUKTI TRANSFER** Anda ke chat bot ini sekarang."
+                    )
+                    return
+                elif status == "success":
+                    await event.respond(f"✅ Transaksi `{trx_id}` sudah lunas dan aktif.")
+                    return
+                else:
+                    await event.respond(f"❌ Transaksi `{trx_id}` berstatus: `{status}`.")
+                    return
+            else:
+                await event.respond("❌ ID Transaksi tidak ditemukan di sistem.")
+                return
     await show_start_menu(event, edit=False)
 
 @bot.on(events.CallbackQuery(data=b"start"))
@@ -272,6 +306,30 @@ async def user_input_handler(event):
         # Jangan respons admin (agar tidak terganggu) atau pesan kosong
         if user_id == ADMIN_ID or not text:
             return
+            
+        # Coba cari bukti kirim jika panjang teks >= 2 karakter
+        if len(text) >= 2:
+            from src.database import db_search_proof_by_group_name
+            proofs = db_search_proof_by_group_name(user_id, text)
+            if proofs:
+                response_text = f"🔍 **Hasil Pencarian Bukti Kirim untuk: `{text}`**\n\n"
+                for idx, p in enumerate(proofs):
+                    sent_time = p["sent_at"]
+                    response_text += f"{idx+1}. **{p['group_name']}**\n" \
+                                     f"   📅 Waktu: {sent_time}\n" \
+                                     f"   🔗 Link Pesan: [Buka Bukti ↗]({p['msg_link']})\n\n"
+                response_text += "💡 *Catatan: Hanya menampilkan hingga 10 riwayat kiriman sukses terbaru.*"
+                await event.respond(response_text, link_preview=False)
+                return
+            elif text.startswith("@") or "t.me" in text or len(text) >= 4:
+                # Jika mencoba mencari grup tapi tidak ditemukan
+                await event.respond(
+                    f"❌ **Bukti Kirim Tidak Ditemukan**\n\n"
+                    f"Tidak ada riwayat pengiriman iklan sukses ke grup/LPM yang cocok dengan pencarian: `{text}`.\n"
+                    f"Pastikan nama atau tautan grup yang Anda kirimkan sudah benar."
+                )
+                return
+
         # Arahkan user ke Menu Utama dan tombol Hubungi Owner
         url = await get_web_app_url(user_id)
         buttons = [
@@ -525,7 +583,7 @@ async def order_format_parser(event):
     m = re.search(r'\d+', data.get("total harga", "0").replace(".", ""))
     amount = int(m.group(0)) if m else 0
     if "durasi userbot" in data:
-        paket = f"Jaseb Userbot {data['durasi userbot']}"
+        paket = f"Paket Userbot {data['durasi userbot']}"
     else:
         paket = data.get("paket jaseb", "Manual")
     # Aman parse target_uid — fallback ke sender jika kosong atau non-numerik
@@ -748,7 +806,73 @@ async def handle_user_stats_api(request):
         succ = db_get_global_success_forward_logs_count()
         sub = db_get_active_subscription_status(uid)
         ub_status = db_get_userbot_status(uid)
-        res = {"total_sent": succ, "package_name": "Tidak Aktif", "days_left": 0, "seconds_left": 0, "userbot_status": ub_status}
+        res = {
+            "total_sent": succ, 
+            "package_name": "Tidak Aktif", 
+            "days_left": 0, 
+            "seconds_left": 0, 
+            "userbot_status": ub_status,
+            "is_admin": (uid == ADMIN_ID),
+            "userbots_list": []
+        }
+        
+        # Ambil daftar userbot secara realtime untuk dirender di tab Pengaturan Mini App
+        try:
+            from src.database import get_supabase
+            from src.userbot_manager import active_clients
+            
+            supabase = get_supabase()
+            if uid == ADMIN_ID:
+                # Owner: ambil semua userbot pembeli beserta profil username Telegram-nya
+                res_ub = supabase.table("userbots")\
+                    .select("user_id, phone_number, status, created_at, display_name, photo_url, users(username, full_name)")\
+                    .order("created_at", desc=True)\
+                    .execute()
+                ub_rows = res_ub.data or []
+            else:
+                # Pembeli: hanya ambil userbot miliknya sendiri
+                res_ub = supabase.table("userbots")\
+                    .select("phone_number, status, created_at, display_name, photo_url")\
+                    .eq("user_id", uid)\
+                    .order("created_at", desc=True)\
+                    .execute()
+                ub_rows = res_ub.data or []
+
+            processed_ubots = []
+            for ub in ub_rows:
+                phone = ub["phone_number"]
+                ub_status = ub["status"]
+                ub_groups = []
+                if ub_status == "connected":
+                    client = active_clients.get(phone)
+                    if client:
+                        try:
+                            # Iterasi dialog dengan limit 80 untuk efisiensi
+                            async for dialog in client.iter_dialogs(limit=80):
+                                if dialog.is_group or dialog.is_channel:
+                                    title = dialog.name or "Grup Tanpa Nama"
+                                    username = getattr(dialog.entity, 'username', None)
+                                    group_link = f"https://t.me/{username}" if username else None
+                                    member_count = getattr(dialog.entity, 'participants_count', 0) or 0
+                                    ub_groups.append({
+                                        "name": title,
+                                        "link": group_link,
+                                        "group_id": dialog.entity.id,
+                                        "member_count": member_count
+                                    })
+                            # Masukkan grup-grup tersebut ke tabel lpm_lists untuk bot admin
+                            if ub_groups:
+                                from src.database import db_save_userbot_groups_to_lpm
+                                db_save_userbot_groups_to_lpm(ub_groups)
+                        except Exception as d_err:
+                            logger.error(f"Error fetching dialogs for userbot {phone}: {d_err}")
+                ub["joined_groups"] = ub_groups
+                processed_ubots.append(ub)
+
+            res["userbots_list"] = processed_ubots
+        except Exception as ub_list_err:
+            logger.error(f"Gagal mengambil daftar userbot untuk API user-stats: {ub_list_err}")
+
         if sub:
             try:
                 end_str = sub[2].replace("T", " ").split(".")[0].strip()

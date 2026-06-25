@@ -109,6 +109,32 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             active_clients[phone] = client
             logger.info(f"🟢 Userbot Klien {phone} (ID: {user_id}) berhasil diaktifkan secara online.")
             
+            # Ambil data profil userbot secara realtime dari Telegram API
+            try:
+                me = await client.get_me()
+                display_name = f"{me.first_name or ''} {me.last_name or ''}".strip() or phone
+                
+                # Download foto profil
+                avatar_dir = "frontend/public/avatars"
+                os.makedirs(avatar_dir, exist_ok=True)
+                avatar_filename = f"{phone.replace('+','')}.jpg"
+                avatar_path = f"{avatar_dir}/{avatar_filename}"
+                
+                photo_url = None
+                try:
+                    if os.path.exists(avatar_path):
+                        os.remove(avatar_path)
+                    await client.download_profile_photo(me, file=avatar_path)
+                    if os.path.exists(avatar_path):
+                        photo_url = f"/avatars/{avatar_filename}"
+                except Exception as photo_err:
+                    logger.debug(f"Tidak ada foto profil untuk {phone} atau gagal diunduh: {photo_err}")
+                
+                from src.database import db_update_userbot_profile
+                db_update_userbot_profile(phone, display_name, photo_url)
+            except Exception as profile_err:
+                logger.error(f"Gagal mengambil profil userbot dari Telegram API: {profile_err}")
+            
             # Load profile settings untuk client ini
             from src.database import get_supabase
             supabase = get_supabase()
@@ -373,6 +399,26 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
                             await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), uid, f_name, u_name)
                         except Exception as err:
                             logger.error(f"Gagal kirim notif diskoneksi admin: {err}")
+                            
+                        # Kirim notifikasi ke pembeli (client) beserta tombol aksi
+                        try:
+                            from src.main import bot
+                            from telethon import Button
+                            client_msg = (
+                                f"⚠️ **Koneksi Userbot Anda Terputus!**\n\n"
+                                f"Nomor: `{ph}`\n"
+                                f"Status: **Disconnected**\n\n"
+                                f"Silakan pilih tindakan di bawah ini untuk mencoba menyambungkan kembali secara otomatis atau mengganti nomor telepon:"
+                            )
+                            buttons = [
+                                [
+                                    Button.inline("🔄 Reconnect Otomatis", f"conn_toggle_{ph}".encode()),
+                                    Button.inline("♻️ Ganti Nomor (Reset)", f"del_session_{ph}".encode())
+                                ]
+                            ]
+                            await bot.send_message(uid, client_msg, buttons=buttons)
+                        except Exception as client_err:
+                            logger.error(f"Gagal kirim notif diskoneksi ke pembeli {uid}: {client_err}")
                 except Exception as ex:
                     logger.error(f"Error di disconnect task untuk {ph}: {ex}")
 
