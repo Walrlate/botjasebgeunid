@@ -267,7 +267,25 @@ async def user_input_handler(event):
         await clear_login_state(user_id)
         return
 
-    if user_id not in login_states: return
+    if user_id not in login_states:
+        # Fallback: user kirim pesan teks biasa di luar state machine
+        # Jangan respons admin (agar tidak terganggu) atau pesan kosong
+        if user_id == ADMIN_ID or not text:
+            return
+        # Arahkan user ke Menu Utama dan tombol Hubungi Owner
+        url = await get_web_app_url(user_id)
+        buttons = [
+            [KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)],
+            [Button.url("💬 Hubungi Owner", f"https://t.me/{ADMIN_USERNAME.replace('@','')}")],
+        ]
+        await event.respond(
+            "🤖 **Halo!**\n\n"
+            "Saya adalah bot otomatis. Untuk memesan paket atau mengelola layanan, "
+            "silakan gunakan **Mini App** di bawah ini.\n\n"
+            "Jika ada pertanyaan atau bantuan khusus, silakan hubungi owner langsung:",
+            buttons=buttons
+        )
+        return
     state_data = login_states[user_id]
     current_state = state_data.get("state")
 
