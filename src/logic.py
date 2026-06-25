@@ -229,13 +229,17 @@ async def run_single_userbot_broadcast(bot, user_id: int, ad_id: int, session_na
             
             is_authorized = True
             try:
+                from telethon.errors import AuthKeyUnregisteredError, UserDeactivatedError
                 if eng.client:
                     if not eng.client.is_connected():
                         await eng.client.connect()
                     is_authorized = await eng.client.is_user_authorized()
-            except Exception as auth_err:
-                logger.error(f"Gagal memeriksa status otorisasi untuk {phone}: {auth_err}")
+            except (AuthKeyUnregisteredError, UserDeactivatedError) as auth_err:
+                logger.error(f"Sesi userbot {phone} terkonfirmasi tidak valid (Auth error): {auth_err}")
                 is_authorized = False
+            except Exception as other_err:
+                logger.error(f"Gagal memeriksa status otorisasi karena error non-auth untuk {phone}: {other_err}")
+                is_authorized = True
                 
             if not is_authorized:
                 from src.database import db_update_userbot_status

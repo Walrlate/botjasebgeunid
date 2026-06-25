@@ -486,17 +486,25 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             return True
         except Exception as e:
             logger.error(f"Error saat mengaktifkan userbot {phone}: {e}")
-            from src.database import db_update_userbot_status, db_get_user_info
-            db_update_userbot_status(phone, 'disconnected')
             
-            try:
-                u_info = db_get_user_info(user_id)
-                from src.main import bot
-                from src.config import ADMIN_ID
-                from src.notifications import notify_admin_userbot_disconnected
-                await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), user_id, u_info["full_name"], u_info["username"])
-            except Exception as notif_err:
-                logger.error(f"Gagal kirim notif kegagalan startup userbot ke admin: {notif_err}")
+            # Hanya set ke disconnected jika terbukti kesalahan otorisasi (AuthKeyUnregisteredError, dll.)
+            from telethon.errors import AuthKeyUnregisteredError, UserDeactivatedError
+            is_auth_error = isinstance(e, (AuthKeyUnregisteredError, UserDeactivatedError))
+            
+            if is_auth_error:
+                from src.database import db_update_userbot_status, db_get_user_info
+                db_update_userbot_status(phone, 'disconnected')
+                
+                try:
+                    u_info = db_get_user_info(user_id)
+                    from src.main import bot
+                    from src.config import ADMIN_ID
+                    from src.notifications import notify_admin_userbot_disconnected
+                    await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), user_id, u_info["full_name"], u_info["username"])
+                except Exception as notif_err:
+                    logger.error(f"Gagal kirim notif kegagalan startup userbot ke admin: {notif_err}")
+            else:
+                logger.warning(f"⚠️ Kegagalan startup non-auth untuk userbot {phone} ({e}). Status database dipertahankan.")
                 
             try:
                 if 'client' in locals() and client.is_connected():
