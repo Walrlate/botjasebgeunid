@@ -152,7 +152,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <div className="mt-4 text-left space-y-2 border-t border-slate-100 pt-4">
             <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest pb-1.5 flex justify-between items-center">
               <span>{stats.is_admin ? "👥 KONTROL USERBOT PEMBELI (OWNER)" : "🤖 DAFTAR USERBOT ANDA"}</span>
-              <span className="text-[7.5px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full lowercase">realtime</span>
+              <span className="text-[7.5px] bg-geun-blue/10 text-geun-blue border border-geun-blue/20 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">GEUNID</span>
             </h4>
             <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
               {stats.userbots_list.map((ub: any, index: number) => {
@@ -235,7 +235,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <div className="mt-4 text-left space-y-2 border-t border-slate-100 pt-4">
             <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest pb-1.5 flex justify-between items-center">
               <span>{stats.is_admin ? "👥 KONTROL USERBOT PEMBELI (OWNER)" : "🤖 DAFTAR USERBOT ANDA"}</span>
-              <span className="text-[7.5px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full lowercase">realtime</span>
+              <span className="text-[7.5px] bg-geun-blue/10 text-geun-blue border border-geun-blue/20 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">GEUNID</span>
             </h4>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center text-slate-400 text-[10px] font-bold uppercase tracking-wider">
               Belum ada userbot terhubung
