@@ -103,9 +103,25 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             await client.connect()
             from src.database import db_update_userbot_status
             if not await client.is_user_authorized():
-                logger.warning(f"Userbot {phone} (ID: {user_id}) tidak terotorisasi. Disconnect.")
+                logger.warning(f"Userbot {phone} (ID: {user_id}) tidak terotorisasi. Sesi expired/revoked.")
                 db_update_userbot_status(phone, 'disconnected')
                 await client.disconnect()
+                
+                # Notifikasi pembeli bahwa sesinya sudah tidak valid dan perlu login ulang
+                try:
+                    from src.main import bot
+                    from telethon import Button
+                    expired_msg = (
+                        f"⚠️ **Sesi Userbot `{phone}` Tidak Valid!**\n\n"
+                        f"Sesi Telegram Anda telah berakhir (dicabut oleh Telegram). "
+                        f"Hal ini biasa terjadi jika Anda melakukan login dari perangkat lain atau akun terlalu lama tidak aktif.\n\n"
+                        f"Silakan tekan tombol di bawah untuk menghapus sesi lama dan mendaftar ulang:"
+                    )
+                    buttons = [[Button.inline("♻️ Hapus Sesi & Daftar Ulang", f"del_session_{phone}".encode())]]
+                    await bot.send_message(user_id, expired_msg, buttons=buttons)
+                except Exception as notif_err:
+                    logger.error(f"Gagal kirim notif sesi expired ke {user_id}: {notif_err}")
+                    
                 return False
                 
             # Sukses Terhubung
@@ -390,11 +406,30 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             async def handle_disconnect_task(client_inst, uid, ph, u_name, f_name):
                 try:
                     await client_inst.disconnected
-                    if ph in active_clients:
-                        logger.warning(f"⚠️ Userbot {ph} terputus secara tidak terduga!")
+                    if ph not in active_clients:
+                        return  # Sudah di-stop secara sengaja, tidak perlu reconnect
+                        
+                    logger.warning(f"⚠️ Userbot {ph} terputus secara tidak terduga! Mencoba reconnect otomatis...")
+                    active_clients.pop(ph, None)
+                    
+                    # AUTO-RECONNECT: Coba sampai 3 kali dengan jeda
+                    max_retries = 3
+                    reconnected = False
+                    for attempt in range(1, max_retries + 1):
+                        logger.info(f"🔄 Percobaan reconnect #{attempt} untuk {ph}...")
+                        await asyncio.sleep(10 * attempt)  # Jeda makin panjang: 10s, 20s, 30s
+                        try:
+                            ok = await start_client_userbot(uid, f"user_{ph.replace('+','')}", ph)
+                            if ok:
+                                reconnected = True
+                                logger.info(f"✅ Userbot {ph} berhasil reconnect otomatis pada percobaan #{attempt}!")
+                                break
+                        except Exception as retry_err:
+                            logger.error(f"Gagal reconnect #{attempt} untuk {ph}: {retry_err}")
+                    
+                    if not reconnected:
                         from src.database import db_update_userbot_status
                         db_update_userbot_status(ph, 'disconnected')
-                        active_clients.pop(ph, None)
                         
                         try:
                             from src.main import bot
