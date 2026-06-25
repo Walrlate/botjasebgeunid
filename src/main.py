@@ -593,14 +593,49 @@ async def user_input_handler(event):
     elif current_state == "waiting_for_ad":
         sub = db_get_active_subscription_status(user_id)
         if not sub: await event.respond("❌ Paket tidak aktif."); del login_states[user_id]; return
-        is_fwd = "forward" in sub[0].lower()
-        if is_fwd and not event.message.forward:
-            await event.respond("❌ Paket FORWARD wajib forward pesan asli."); return
-        if not is_fwd and event.message.forward:
-            await event.respond("❌ Paket REGULAR dilarang forward."); return
-        await event.respond("⏳ Menyimpan materi iklan..."); content = html.unparse(event.message.message or "", event.message.entities or [])
+        
+        is_userbot = "userbot" in sub[0].lower()
+        is_fwd_package = "forward" in sub[0].lower()
+        
+        if not is_userbot:
+            if is_fwd_package and not event.message.forward:
+                await event.respond("❌ Paket FORWARD wajib forward pesan asli."); return
+            if not is_fwd_package and event.message.forward:
+                await event.respond("❌ Paket REGULAR dilarang forward."); return
+        
+        await event.respond("⏳ Menyimpan materi iklan...")
+        content = html.unparse(event.message.message or "", event.message.entities or [])
         media = await event.message.download_media(file="data/media/") if event.message.media else ""
-        db_save_user_ad(user_id, content, media)
+        
+        fwd_chat_id = None
+        fwd_peer_type = None
+        fwd_msg_id = None
+        
+        if event.message.forward:
+            fwd = event.message.forward
+            from telethon.tl.types import PeerChannel, PeerUser, PeerChat
+            
+            if fwd.from_id:
+                if isinstance(fwd.from_id, PeerChannel):
+                    fwd_chat_id = f"-100{fwd.from_id.channel_id}"
+                    fwd_peer_type = "channel"
+                    fwd_msg_id = fwd.channel_post
+                elif isinstance(fwd.from_id, PeerUser):
+                    fwd_chat_id = str(fwd.from_id.user_id)
+                    fwd_peer_type = "user"
+                    fwd_msg_id = event.message.id
+                elif isinstance(fwd.from_id, PeerChat):
+                    fwd_chat_id = str(fwd.from_id.chat_id)
+                    fwd_peer_type = "chat"
+                    fwd_msg_id = event.message.id
+            
+            if not fwd_chat_id or not fwd_msg_id:
+                bot_info = await event.client.get_me()
+                fwd_chat_id = str(bot_info.id)
+                fwd_peer_type = "user"
+                fwd_msg_id = event.message.id
+                
+        db_save_user_ad(user_id, content, media, fwd_chat_id, fwd_peer_type, fwd_msg_id)
         login_states[user_id]["state"] = "waiting_for_lpm_request"
         await event.respond("✅ Materi Tersimpan! Kirim daftar link LPM kustom atau ketik `/skip`:")
  

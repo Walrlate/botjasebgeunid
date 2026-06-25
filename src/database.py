@@ -321,7 +321,7 @@ def db_get_expiring_subscriptions(limit_hours: int = 24):
 # HELPER USERADS (IKLAN)
 # ─────────────────────────────────────────
 
-def db_save_user_ad(user_id: int, content: str, media_path: str):
+def db_save_user_ad(user_id: int, content: str, media_path: str, fwd_chat_id: str = None, fwd_peer_type: str = None, fwd_msg_id: int = None):
     try:
         db_ensure_user(user_id)
         supabase = get_supabase()
@@ -332,7 +332,10 @@ def db_save_user_ad(user_id: int, content: str, media_path: str):
             "user_id": user_id,
             "title": "Iklan Utama",
             "content": content or "",
-            "media_path": media_path or ""
+            "media_path": media_path or "",
+            "fwd_chat_id": fwd_chat_id,
+            "fwd_peer_type": fwd_peer_type,
+            "fwd_msg_id": fwd_msg_id
         }).execute()
         return True
     except Exception as e:
