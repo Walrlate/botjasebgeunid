@@ -1,16 +1,32 @@
 -- SQL Schema untuk Supabase (PostgreSQL)
 -- GeunID Jaseb Master - Enterprise Edition
--- Jalankan kode ini di SQL Editor Supabase Anda.
+-- Jalankan kode ini di SQL Editor Supabase Anda untuk instalasi baru dari nol.
 
 -- 1. Table Users
 CREATE TABLE IF NOT EXISTS users (
     user_id BIGINT PRIMARY KEY,
     username TEXT,
     full_name TEXT,
-    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- Loyalty System Columns
+    loyalty_points INTEGER DEFAULT 0,
+    loyalty_tier TEXT DEFAULT 'bronze',
+    purchase_streak INTEGER DEFAULT 0,
+    last_purchase_at TIMESTAMP WITH TIME ZONE
 );
 
--- 2. Table Subscriptions
+-- 2. Table Admin Userbots
+CREATE TABLE IF NOT EXISTS admin_userbots (
+    id BIGSERIAL PRIMARY KEY,
+    phone_number TEXT UNIQUE,
+    session_name TEXT,
+    status TEXT DEFAULT 'connected',
+    cooldown_until TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    lpm_description TEXT DEFAULT 'Total LPM 100 Campur'
+);
+
+-- 3. Table Subscriptions
 CREATE TABLE IF NOT EXISTS subscriptions (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -23,11 +39,11 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     broadcast_interval_hours DOUBLE PRECISION DEFAULT 0.5,
     schedule_start_hour INTEGER DEFAULT 0,
     schedule_end_hour INTEGER DEFAULT 23,
-    assigned_admin_ub_id BIGINT,
+    assigned_admin_ub_id BIGINT REFERENCES admin_userbots(id) ON DELETE SET NULL,
     max_userbots INTEGER DEFAULT 1
 );
 
--- 3. Table User Ads
+-- 4. Table User Ads
 CREATE TABLE IF NOT EXISTS user_ads (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -41,7 +57,7 @@ CREATE TABLE IF NOT EXISTS user_ads (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Table LPM Lists
+-- 5. Table LPM Lists
 CREATE TABLE IF NOT EXISTS lpm_lists (
     id BIGSERIAL PRIMARY KEY,
     group_link TEXT UNIQUE,
@@ -53,7 +69,7 @@ CREATE TABLE IF NOT EXISTS lpm_lists (
     is_blacklisted BOOLEAN DEFAULT FALSE
 );
 
--- 5. Table Transactions
+-- 6. Table Transactions
 CREATE TABLE IF NOT EXISTS transactions (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -67,7 +83,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     assigned_admin_ub_id BIGINT REFERENCES admin_userbots(id) ON DELETE SET NULL
 );
 
--- 6. Table Forward Logs
+-- 7. Table Forward Logs
 CREATE TABLE IF NOT EXISTS forward_logs (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -80,7 +96,7 @@ CREATE TABLE IF NOT EXISTS forward_logs (
     subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL
 );
 
--- 7. Table Userbots
+-- 8. Table Userbots
 CREATE TABLE IF NOT EXISTS userbots (
     phone_number TEXT PRIMARY KEY,
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -90,22 +106,12 @@ CREATE TABLE IF NOT EXISTS userbots (
     custom_bio TEXT,
     cooldown_until TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL
+    subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL,
+    -- Real-time Profile Info Columns
+    photo_url TEXT,
+    display_name TEXT,
+    groups_count INTEGER DEFAULT 0
 );
-
--- 8. Table Admin Userbots
-CREATE TABLE IF NOT EXISTS admin_userbots (
-    id BIGSERIAL PRIMARY KEY,
-    phone_number TEXT UNIQUE,
-    session_name TEXT,
-    status TEXT DEFAULT 'connected',
-    cooldown_until TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    lpm_description TEXT DEFAULT 'Total LPM 100 Campur'
-);
-
--- Tambahkan foreign key untuk assigned_admin_ub_id di subscriptions setelah admin_userbots terbuat
-ALTER TABLE subscriptions ADD CONSTRAINT fk_assigned_admin_ub FOREIGN KEY (assigned_admin_ub_id) REFERENCES admin_userbots(id) ON DELETE SET NULL;
 
 -- 9. Table Activation Tokens (Voucher Paket)
 CREATE TABLE IF NOT EXISTS activation_tokens (

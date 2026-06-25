@@ -139,3 +139,74 @@
   background-size: 200% 100%;
   animation: shimmer 2.5s infinite linear;
 }
+
+/* ─── LOYALTY TIER BADGES ─── */
+
+/* Bronze - Static with subtle warm glow */
+.tier-badge-bronze {
+  background: linear-gradient(135deg, #CD7F32 0%, #E8A862 50%, #CD7F32 100%);
+  box-shadow: 0 2px 10px rgba(205, 127, 50, 0.3);
+  color: white;
+}
+
+/* Silver - Pulsing glow animation */
+@keyframes silver-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(192, 192, 192, 0.3), 0 2px 8px rgba(148, 163, 184, 0.15); }
+  50% { box-shadow: 0 0 18px rgba(192, 192, 192, 0.6), 0 4px 16px rgba(148, 163, 184, 0.25); }
+}
+.tier-badge-silver {
+  background: linear-gradient(135deg, #94A3B8 0%, #E2E8F0 40%, #CBD5E1 70%, #94A3B8 100%);
+  animation: silver-pulse 2.5s infinite ease-in-out;
+  color: #334155;
+}
+
+/* Gold - Shimmer sweep animation */
+@keyframes gold-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.tier-badge-gold {
+  background: linear-gradient(90deg, #F59E0B 15%, #FDE68A 35%, #FBBF24 50%, #F59E0B 70%, #D97706 85%);
+  background-size: 200% 100%;
+  animation: gold-shimmer 2.5s infinite linear;
+  color: #78350F;
+}
+
+/* Loyalty (Tier Tertinggi) — Rotating glow + diamond sparkle shimmer */
+@keyframes loyalty-glow {
+  0%   { box-shadow: 0 0 8px rgba(139, 92, 246, 0.4), 0 0 20px rgba(59, 130, 246, 0.15); }
+  33%  { box-shadow: 0 0 14px rgba(59, 130, 246, 0.55), 0 0 28px rgba(139, 92, 246, 0.2); }
+  66%  { box-shadow: 0 0 10px rgba(168, 85, 247, 0.5), 0 0 22px rgba(59, 130, 246, 0.2); }
+  100% { box-shadow: 0 0 8px rgba(139, 92, 246, 0.4), 0 0 20px rgba(59, 130, 246, 0.15); }
+}
+@keyframes loyalty-shimmer {
+  0%   { background-position: -300% 0; }
+  100% { background-position: 300% 0; }
+}
+.tier-badge-loyalty {
+  background: linear-gradient(90deg, #8B5CF6 10%, #60A5FA 30%, #C4B5FD 45%, #3B82F6 60%, #A78BFA 75%, #8B5CF6 90%);
+  background-size: 300% 100%;
+  animation: loyalty-shimmer 2.5s infinite linear, loyalty-glow 3s infinite ease-in-out;
+  color: white;
+}
+
+/* Progress bar glow for loyalty card */
+@keyframes progress-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.loyalty-progress-fill {
+  position: relative;
+}
+.loyalty-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  border-radius: 99px;
+  background: white;
+  opacity: 0.6;
+  animation: progress-glow 1.5s infinite ease-in-out;
+}

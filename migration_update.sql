@@ -52,11 +52,34 @@ ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS fk_assigned_admin_ub;
 ALTER TABLE subscriptions ADD CONSTRAINT fk_assigned_admin_ub FOREIGN KEY (assigned_admin_ub_id) REFERENCES admin_userbots(id) ON DELETE SET NULL;
 
 -- 7. Ubah skema tabel userbots agar mendukung bulk (One-to-Many)
-ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_pkey CASCADE;
+DO $$
+DECLARE
+    pk_col TEXT;
+BEGIN
+    SELECT a.attname INTO pk_col
+    FROM   pg_index i
+    JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+    WHERE  i.indrelid = 'userbots'::regclass
+    AND    i.indisprimary;
+
+    IF pk_col IS NULL OR pk_col != 'phone_number' THEN
+        EXECUTE (
+            SELECT 'ALTER TABLE userbots DROP CONSTRAINT ' || constraint_name || ' CASCADE;'
+            FROM information_schema.table_constraints 
+            WHERE table_name='userbots' AND constraint_type='PRIMARY KEY'
+            LIMIT 1
+        );
+        ALTER TABLE userbots ADD PRIMARY KEY (phone_number);
+    END IF;
+EXCEPTION
+    WHEN others THEN
+        NULL;
+END $$;
+
 ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_user_id_fkey CASCADE;
-ALTER TABLE userbots ADD CONSTRAINT userbots_phone_number_pkey PRIMARY KEY (phone_number);
 ALTER TABLE userbots ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
 ALTER TABLE userbots ADD CONSTRAINT userbots_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+ALTER TABLE userbots DROP CONSTRAINT IF EXISTS userbots_session_name_key;
 ALTER TABLE userbots ADD CONSTRAINT userbots_session_name_key UNIQUE (session_name);
 
 -- 8. Tambah kolom assigned_admin_ub_id ke transactions (sinkronisasi dengan kode Python)
@@ -69,3 +92,9 @@ ALTER TABLE userbots ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
 ALTER TABLE userbots ADD COLUMN IF NOT EXISTS photo_url TEXT;
 ALTER TABLE userbots ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE userbots ADD COLUMN IF NOT EXISTS groups_count INTEGER DEFAULT 0;
+
+-- 10. Loyalty System — Tambah kolom poin & tier ke tabel users
+ALTER TABLE users ADD COLUMN IF NOT EXISTS loyalty_points INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS loyalty_tier TEXT DEFAULT 'bronze';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS purchase_streak INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_purchase_at TIMESTAMPTZ;

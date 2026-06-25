@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS users (
     user_id BIGINT PRIMARY KEY,
     username TEXT,
     full_name TEXT,
-    joined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    joined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    loyalty_points INTEGER DEFAULT 0,
+    loyalty_tier TEXT DEFAULT 'bronze',
+    purchase_streak INTEGER DEFAULT 0,
+    last_purchase_at TIMESTAMPTZ
 );
 
 -- 2. Table Subscriptions

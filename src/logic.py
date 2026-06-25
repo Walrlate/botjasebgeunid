@@ -113,6 +113,38 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
     # 4. Tandai transaksi sukses
     db_update_transaction_status(trx_id, "success")
     
+    # 4b. LOYALTY SYSTEM — Tambah poin dari pembelian
+    try:
+        from src.database import db_add_loyalty_points
+        loyalty_result = db_add_loyalty_points(uid, amt)
+        
+        # Notifikasi tier-up jika naik tier
+        if loyalty_result.get("is_tier_up"):
+            tier_icons = {"bronze": "🥉", "silver": "🥈", "gold": "🥇", "loyalty": "💎"}
+            discounts = {"bronze": 0, "silver": 5, "gold": 10, "loyalty": 15}
+            new_t = loyalty_result["new_tier"]
+            disc_pct = discounts.get(new_t, 0)
+            tier_msg = (
+                f"🏆 **SELAMAT! TIER ANDA NAIK!**\n\n"
+                f"Anda resmi menjadi member **{tier_icons.get(new_t, '🏆')} {new_t.upper()}**!\n"
+                f"📊 Total Poin: **{loyalty_result['new_total']:,}**\n"
+                f"🎁 Diskon otomatis: **{disc_pct}%** untuk pembelian berikutnya."
+            )
+            try:
+                await bot.send_message(uid, tier_msg)
+            except Exception:
+                pass
+        elif loyalty_result.get("points_earned", 0) > 0:
+            pe = loyalty_result["points_earned"]
+            nt = loyalty_result["new_total"]
+            streak_txt = " (🔥 Streak x2!)" if loyalty_result.get("streak", 0) > 1 else ""
+            try:
+                await bot.send_message(uid, f"🏆 +{pe} Poin Loyalty{streak_txt} — Total: {nt:,} poin")
+            except Exception:
+                pass
+    except Exception as loyalty_err:
+        logger.error(f"Gagal memproses loyalty points untuk user {uid}: {loyalty_err}")
+    
     # 5. Set alur bot selanjutnya (Minta Materi / Minta HP)
     is_ubot = "userbot" in pkg_name.lower()
     login_states[uid] = {"state": "waiting_for_phone" if is_ubot else "waiting_for_ad"}

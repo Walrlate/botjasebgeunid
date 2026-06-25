@@ -68,6 +68,9 @@ def _register_handlers(bot):
     @bot.on(events.CallbackQuery(data=b"help_client_step4"))
     async def help_client_step4_callback(event): await _show_client_step4_help(event)
 
+    @bot.on(events.CallbackQuery(data=b"help_client_step5"))
+    async def help_client_step5_callback(event): await _show_client_step5_help(event)
+
     @bot.on(events.CallbackQuery(data=b"help_admin_step1"))
     async def help_admin_step1_callback(event):
         if event.sender_id != ADMIN_ID:
@@ -95,6 +98,13 @@ def _register_handlers(bot):
             await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
             return
         await _show_admin_step4_help(event)
+
+    @bot.on(events.CallbackQuery(data=b"help_admin_step5"))
+    async def help_admin_step5_callback(event):
+        if event.sender_id != ADMIN_ID:
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+            return
+        await _show_admin_step5_help(event)
 
     @bot.on(events.NewMessage(pattern='/mystatus'))
     async def mystatus_command_handler(event): await _show_mystatus(event, event.sender_id)
@@ -987,7 +997,38 @@ async def _show_client_step4_help(event):
         "• **Kustom Bio**: Ganti bio akun userbot Anda secara otomatis langsung lewat bot. Maksimal 70 karakter.\n"
         "• **Transfer Paket**: Pindahkan sisa lisensi paket beserta sesi userbot aktif ke User ID Telegram lain. Gunakan format: `/transfer <ID_TUJUAN>` (contoh: `/transfer 8844645901`)."
     )
-    buttons = [[Button.inline("⬅️ Panduan 3", b"help_client_step3")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
+    buttons = [
+        [Button.inline("⬅️ Panduan 3", b"help_client_step3"), Button.inline("➡️ Panduan 5", b"help_client_step5")],
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_client_step5_help(event):
+    text = (
+        "🏆 **PANDUAN 5: SISTEM LOYALTY & TIER POIN**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "GeunID menghargai setiap pembelian Anda. Dapatkan poin otomatis dari setiap transaksi sukses dan naikkan tier Anda untuk diskon belanja permanen!\n\n"
+        "📈 **Daftar Tingkatan Tier & Keuntungan:**\n"
+        "• 🥉 **Bronze Member** (0 - 499 Poin)\n"
+        "  - Diskon: 0%\n"
+        "  - Badge keren di profil Mini App Anda.\n\n"
+        "• 🥈 **Silver Member** (500 - 1.499 Poin)\n"
+        "  - Diskon: **5% otomatis** untuk semua pembelian paket!\n\n"
+        "• 🥇 **Gold Member** (1.500 - 4.999 Poin)\n"
+        "  - Diskon: **10% otomatis** untuk semua pembelian paket!\n\n"
+        "• 💎 **Loyalty Member** (5.000+ Poin)\n"
+        "  - Diskon: **15% otomatis** (Maksimal diskon) untuk semua paket!\n"
+        "  - Efek badge animasi berputar & glowing premium di Mini App Anda!\n\n"
+        "🪙 **Cara Mengumpulkan Poin:**\n"
+        "1. **Pembelian Paket**: Setiap **Rp 100** belanja sukses = **1 Poin** (contoh: beli paket Rp 7.500 dapat 75 poin).\n"
+        "2. **Streak Pembelian (2x Poin)**: Beli/perpanjang paket dalam **35 hari** terakhir untuk mengaktifkan streak, poin yang didapatkan dari pembelian dikalikan 2! (contoh: paket Rp 7.500 jadi 150 poin).\n"
+        "3. **Rating Bonus (+50 Poin)**: Berikan rating **5 Bintang ⭐⭐⭐⭐⭐** setelah aktivasi paket selesai untuk klaim instan bonus 50 poin.\n\n"
+        "ℹ️ *Diskon tier loyalitas akan langsung memotong harga paket Anda secara otomatis saat checkout di Mini App.*"
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 4", b"help_client_step4")],
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
     await event.edit(text, buttons=buttons)
 
 # ─────────────────────────────────────────
@@ -1094,5 +1135,40 @@ async def _show_admin_step4_help(event):
         "  - **Edit Tombol**: Mengubah tombol inline link (format: `Teks | URL`).\n"
         "  - **Mulai/Hentikan**: Menjalankan atau menghentikan sebar iklan promosi admin secara massal."
     )
-    buttons = [[Button.inline("⬅️ Panduan 3", b"help_admin_step3")], [Button.inline("⬅️ Kembali ke Start", b"start")]]
+    buttons = [
+        [Button.inline("⬅️ Panduan 3", b"help_admin_step3"), Button.inline("➡️ Panduan 5", b"help_admin_step5")],
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
+    await event.edit(text, buttons=buttons)
+
+async def _show_admin_step5_help(event):
+    if event.sender_id != ADMIN_ID:
+        if hasattr(event, "answer"):
+            await event.answer("⛔ Akses ditolak. Hanya Owner.", alert=True)
+        return
+
+    text = (
+        "💎 **ADMIN 5: TEKNIS DATABASE & SISTEM LOYALITAS**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Sistem Loyalitas diatur sepenuhnya via database Supabase PostgreSQL. Berikut adalah struktur, aturan kalkulasi, dan manajemen manual:\n\n"
+        "📊 **Kolom Tabel `users` di Database:**\n"
+        "• `loyalty_points` (INTEGER): Jumlah total poin terkumpul saat ini.\n"
+        "• `loyalty_tier` (TEXT): Tier user aktif (`bronze`, `silver`, `gold`, `loyalty`).\n"
+        "• `purchase_streak` (INTEGER): Jumlah transaksi berturut-turut yang memenuhi syarat.\n"
+        "• `last_purchase_at` (TIMESTAMPTZ): Waktu transaksi sukses terakhir.\n\n"
+        "⚙️ **Aturan Penghitungan Poin:**\n"
+        "• **Base Points**: `amount // 100` (Rp 100 = 1 poin). Dihitung dari nominal tagihan akhir.\n"
+        "• **Multiplier Streak (x2)**: Jika `last_purchase_at` tidak kosong dan selisihnya dengan waktu transaksi baru `≤ 35 hari`, maka `is_streak = True` → `points_earned = base_points * 2`, dan streak bertambah 1. Jika tidak, streak di-reset ke 1.\n"
+        "• **Rating Bonus**: Jika pembeli mengirim feedback rating 5 bintang, fungsi backend `db_add_rating_bonus_points(user_id, rating)` langsung dipanggil untuk menambah **+50 Poin** bonus instan.\n\n"
+        "🛠️ **Manajemen & Intervensi Poin Manual (SQL):**\n"
+        "Untuk menambah, mengurangi, atau mereset poin pembeli secara manual, jalankan perintah SQL berikut di Supabase SQL Editor:\n"
+        "• *Update poin & tier user:*\n"
+        "  `UPDATE users SET loyalty_points = 5500, loyalty_tier = 'loyalty' WHERE user_id = 123456789;`\n"
+        "• *Reset streak & points:*\n"
+        "  `UPDATE users SET loyalty_points = 0, loyalty_tier = 'bronze', purchase_streak = 0, last_purchase_at = NULL WHERE user_id = 123456789;`"
+    )
+    buttons = [
+        [Button.inline("⬅️ Panduan 4", b"help_admin_step4")],
+        [Button.inline("⬅️ Kembali ke Start", b"start")]
+    ]
     await event.edit(text, buttons=buttons)

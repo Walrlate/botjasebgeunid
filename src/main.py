@@ -943,6 +943,14 @@ async def rating_callback_handler(event):
     stars = "⭐" * int(rating_val)
     await event.edit(f"❤️ **Terima kasih!** Rating {stars} Anda sangat berharga bagi kami.")
     
+    # Loyalty bonus: +50 poin jika rating 5 bintang
+    try:
+        from src.database import db_add_rating_bonus_points
+        if db_add_rating_bonus_points(user_id, int(rating_val)):
+            await bot.send_message(user_id, "🏆 **+50 Poin Loyalty Bonus!** Terima kasih atas rating ⭐⭐⭐⭐⭐ Anda!")
+    except Exception as bonus_err:
+        logger.error(f"Gagal menambah bonus poin rating: {bonus_err}")
+    
     try:
         import os
         import glob
@@ -1074,8 +1082,17 @@ async def handle_checkout_api(request):
         if not is_authenticated_user(uid, init_data):
             return web.json_response({"status": False, "error": "Akses Ditolak. Otentikasi Telegram tidak valid."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
             
-        amt, pkg, method = int(data['amount']), data['package_name'], data.get('payment_method', 'qris')
+        amt_original = int(data['amount'])
+        pkg, method = data['package_name'], data.get('payment_method', 'qris')
         quantity = int(data.get('quantity', 1))
+        
+        # LOYALTY DISCOUNT — Terapkan diskon tier otomatis
+        from src.database import db_get_loyalty_discount_percent
+        discount_pct = db_get_loyalty_discount_percent(uid)
+        if discount_pct > 0:
+            amt = amt_original - int(amt_original * discount_pct / 100)
+        else:
+            amt = amt_original
         admin_ub_id = data.get("assigned_admin_ub_id")
         if admin_ub_id is not None:
             admin_ub_id = int(admin_ub_id)
@@ -1145,6 +1162,10 @@ async def handle_user_stats_api(request):
         from src.jaseb_engine import broadcast_progress
         user_progress = broadcast_progress.get(uid)
         
+        # Loyalty data
+        from src.database import db_get_user_loyalty
+        loyalty_data = db_get_user_loyalty(uid)
+        
         res = {
             "total_sent": succ, 
             "package_name": "Tidak Aktif", 
@@ -1160,7 +1181,8 @@ async def handle_user_stats_api(request):
                 "current_index": 0,
                 "current_group": "",
                 "status": "idle"
-            }
+            },
+            "loyalty": loyalty_data
         }
         
         # Ambil daftar userbot secara realtime untuk dirender di tab Pengaturan Mini App

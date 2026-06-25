@@ -23,6 +23,15 @@ interface StatsType {
   userInterval: number;
   is_admin?: boolean;
   userbots_list?: any[];
+  loyalty?: {
+    points: number;
+    tier: string;
+    streak: number;
+    discount_percent: number;
+    next_tier: string | null;
+    next_tier_points: number;
+    points_to_next: number;
+  };
 }
 
 interface ProfileTabProps {
@@ -78,6 +87,90 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <p className="text-xs font-semibold text-slate-400">{getUsername()}</p>
         </div>
         <div className="h-[1px] bg-slate-200 my-2"></div>
+
+        {/* LOYALTY CARD */}
+        {stats.loyalty && (
+          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white rounded-3xl p-4 text-left border border-slate-700/50 shadow-xl relative overflow-hidden my-3">
+            {/* Ambient background glow */}
+            <div className="absolute -top-12 -right-12 w-28 h-28 bg-geun-blue/20 rounded-full blur-2xl"></div>
+            {stats.loyalty.tier === 'loyalty' && (
+              <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-purple-500/20 rounded-full blur-xl"></div>
+            )}
+            
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base animate-bounce">
+                  {stats.loyalty.tier === 'bronze' && '🥉'}
+                  {stats.loyalty.tier === 'silver' && '🥈'}
+                  {stats.loyalty.tier === 'gold' && '🥇'}
+                  {stats.loyalty.tier === 'loyalty' && '💎'}
+                </span>
+                <span className="text-[10px] font-black tracking-widest text-slate-300">
+                  GEUNID LOYALTY
+                </span>
+              </div>
+              <span className={`text-[8px] font-extrabold px-2.5 py-1 rounded-xl uppercase tracking-wider shadow-sm font-sans ${
+                stats.loyalty.tier === 'bronze' ? 'tier-badge-bronze' :
+                stats.loyalty.tier === 'silver' ? 'tier-badge-silver' :
+                stats.loyalty.tier === 'gold' ? 'tier-badge-gold' :
+                'tier-badge-loyalty'
+              }`}>
+                {stats.loyalty.tier.toUpperCase()}
+              </span>
+            </div>
+
+            {/* Progress Bar / Points Section */}
+            {stats.loyalty.next_tier ? (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-[9px] font-extrabold text-slate-400">
+                  <span>Progres Poin</span>
+                  <span className="text-white bg-white/10 px-2 py-0.5 rounded-full">{stats.loyalty.points} / {stats.loyalty.next_tier_points} Poin</span>
+                </div>
+                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden p-[1px]">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, (stats.loyalty.points / stats.loyalty.next_tier_points) * 100)}%` }}
+                    transition={{ duration: 1.2, ease: "easeOut" }}
+                    className={`h-full rounded-full loyalty-progress-fill ${
+                      stats.loyalty.tier === 'bronze' ? 'bg-gradient-to-r from-amber-700 to-amber-500' :
+                      stats.loyalty.tier === 'silver' ? 'bg-gradient-to-r from-slate-400 to-slate-200' :
+                      stats.loyalty.tier === 'gold' ? 'bg-gradient-to-r from-yellow-500 to-amber-400' :
+                      'bg-gradient-to-r from-violet-600 via-pink-500 to-blue-500'
+                    }`}
+                  />
+                </div>
+                <p className="text-[8.5px] font-bold text-slate-400 flex items-center gap-1">
+                  <span>🎯</span>
+                  <span>Butuh <span className="text-geun-blue font-black">{stats.loyalty.points_to_next}</span> poin lagi menuju tier <span className="text-white font-black uppercase tracking-wider">{stats.loyalty.next_tier}</span></span>
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-[9px] font-extrabold text-slate-400">
+                  <span>Total Akumulasi Poin</span>
+                  <span className="text-white bg-white/10 px-2 py-0.5 rounded-full font-mono">{stats.loyalty.points} Poin</span>
+                </div>
+                <div className="w-full h-2 bg-gradient-to-r from-violet-600 via-pink-500 to-blue-500 rounded-full animate-pulse"></div>
+                <p className="text-[8.5px] font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-pink-400 uppercase tracking-wide flex items-center gap-1">
+                  <span>👑</span>
+                  <span>Anda berada di kasta tertinggi (Loyalty Member)!</span>
+                </p>
+              </div>
+            )}
+
+            {/* Loyalty Benefits */}
+            <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-white/5 text-[9px] font-bold text-slate-400">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px]">🔥</span>
+                <span>Streak: <span className="text-white font-extrabold">{stats.loyalty.streak}x</span></span>
+              </div>
+              <div className="flex items-center gap-1 justify-end">
+                <span className="text-[11px]">🎁</span>
+                <span>Diskon: <span className="text-emerald-400 font-extrabold">{stats.loyalty.discount_percent}%</span></span>
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="space-y-2.5 text-left text-xs">
           {stats.userPackage.toLowerCase().includes('userbot') ? (

@@ -113,6 +113,7 @@ const Dashboard = () => {
     is_admin: false,
     userbots_list: [] as any[],
     broadcastProgress: null as any,
+    loyalty: null as any,
   });
 
   const fetchUserStats = async (userId: number) => {
@@ -139,6 +140,7 @@ const Dashboard = () => {
           is_admin: d.is_admin,
           userbots_list: d.userbots_list || [],
           broadcastProgress: d.broadcast_progress || null,
+          loyalty: d.loyalty || null,
         }));
       }
     } catch (err) {
@@ -179,6 +181,7 @@ const Dashboard = () => {
         is_admin: false,
         userbots_list: [],
         broadcastProgress: null,
+        loyalty: null,
       });
     }
   }, []);
@@ -547,6 +550,8 @@ const Dashboard = () => {
             qrisTaxPercent={qrisTaxPercent}
             selectedAdminSlot={selectedAdminSlot}
             setSelectedAdminSlot={setSelectedAdminSlot}
+            loyaltyDiscountPercent={stats.loyalty?.discount_percent}
+            loyaltyTier={stats.loyalty?.tier}
           />
         </AnimatePresence>
 

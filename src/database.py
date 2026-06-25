@@ -1989,3 +1989,195 @@ def db_download_session_file(session_name: str) -> bool:
         return False
 
 
+# ─────────────────────────────────────────
+# LOYALTY SYSTEM (Points & Tier)
+# ─────────────────────────────────────────
+
+TIER_THRESHOLDS = {
+    "bronze":  0,
+    "silver":  500,
+    "gold":    1500,
+    "loyalty": 5000
+}
+
+TIER_DISCOUNTS = {
+    "bronze":  0,
+    "silver":  5,
+    "gold":    10,
+    "loyalty": 15
+}
+
+# Urutan tier dari terendah ke tertinggi
+TIER_ORDER = ["bronze", "silver", "gold", "loyalty"]
+
+def _calculate_tier(points: int) -> str:
+    """Menentukan tier berdasarkan total poin akumulatif."""
+    tier = "bronze"
+    for t in TIER_ORDER:
+        if points >= TIER_THRESHOLDS[t]:
+            tier = t
+    return tier
+
+def _next_tier_info(current_tier: str, points: int) -> dict:
+    """Menghitung info tier berikutnya (nama, threshold, sisa poin)."""
+    idx = TIER_ORDER.index(current_tier) if current_tier in TIER_ORDER else 0
+    if idx >= len(TIER_ORDER) - 1:
+        # Sudah di tier tertinggi (Loyalty)
+        return {"next_tier": None, "next_tier_points": 0, "points_to_next": 0}
+    next_t = TIER_ORDER[idx + 1]
+    return {
+        "next_tier": next_t,
+        "next_tier_points": TIER_THRESHOLDS[next_t],
+        "points_to_next": max(0, TIER_THRESHOLDS[next_t] - points)
+    }
+
+def db_get_user_loyalty(user_id: int) -> dict:
+    """Mengambil data loyalty lengkap user."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("users")\
+            .select("loyalty_points, loyalty_tier, purchase_streak, last_purchase_at")\
+            .eq("user_id", user_id)\
+            .execute()
+        if res.data:
+            row = res.data[0]
+            points = row.get("loyalty_points") or 0
+            tier = row.get("loyalty_tier") or "bronze"
+            streak = row.get("purchase_streak") or 0
+            discount = TIER_DISCOUNTS.get(tier, 0)
+            next_info = _next_tier_info(tier, points)
+            return {
+                "points": points,
+                "tier": tier,
+                "streak": streak,
+                "discount_percent": discount,
+                **next_info
+            }
+        return {
+            "points": 0, "tier": "bronze", "streak": 0,
+            "discount_percent": 0, "next_tier": "silver",
+            "next_tier_points": 500, "points_to_next": 500
+        }
+    except Exception as e:
+        logger.error(f"Error in db_get_user_loyalty: {e}")
+        return {
+            "points": 0, "tier": "bronze", "streak": 0,
+            "discount_percent": 0, "next_tier": "silver",
+            "next_tier_points": 500, "points_to_next": 500
+        }
+
+def db_add_loyalty_points(user_id: int, amount: int) -> dict:
+    """
+    Menambah poin loyalty dari nominal transaksi.
+    Rp 100 = 1 poin. Jika streak aktif (pembelian dalam 35 hari), poin x2.
+    Mengembalikan dict: {points_earned, new_total, old_tier, new_tier, is_tier_up}
+    """
+    try:
+        supabase = get_supabase()
+        db_ensure_user(user_id)
+
+        # Ambil data loyalty saat ini
+        res = supabase.table("users")\
+            .select("loyalty_points, loyalty_tier, purchase_streak, last_purchase_at")\
+            .eq("user_id", user_id)\
+            .execute()
+        
+        current_points = 0
+        current_streak = 0
+        last_purchase = None
+        old_tier = "bronze"
+        
+        if res.data:
+            row = res.data[0]
+            current_points = row.get("loyalty_points") or 0
+            old_tier = row.get("loyalty_tier") or "bronze"
+            current_streak = row.get("purchase_streak") or 0
+            last_purchase = row.get("last_purchase_at")
+
+        # Hitung poin dasar: Rp 100 = 1 poin
+        base_points = amount // 100
+
+        # Deteksi streak: apakah pembelian terakhir dalam 35 hari?
+        is_streak = False
+        now = datetime.now(timezone.utc)
+        if last_purchase:
+            try:
+                lp_dt = parse_utc_date(last_purchase)
+                if (now - lp_dt).days <= 35:
+                    is_streak = True
+            except Exception:
+                pass
+
+        # Hitung poin final
+        points_earned = base_points * 2 if is_streak else base_points
+        new_streak = (current_streak + 1) if is_streak else 1
+        new_total = current_points + points_earned
+        new_tier = _calculate_tier(new_total)
+        is_tier_up = new_tier != old_tier and TIER_ORDER.index(new_tier) > TIER_ORDER.index(old_tier)
+
+        # Update ke database
+        supabase.table("users").update({
+            "loyalty_points": new_total,
+            "loyalty_tier": new_tier,
+            "purchase_streak": new_streak,
+            "last_purchase_at": now.isoformat()
+        }).eq("user_id", user_id).execute()
+
+        logger.info(f"🏆 Loyalty: user {user_id} mendapat {points_earned} poin ({'streak x2' if is_streak else 'normal'}). Total: {new_total}. Tier: {old_tier} → {new_tier}")
+        
+        return {
+            "points_earned": points_earned,
+            "new_total": new_total,
+            "old_tier": old_tier,
+            "new_tier": new_tier,
+            "is_tier_up": is_tier_up,
+            "streak": new_streak
+        }
+    except Exception as e:
+        logger.error(f"Error in db_add_loyalty_points: {e}")
+        return {"points_earned": 0, "new_total": 0, "old_tier": "bronze", "new_tier": "bronze", "is_tier_up": False, "streak": 0}
+
+def db_get_loyalty_discount_percent(user_id: int) -> int:
+    """Mengembalikan persentase diskon loyalty berdasarkan tier user."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("users")\
+            .select("loyalty_tier")\
+            .eq("user_id", user_id)\
+            .execute()
+        if res.data:
+            tier = res.data[0].get("loyalty_tier") or "bronze"
+            return TIER_DISCOUNTS.get(tier, 0)
+        return 0
+    except Exception as e:
+        logger.error(f"Error in db_get_loyalty_discount_percent: {e}")
+        return 0
+
+def db_add_rating_bonus_points(user_id: int, rating: int) -> bool:
+    """Menambah 50 poin bonus jika pembeli memberikan rating 5 bintang."""
+    if rating != 5:
+        return False
+    try:
+        supabase = get_supabase()
+        res = supabase.table("users")\
+            .select("loyalty_points, loyalty_tier")\
+            .eq("user_id", user_id)\
+            .execute()
+        
+        current_points = 0
+        if res.data:
+            current_points = res.data[0].get("loyalty_points") or 0
+
+        new_total = current_points + 50
+        new_tier = _calculate_tier(new_total)
+
+        supabase.table("users").update({
+            "loyalty_points": new_total,
+            "loyalty_tier": new_tier
+        }).eq("user_id", user_id).execute()
+
+        logger.info(f"🏆 Loyalty: user {user_id} mendapat +50 poin bonus rating 5⭐. Total: {new_total}")
+        return True
+    except Exception as e:
+        logger.error(f"Error in db_add_rating_bonus_points: {e}")
+        return False

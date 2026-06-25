@@ -53,6 +53,8 @@ interface CheckoutModalProps {
   qrisTaxPercent?: number;
   selectedAdminSlot: number | null;
   setSelectedAdminSlot: (id: number | null) => void;
+  loyaltyDiscountPercent?: number;
+  loyaltyTier?: string;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -77,6 +79,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   qrisTaxPercent,
   selectedAdminSlot,
   setSelectedAdminSlot,
+  loyaltyDiscountPercent,
+  loyaltyTier,
 }) => {
   const [adminSlots, setAdminSlots] = React.useState<any[]>([]);
   const [loadingSlots, setLoadingSlots] = React.useState(false);
@@ -107,7 +111,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const basePrice = selectedPackage.type === 'userbot' ? selectedPackage.price * accountCount : selectedPackage.price;
   const qrisPercent = qrisTaxPercent !== undefined ? qrisTaxPercent : 0.7;
   const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * (qrisPercent / 100)) : 0;
-  const totalPrice = basePrice + qrisFee;
+  const totalPriceBeforeDiscount = basePrice + qrisFee;
+  
+  const discountPct = loyaltyDiscountPercent || 0;
+  const discountAmount = discountPct > 0 ? Math.floor(totalPriceBeforeDiscount * (discountPct / 100)) : 0;
+  const totalPrice = totalPriceBeforeDiscount - discountAmount;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -347,6 +355,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   <div className="flex justify-between items-center text-slate-500">
                     <span>Biaya Admin Manual:</span>
                     <span className="font-bold text-emerald-600">Rp 0 (Bebas Biaya)</span>
+                  </div>
+                )}
+                {discountPct > 0 && (
+                  <div className="flex justify-between items-center text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-lg">
+                    <span className="flex items-center gap-1">
+                      <span>
+                        {loyaltyTier === 'silver' && '🥈'}
+                        {loyaltyTier === 'gold' && '🥇'}
+                        {loyaltyTier === 'loyalty' && '💎'}
+                      </span>
+                      <span>Diskon {loyaltyTier ? loyaltyTier.charAt(0).toUpperCase() + loyaltyTier.slice(1) : 'Member'} (-{discountPct}%):</span>
+                    </span>
+                    <span>-Rp {discountAmount.toLocaleString('id-ID')}</span>
                   </div>
                 )}
                 <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
