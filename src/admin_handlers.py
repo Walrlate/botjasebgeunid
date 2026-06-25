@@ -279,6 +279,26 @@ def _register_admin_handlers(bot):
         _login_states.pop(event.sender_id, None)
         await show_promote_panel(event, edit=False)
 
+    @bot.on(events.NewMessage(pattern=r'/restart'))
+    async def restart_command(event):
+        if not await _admin_only_check(event): return
+        
+        await event.respond("🔄 **Memulai Ulang Bot...**\n\nSistem akan memuat kembali seluruh modul dan kode terbaru. Silakan tunggu 5-10 detik.")
+        
+        # Jeda sejenak agar pesan selesai terkirim
+        await asyncio.sleep(1.5)
+        
+        try:
+            await bot.disconnect()
+        except:
+            pass
+            
+        import os
+        import sys
+        
+        # Jalankan ulang interpreter python dengan process args yang sama
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
     @bot.on(events.CallbackQuery(data=b"promo_panel"))
     async def promo_panel_callback(event):
         if not await _admin_only_check(event): return
