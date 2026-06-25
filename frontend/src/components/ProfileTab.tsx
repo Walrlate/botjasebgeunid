@@ -41,6 +41,7 @@ interface ProfileTabProps {
   getDisplayName: () => string;
   getUsername: () => string;
   triggerHaptic: (style?: 'light' | 'medium' | 'heavy') => void;
+  refreshStats?: () => void;
 }
 
 export const ProfileTab: React.FC<ProfileTabProps> = ({
@@ -50,8 +51,46 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   getDisplayName,
   getUsername,
   triggerHaptic,
+  refreshStats,
 }) => {
   const [expandedUbot, setExpandedUbot] = React.useState<string | null>(null);
+  const [deletingPhone, setDeletingPhone] = React.useState<string | null>(null);
+
+  const handleDeleteUserbot = async (phone: string) => {
+    if (!user) return;
+    if (!confirm(`Apakah Anda yakin ingin menghapus userbot ${phone}? Sesi akan dihapus secara permanen.`)) {
+      return;
+    }
+    
+    triggerHaptic('heavy');
+    setDeletingPhone(phone);
+    try {
+      const initData = (window as any).Telegram?.WebApp?.initData || '';
+      const response = await fetch('/api/delete-userbot', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-telegram-init-data': initData,
+        },
+        body: JSON.stringify({
+          user_id: user.id,
+          phone_number: phone,
+        }),
+      });
+
+      const resData = await response.json();
+      if (resData.status || response.ok) {
+        alert(resData.message || 'Userbot berhasil dihapus.');
+        if (refreshStats) refreshStats();
+      } else {
+        alert(`Gagal menghapus: ${resData.error || 'Terjadi kesalahan'}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'Gagal menghubungi server'}`);
+    } finally {
+      setDeletingPhone(null);
+    }
+  };
   
   const formatRemainingTime = (seconds: number, days: number) => {
     if (seconds <= 0 && days <= 0) return "Expired";
@@ -127,21 +166,23 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                   <span className="text-white bg-white/10 px-2 py-0.5 rounded-full">{stats.loyalty.points} / {stats.loyalty.next_tier_points} Poin</span>
                 </div>
                 <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden p-[1px]">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, (stats.loyalty.points / stats.loyalty.next_tier_points) * 100)}%` }}
-                    transition={{ duration: 1.2, ease: "easeOut" }}
-                    className={`h-full rounded-full loyalty-progress-fill ${
-                      stats.loyalty.tier === 'bronze' ? 'bg-gradient-to-r from-amber-700 to-amber-500' :
-                      stats.loyalty.tier === 'silver' ? 'bg-gradient-to-r from-slate-400 to-slate-200' :
-                      stats.loyalty.tier === 'gold' ? 'bg-gradient-to-r from-yellow-500 to-amber-400' :
-                      'bg-gradient-to-r from-violet-600 via-pink-500 to-blue-500'
-                    }`}
-                  />
+                  {stats.loyalty.points > 0 && (
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (stats.loyalty.points / stats.loyalty.next_tier_points) * 100)}%` }}
+                      transition={{ duration: 1.2, ease: "easeOut" }}
+                      className={`h-full rounded-full overflow-hidden loyalty-progress-fill ${
+                        stats.loyalty.tier === 'bronze' ? 'bg-gradient-to-r from-amber-700 to-amber-500' :
+                        stats.loyalty.tier === 'silver' ? 'bg-gradient-to-r from-slate-400 to-slate-200' :
+                        stats.loyalty.tier === 'gold' ? 'bg-gradient-to-r from-yellow-500 to-amber-400' :
+                        'bg-gradient-to-r from-violet-600 via-pink-500 to-blue-500'
+                      }`}
+                    />
+                  )}
                 </div>
                 <p className="text-[8.5px] font-bold text-slate-400 flex items-center gap-1">
                   <span>🎯</span>
-                  <span>Butuh <span className="text-geun-blue font-black">{stats.loyalty.points_to_next}</span> poin lagi menuju tier <span className="text-white font-black uppercase tracking-wider">{stats.loyalty.next_tier}</span></span>
+                  <span>Butuh <span className="text-sky-400 font-black">{stats.loyalty.points_to_next}</span> poin lagi menuju tier <span className="text-white font-black uppercase tracking-wider">{stats.loyalty.next_tier}</span></span>
                 </p>
               </div>
             ) : (
@@ -276,9 +317,24 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                           )}
                         </div>
                       </div>
-                      <span className={`font-bold uppercase tracking-wider text-[8px] px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                        {isOnline ? 'Connected' : 'Disconnected'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-bold uppercase tracking-wider text-[8px] px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                          {isOnline ? 'Connected' : 'Disconnected'}
+                        </span>
+                        {!isOnline && (
+                          <button
+                            onClick={() => handleDeleteUserbot(ub.phone_number)}
+                            disabled={deletingPhone === ub.phone_number}
+                            className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider transition-colors duration-200 flex items-center gap-0.5 disabled:opacity-50"
+                          >
+                            {deletingPhone === ub.phone_number ? (
+                              <span className="w-2 h-2 border border-rose-600 border-t-transparent rounded-full animate-spin"></span>
+                            ) : (
+                              <span>🗑️ Hapus</span>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {isOnline && ub.joined_groups && ub.joined_groups.length > 0 && (

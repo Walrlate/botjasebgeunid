@@ -1443,6 +1443,66 @@ async def handle_admin_slots_api(request):
         logger.error(f"Error handle_admin_slots_api: {e}")
         return web.json_response({"status": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
+async def handle_delete_userbot_api(request):
+    try:
+        data = await request.json()
+        uid = int(data['user_id'])
+        phone = data['phone_number']
+        
+        init_data = request.headers.get("x-telegram-init-data", "")
+        if not is_authenticated_user(uid, init_data):
+            return web.json_response({"status": False, "error": "Akses Ditolak. Otentikasi Telegram tidak valid."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+            
+        from src.database import get_supabase, db_admin_delete_client_userbot
+        supabase = get_supabase()
+        
+        # Ambil data userbot untuk verifikasi kepemilikan
+        res = supabase.table("userbots").select("user_id, status").eq("phone_number", phone).execute()
+        if not res.data:
+            return web.json_response({"status": False, "error": "Userbot tidak ditemukan."}, status=404, headers={"Access-Control-Allow-Origin": "*"})
+            
+        ub_data = res.data[0]
+        ub_owner_id = ub_data["user_id"]
+        ub_status = ub_data["status"]
+        
+        is_admin = (uid == ADMIN_ID)
+        if not is_admin and ub_owner_id != uid:
+            return web.json_response({"status": False, "error": "Akses Ditolak. Anda bukan pemilik userbot ini."}, status=403, headers={"Access-Control-Allow-Origin": "*"})
+            
+        if not is_admin and ub_status == 'connected':
+            return web.json_response({"status": False, "error": "Userbot sedang aktif (Connected). Putuskan koneksi terlebih dahulu sebelum menghapus."}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+            
+        # Hentikan userbot
+        from src.userbot_manager import stop_client_userbot
+        try:
+            await stop_client_userbot(phone)
+        except Exception as stop_err:
+            logger.warning(f"Gagal menghentikan userbot {phone}: {stop_err}")
+            
+        # Hapus userbot dari database
+        ok, session_name = db_admin_delete_client_userbot(phone)
+        if not ok:
+            return web.json_response({"status": False, "error": "Gagal menghapus userbot dari database."}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+            
+        # Hapus file sesi lokal
+        if session_name:
+            import os
+            for ext in [".session", ".session-journal"]:
+                path = f"data/sessions/{session_name}{ext}"
+                if os.path.exists(path):
+                    try: os.remove(path)
+                    except: pass
+            # Hapus file sesi di Supabase Storage
+            try:
+                supabase.storage.from_("sessions").remove([f"{session_name}.session"])
+            except Exception as storage_err:
+                logger.warning(f"Gagal menghapus file sesi {session_name} dari storage: {storage_err}")
+                
+        return web.json_response({"status": True, "message": "Userbot berhasil dihapus."}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error handle_delete_userbot_api: {e}")
+        return web.json_response({"status": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
 async def run_web_server():
     app = web.Application()
     app.router.add_get('/api/prices', handle_prices_api)
@@ -1452,8 +1512,9 @@ async def run_web_server():
     app.router.add_get('/api/check-status/{trx_id}', handle_check_status_api)
     app.router.add_post('/api/callback/klikqris', handle_klikqris_webhook)
     app.router.add_get('/api/admin-slots', handle_admin_slots_api)
+    app.router.add_post('/api/delete-userbot', handle_delete_userbot_api)
     async def opt(req): return web.Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"})
-    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}', '/api/callback/klikqris', '/api/admin-slots']: app.router.add_options(p, opt)
+    for p in ['/api/prices', '/api/checkout', '/api/user-stats/{user_id}', '/api/history/{user_id}', '/api/check-status/{trx_id}', '/api/callback/klikqris', '/api/admin-slots', '/api/delete-userbot']: app.router.add_options(p, opt)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 async def main():

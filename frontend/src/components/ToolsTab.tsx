@@ -53,7 +53,7 @@ export const ToolsTab: React.FC<ToolsTabProps> = ({
             </svg>
           </div>
           <div>
-            <h3 className="text-xs font-black text-slate-800 uppercase">AI Wording Beautifier</h3>
+            <h3 className="text-xs font-black text-slate-800 uppercase">Wording Beautifier</h3>
           </div>
         </div>
         <textarea

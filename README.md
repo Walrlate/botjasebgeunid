@@ -38,7 +38,7 @@ Mini App berjalan langsung secara melayang di dalam aplikasi Telegram saat user 
 *   **Konfigurator Paket & Harga Dinamis:** Pengguna dapat memfilter paket berdasarkan durasi (3, 5, 7, 10, 14, atau 30 hari) dan kapasitas LPM (20 atau 30 LPM).
 *   **Otomasi Checkout Multi-Akun:** Untuk paket Userbot, pengguna dapat membeli lisensi untuk banyak akun sekaligus secara instan dengan memasukkan daftar UserID tujuan.
 *   **Fitur Gratis Tanpa Login (Tools Tab):**
-    *   **AI Wording Beautifier:** Mengubah teks promosi biasa menjadi teks iklan yang indah dan menarik menggunakan template siap pakai (*Premium, Minimalist, Flash Sale*).
+    *   **Wording Beautifier:** Mengubah teks promosi biasa menjadi teks iklan yang indah dan menarik menggunakan template siap pakai (*Premium, Minimalist, Flash Sale*).
     *   **LPM Auto-Scanner Helper:** Membantu memformat perintah `/scan` grup LPM secara massal sehingga pengguna tinggal menyalin perintah tersebut ke bot Telegram.
 
 ### 2. Telegram Bot & Jaseb Engine (Backend Python Telethon)

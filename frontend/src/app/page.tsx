@@ -522,6 +522,7 @@ const Dashboard = () => {
                 getDisplayName={getDisplayName}
                 getUsername={getUsername}
                 triggerHaptic={triggerHaptic}
+                refreshStats={() => { if (user) fetchUserStats(user.id); }}
               />
             )}
           </AnimatePresence>
