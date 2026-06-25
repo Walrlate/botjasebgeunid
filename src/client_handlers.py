@@ -307,6 +307,10 @@ def _register_handlers(bot):
         buttons = [[Button.inline("❌ Batal", b"client_panel")]]
         await event.edit(text, buttons=buttons)
 
+    @bot.on(events.CallbackQuery(data=b"client_features_geunid"))
+    async def client_features_geunid_callback(event):
+        await show_features_geunid(event, edit=True)
+
     @bot.on(events.CallbackQuery(data=b"client_panel_back"))
     async def client_panel_back_callback(event):
         await show_client_panel(event, edit=True)
@@ -809,6 +813,9 @@ async def show_client_panel(event, edit=False):
         Button.inline("🔄 Transfer Paket", b"client_tf_pkg"),
         Button.inline("⚡ Simulator Spintax", b"client_simulator_spintax")
     ])
+    buttons.append([
+        Button.inline("🏆 Keunggulan GeunID", b"client_features_geunid")
+    ])
     buttons.append([Button.inline("⬅️ Kembali ke Status Saya", b"my_status")])
     
     if edit and hasattr(event, "edit"):
@@ -1002,6 +1009,58 @@ async def _show_client_step4_help(event):
         [Button.inline("⬅️ Kembali ke Start", b"start")]
     ]
     await event.edit(text, buttons=buttons)
+
+async def show_features_geunid(event, edit=True):
+    uid = event.sender_id
+    from src.database import get_supabase, db_get_user_loyalty
+    
+    # Ambil data loyalty user
+    loy_data = db_get_user_loyalty(uid)
+    points = loy_data.get("points", 0)
+    tier = loy_data.get("tier", "bronze").upper()
+    discount = loy_data.get("discount_percent", 0)
+    
+    # Ambil ad client untuk info iklan
+    supabase = get_supabase()
+    res_ad = supabase.table("user_ads").select("content").eq("user_id", uid).eq("title", "Iklan Utama").limit(1).execute()
+    ad_content = res_ad.data[0].get("content") if res_ad.data else ""
+    
+    tier_icons = {"BRONZE": "🥉", "SILVER": "🥈", "GOLD": "🥇", "LOYALTY": "💎"}
+    tier_icon = tier_icons.get(tier, "🏆")
+
+    text = (
+        "🏆 **KEUNGGULAN PREMIUM GEUNID JASEB**\n"
+        f"{'━'*30}\n\n"
+        "1️⃣ **Auto-Ban Redirect & Smart Safeguard**\n"
+        "🟢 Status: **Aktif (Siaga)**\n"
+        "💡 Sistem memantau respons server Telegram secara real-time. Jika akun mengalami FloodWait (limit), target LPM akan langsung dialihkan ke bot cadangan agar promosi Anda tetap jalan tanpa henti!\n\n"
+        "2️⃣ **Humanoid Stealth Delay & Typing Simulator**\n"
+        "🟢 Jeda Waktu: **30 - 150 detik (Dinamis)**\n"
+        "💡 Userbot kami menirukan perilaku manusia asli dengan mengetik (typing status) selama 2-5 detik sebelum mengirim pesan. Jeda acak dinamis meminimalisir risiko ban hingga 99%.\n\n"
+        "3️⃣ **Shadow Clone Smart Allocator**\n"
+        "🟢 Alokasi LPM: **Bebas Tumpang Tindih**\n"
+        "💡 Jika Anda mengaktifkan lebih dari 1 userbot, sistem otomatis membagi target LPM agar tidak ada grup yang dikirimi iklan ganda oleh akun berbeda secara bersamaan.\n\n"
+        "4️⃣ **Points & Tier Loyalty System (Sistem Loyalitas) — [NEW]**\n"
+        f"🟢 Status: **{tier_icon} {tier} ({points:,} Poin - Diskon {discount}%)**\n"
+        "💡 Fitur loyalitas eksklusif GeunID! Dapatkan poin belanja (Rp 100 = 1 poin), streak bonus 2x lipat (belanja dalam 35 hari), dan rating bonus +50 poin. Tier Anda permanen memberikan diskon hingga 15% otomatis saat checkout di Mini App!\n\n"
+        "5️⃣ **Smart Wording Spintax Rotator**\n"
+        "💡 Putar kata secara otomatis menggunakan format `{pilihan1|pilihan2}` pada iklan Anda untuk mencegah deteksi duplikasi pesan oleh Telegram.\n"
+    )
+    
+    if ad_content:
+        text += f"\n📝 **Iklan Anda saat ini:**\n`{ad_content[:100]}...`"
+    else:
+        text += "\n📝 _Anda belum menyimpan iklan untuk tes spintax._"
+        
+    buttons = [
+        [Button.inline("🔄 Tes Putar Spintax", b"client_test_spintax")],
+        [Button.inline("⬅️ Kembali ke Panel", b"client_panel_back")]
+    ]
+    
+    if edit and hasattr(event, "edit"):
+        await event.edit(text, buttons=buttons)
+    else:
+        await _bot.send_message(event.chat_id, text, buttons=buttons)
 
 async def _show_client_step5_help(event):
     text = (

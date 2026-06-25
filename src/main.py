@@ -186,7 +186,9 @@ async def show_start_menu(event, edit=False):
     
     text = (
         f"Halo! Selamat datang di **GEUNID JASEB**.\n\n"
-        f"Untuk mulai memesan paket dan mengelola iklan kamu, silakan klik tombol **🚀 Launch GEUNID JASEB** di bawah ini atau tekan tombol biru di sudut kiri bawah layar kamu."
+        f"Untuk mulai memesan paket dan mengelola iklan kamu, silakan klik tombol **🚀 Launch GEUNID JASEB** di bawah ini.\n\n"
+        f"🏆 **FITUR PREMIUM TERBARU:**\n"
+        f"Nikmati **Sistem Loyalty (Poin & Tier)**! Setiap transaksi otomatis menghasilkan poin belanja, streak multiplier 2x lipat, dan rating bonus (+50 poin) untuk mendapatkan diskon permanen hingga **15%**!"
     )
     
     buttons = [[KeyboardButtonWebView(text="🚀 Launch GEUNID JASEB", url=url)]]
