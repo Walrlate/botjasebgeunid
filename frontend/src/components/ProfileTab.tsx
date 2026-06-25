@@ -129,11 +129,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
         {/* LOYALTY CARD */}
         {stats.loyalty && (
-          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white rounded-3xl p-4 text-left border border-slate-700/50 shadow-xl relative overflow-hidden my-3">
+          <div className="bg-white/80 backdrop-blur-xl text-slate-800 rounded-3xl p-4 text-left border border-slate-200/80 shadow-premium relative overflow-hidden my-3">
             {/* Ambient background glow */}
-            <div className="absolute -top-12 -right-12 w-28 h-28 bg-geun-blue/20 rounded-full blur-2xl"></div>
+            <div className="absolute -top-12 -right-12 w-28 h-28 bg-geun-blue/15 rounded-full blur-2xl"></div>
             {stats.loyalty.tier === 'loyalty' && (
-              <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-purple-500/20 rounded-full blur-xl"></div>
+              <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-geun-purple/15 rounded-full blur-xl"></div>
             )}
             
             <div className="flex justify-between items-center mb-3">
@@ -144,7 +144,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                   {stats.loyalty.tier === 'gold' && '🥇'}
                   {stats.loyalty.tier === 'loyalty' && '💎'}
                 </span>
-                <span className="text-[10px] font-black tracking-widest text-slate-300">
+                <span className="text-[10px] font-black tracking-widest text-slate-400">
                   GEUNID LOYALTY
                 </span>
               </div>
@@ -163,9 +163,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-[9px] font-extrabold text-slate-400">
                   <span>Progres Poin</span>
-                  <span className="text-white bg-white/10 px-2 py-0.5 rounded-full">{stats.loyalty.points} / {stats.loyalty.next_tier_points} Poin</span>
+                  <span className="text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">{stats.loyalty.points} / {stats.loyalty.next_tier_points} Poin</span>
                 </div>
-                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden p-[1px]">
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden p-[1px]">
                   {stats.loyalty.points > 0 && (
                     <motion.div 
                       initial={{ width: 0 }}
@@ -182,17 +182,17 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
                 <p className="text-[8.5px] font-bold text-slate-400 flex items-center gap-1">
                   <span>🎯</span>
-                  <span>Butuh <span className="text-sky-400 font-black">{stats.loyalty.points_to_next}</span> poin lagi menuju tier <span className="text-white font-black uppercase tracking-wider">{stats.loyalty.next_tier}</span></span>
+                  <span>Butuh <span className="text-geun-blue font-black">{stats.loyalty.points_to_next}</span> poin lagi menuju tier <span className="text-geun-purple font-black uppercase tracking-wider">{stats.loyalty.next_tier}</span></span>
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-[9px] font-extrabold text-slate-400">
                   <span>Total Akumulasi Poin</span>
-                  <span className="text-white bg-white/10 px-2 py-0.5 rounded-full font-mono">{stats.loyalty.points} Poin</span>
+                  <span className="text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full font-mono">{stats.loyalty.points} Poin</span>
                 </div>
                 <div className="w-full h-2 bg-gradient-to-r from-violet-600 via-pink-500 to-blue-500 rounded-full animate-pulse"></div>
-                <p className="text-[8.5px] font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-pink-400 uppercase tracking-wide flex items-center gap-1">
+                <p className="text-[8.5px] font-black text-transparent bg-clip-text bg-gradient-to-r from-geun-blue to-geun-purple uppercase tracking-wide flex items-center gap-1">
                   <span>👑</span>
                   <span>Anda berada di kasta tertinggi (Loyalty Member)!</span>
                 </p>
@@ -200,14 +200,14 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             )}
 
             {/* Loyalty Benefits */}
-            <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-white/5 text-[9px] font-bold text-slate-400">
+            <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-100 text-[9px] font-bold text-slate-400">
               <div className="flex items-center gap-1">
                 <span className="text-[11px]">🔥</span>
-                <span>Streak: <span className="text-white font-extrabold">{stats.loyalty.streak}x</span></span>
+                <span>Streak: <span className="text-slate-700 font-extrabold">{stats.loyalty.streak}x</span></span>
               </div>
               <div className="flex items-center gap-1 justify-end">
                 <span className="text-[11px]">🎁</span>
-                <span>Diskon: <span className="text-emerald-400 font-extrabold">{stats.loyalty.discount_percent}%</span></span>
+                <span>Diskon: <span className="text-emerald-600 font-extrabold">{stats.loyalty.discount_percent}%</span></span>
               </div>
             </div>
           </div>
