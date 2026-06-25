@@ -104,8 +104,14 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           {stats.userPackage !== 'Tidak Aktif' ? (
             <div className="grid grid-cols-3 gap-2 mt-1">
               <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
-                <p className="text-[7.5px] text-slate-400 font-bold uppercase">Kapasitas</p>
-                <p className="font-bold text-geun-blue text-[10px] mt-0.5">{stats.userLpm} LPM</p>
+                <p className="text-[7.5px] text-slate-400 font-bold uppercase">
+                  {stats.userPackage.toLowerCase().includes('userbot') ? 'Kapasitas Grup' : 'Kapasitas'}
+                </p>
+                <p className="font-bold text-geun-blue text-[10px] mt-0.5">
+                  {stats.userPackage.toLowerCase().includes('userbot')
+                    ? `${stats.userbots_list?.reduce((acc: number, ub: any) => acc + (ub.joined_groups?.length || 0), 0) || 0} Grup`
+                    : `${stats.userLpm} LPM`}
+                </p>
               </div>
               <div className={`p-2 rounded-xl border text-center transition-all duration-500 ${stats.userSecondsLeft > 0 && stats.userSecondsLeft < 21600 ? 'bg-rose-50 border-rose-200 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
                 <p className={`text-[7.5px] font-bold uppercase ${stats.userSecondsLeft > 0 && stats.userSecondsLeft < 21600 ? 'text-rose-500' : 'text-slate-400'}`}>Masa Aktif</p>
@@ -221,6 +227,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {(!stats.userbots_list || stats.userbots_list.length === 0) && stats.userPackage.toLowerCase().includes('userbot') && (
+          <div className="mt-4 text-left space-y-2 border-t border-slate-100 pt-4">
+            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest pb-1.5 flex justify-between items-center">
+              <span>{stats.is_admin ? "👥 KONTROL USERBOT PEMBELI (OWNER)" : "🤖 DAFTAR USERBOT ANDA"}</span>
+              <span className="text-[7.5px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full lowercase">realtime</span>
+            </h4>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+              Belum ada userbot terhubung
+              <br />
+              <span className="text-[8.5px] text-slate-400 lowercase tracking-normal font-medium block mt-1">Sambungkan via Telegram (/panel) untuk memindai grup secara otomatis</span>
             </div>
           </div>
         )}
