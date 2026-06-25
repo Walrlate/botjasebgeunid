@@ -689,8 +689,6 @@ async def rating_callback_handler(event):
         
         if proof_file and os.path.exists(proof_file):
             await bot.send_file("@geunidk", file=proof_file, caption=testi_msg, parse_mode='html')
-        else:
-            await bot.send_message("@geunidk", testi_msg, parse_mode='html')
     except Exception as e:
         logger.error(f"Gagal kirim rating ke @geunidk: {e}")
 

@@ -171,8 +171,6 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
         
         if proof_file and os.path.exists(proof_file):
             await bot.send_file("@geunidk", file=proof_file, caption=testi_msg, parse_mode='html')
-        else:
-            await bot.send_message("@geunidk", testi_msg, parse_mode='html')
     except Exception as testi_err:
         logger.error(f"Gagal kirim testimoni awal ke @geunidk: {testi_err}")
 
