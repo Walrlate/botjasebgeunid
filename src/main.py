@@ -896,21 +896,39 @@ async def handle_user_stats_api(request):
             from src.userbot_manager import active_clients
             
             supabase = get_supabase()
-            if uid == ADMIN_ID:
-                # Owner: ambil semua userbot pembeli beserta profil username Telegram-nya
-                res_ub = supabase.table("userbots")\
-                    .select("user_id, phone_number, status, created_at, display_name, photo_url, users(username, full_name)")\
-                    .order("created_at", desc=True)\
-                    .execute()
-                ub_rows = res_ub.data or []
-            else:
-                # Pembeli: hanya ambil userbot miliknya sendiri
-                res_ub = supabase.table("userbots")\
-                    .select("phone_number, status, created_at, display_name, photo_url")\
-                    .eq("user_id", uid)\
-                    .order("created_at", desc=True)\
-                    .execute()
-                ub_rows = res_ub.data or []
+            ub_rows = []
+            try:
+                if uid == ADMIN_ID:
+                    # Owner: ambil semua userbot pembeli beserta profil username Telegram-nya
+                    res_ub = supabase.table("userbots")\
+                        .select("user_id, phone_number, status, created_at, display_name, photo_url, users(username, full_name)")\
+                        .order("created_at", desc=True)\
+                        .execute()
+                    ub_rows = res_ub.data or []
+                else:
+                    # Pembeli: hanya ambil userbot miliknya sendiri
+                    res_ub = supabase.table("userbots")\
+                        .select("phone_number, status, created_at, display_name, photo_url")\
+                        .eq("user_id", uid)\
+                        .order("created_at", desc=True)\
+                        .execute()
+                    ub_rows = res_ub.data or []
+            except Exception as select_err:
+                logger.warning(f"⚠️ Query userbots utama gagal: {select_err}. Menjalankan fallback query...")
+                # Fallback query tanpa kolom display_name dan photo_url
+                if uid == ADMIN_ID:
+                    res_ub = supabase.table("userbots")\
+                        .select("user_id, phone_number, status, created_at, users(username, full_name)")\
+                        .order("created_at", desc=True)\
+                        .execute()
+                    ub_rows = res_ub.data or []
+                else:
+                    res_ub = supabase.table("userbots")\
+                        .select("phone_number, status, created_at")\
+                        .eq("user_id", uid)\
+                        .order("created_at", desc=True)\
+                        .execute()
+                    ub_rows = res_ub.data or []
 
             processed_ubots = []
             for ub in ub_rows:
