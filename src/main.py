@@ -352,8 +352,17 @@ async def user_input_handler(event):
             await event.respond("❌ Harap kirimkan **FOTO BUKTI TRANSFER** Anda.")
             return
         await event.respond("⏳ Mengirim bukti ke admin untuk verifikasi...")
-        media = await event.message.download_media(file="data/proofs/")
         trx_id, pkg, amt = state_data["trx_id"], state_data["package_name"], state_data["amount"]
+        
+        # Cari ekstensi berkas media
+        ext = ".jpg"
+        if event.message.document and event.message.document.attributes:
+            filename = event.message.document.attributes[0].file_name if hasattr(event.message.document.attributes[0], "file_name") else ""
+            if "." in filename:
+                ext = "." + filename.split(".")[-1]
+                
+        dest_path = f"data/proofs/proof_{trx_id}{ext}"
+        media = await event.message.download_media(file=dest_path)
         admin_msg = f"🔔 **BUKTI BARU**\n\n👤 User: `{user_id}`\n📦 Paket: {pkg}\n💰 Nominal: Rp {amt:,}\n🆔 Order: `{trx_id}`"
         buttons = [[Button.inline("Approve ✅", f"approve_man_{trx_id}".encode()), Button.inline("Reject ❌", f"reject_man_{trx_id}".encode())]]
         await bot.send_file(ADMIN_ID, file=media, caption=admin_msg, buttons=buttons)
@@ -630,6 +639,60 @@ async def check_payment_status_handler(event):
         await process_activation(bot, trx_id, load_prices(), login_states)
         await event.answer("✅ Sukses!", alert=True)
     else: await event.answer("⏳ Menunggu...", alert=True)
+
+
+@bot.on(events.CallbackQuery(pattern=r"rate_(.+)"))
+async def rating_callback_handler(event):
+    data_str = event.pattern_match.group(1).decode()
+    parts = data_str.split("_")
+    if len(parts) < 2:
+        return
+        
+    rating_val = parts[0]
+    trx_id = parts[1]
+    user_id = event.sender_id
+    
+    from src.database import db_get_transaction, db_get_user_info
+    trx = db_get_transaction(trx_id)
+    u_info = db_get_user_info(user_id)
+    
+    pkg_name = trx[2] if trx else "Paket Jaseb"
+    amt = trx[1] if trx else 0
+    
+    full_name = u_info["full_name"] if u_info else "Pembeli"
+    username = f"@{u_info['username']}" if u_info and u_info.get("username") else f"ID: {user_id}"
+    
+    if rating_val == "skip":
+        await event.edit("🙏 Terima kasih! Anda telah melewati pengisian rating.")
+        return
+        
+    stars = "⭐" * int(rating_val)
+    await event.edit(f"❤️ **Terima kasih!** Rating {stars} Anda sangat berharga bagi kami.")
+    
+    try:
+        import os
+        import glob
+        proof_files = glob.glob(f"data/proofs/proof_{trx_id}.*")
+        proof_file = proof_files[0] if proof_files else None
+        
+        testi_msg = (
+            "⭐ <b>FEEDBACK RATING BARU</b> ⭐\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👤 Pembeli: <b>{full_name}</b> ({username})\n"
+            f"📦 Paket: <b>{pkg_name}</b>\n"
+            f"⭐ Rating: <b>{stars} ({rating_val}/5)</b>\n"
+            f"💰 Nominal: <b>Rp {amt:,}</b>\n"
+            f"🆔 Order: `{trx_id}`\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💬 <i>Feedback dikirim secara otomatis via Bot.</i>"
+        )
+        
+        if proof_file and os.path.exists(proof_file):
+            await bot.send_file("@geunidk", file=proof_file, caption=testi_msg, parse_mode='html')
+        else:
+            await bot.send_message("@geunidk", testi_msg, parse_mode='html')
+    except Exception as e:
+        logger.error(f"Gagal kirim rating ke @geunidk: {e}")
 
 @bot.on(events.InlineQuery)
 async def inline_query_handler(event):

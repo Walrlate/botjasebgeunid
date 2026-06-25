@@ -143,6 +143,62 @@ async def process_activation(bot, trx_id: str, prices: dict, login_states: dict)
         )
     except Exception as e:
         logger.error(f"Gagal kirim notif aktivasi ke admin untuk user {uid}: {e}")
+
+    # 7. Kirim Testimoni Awal Pembelian Sukses ke Channel @geunidk (dengan screenshot jika manual)
+    try:
+        from src.database import db_get_user_info
+        u_info = db_get_user_info(uid)
+        full_name = u_info["full_name"] if u_info else "Pembeli"
+        username_str = f"@{u_info['username']}" if u_info and u_info.get("username") else f"ID: {uid}"
+        
+        testi_msg = (
+            "💰 <b>TESTIMONI PEMBELIAN BARU</b> 💰\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👤 Pembeli: <b>{full_name}</b> ({username_str})\n"
+            f"📦 Paket: <b>{pkg_name}</b>\n"
+            f"💰 Nominal: <b>Rp {amt:,}</b>\n"
+            f"⚡ Status: <b>Sukses & Aktif 🟢</b>\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Terima kasih telah membeli layanan kami! 🙏\n"
+            "🤖 Powered by @GeunID"
+        )
+        
+        # Cari file screenshot bukti transfer manual
+        import glob
+        import os
+        proof_files = glob.glob(f"data/proofs/proof_{trx_id}.*")
+        proof_file = proof_files[0] if proof_files else None
+        
+        if proof_file and os.path.exists(proof_file):
+            await bot.send_file("@geunidk", file=proof_file, caption=testi_msg, parse_mode='html')
+        else:
+            await bot.send_message("@geunidk", testi_msg, parse_mode='html')
+    except Exception as testi_err:
+        logger.error(f"Gagal kirim testimoni awal ke @geunidk: {testi_err}")
+
+    # 8. Kirim Permintaan Rating / Feedback ke Pembeli
+    rating_text = (
+        "🙏 **Terima kasih telah menggunakan GEUNID JASEB!**\n\n"
+        "Pembelian Anda telah selesai diproses. Silakan berikan bintang/feedback "
+        "mengenai pengalaman transaksi Anda demi meningkatkan layanan kami:"
+    )
+    from telethon import Button
+    buttons = [
+        [
+            Button.inline("⭐️ 5", f"rate_5_{trx_id}".encode()),
+            Button.inline("⭐️ 4", f"rate_4_{trx_id}".encode()),
+            Button.inline("⭐️ 3", f"rate_3_{trx_id}".encode())
+        ],
+        [
+            Button.inline("⭐️ 2", f"rate_2_{trx_id}".encode()),
+            Button.inline("⭐️ 1", f"rate_1_{trx_id}".encode()),
+            Button.inline("❌ Skip", f"rate_skip_{trx_id}".encode())
+        ]
+    ]
+    try:
+        await bot.send_message(uid, rating_text, buttons=buttons)
+    except Exception as rate_send_err:
+        logger.error(f"Gagal kirim penawaran rating ke user {uid}: {rate_send_err}")
         
     return True, new_end
 
