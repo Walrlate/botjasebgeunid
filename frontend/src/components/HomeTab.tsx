@@ -105,22 +105,25 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="glass-panel rounded-2xl p-4 flex flex-col justify-between shadow-soft">
-          <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">Total Terkirim</span>
-          <div className="flex items-baseline gap-1 mt-1.5">
-            <span className="text-2xl font-bold text-slate-800 tracking-tight">{bData.number}</span>
-            <span className="text-[9.5px] font-bold text-geun-blue tracking-wide">{bData.unit}</span>
+      <div className="space-y-3">
+        <div className="glass-panel rounded-2xl p-4.5 flex justify-between items-center shadow-soft bg-white/80 backdrop-blur-md border border-slate-200/50">
+          <div className="space-y-0.5 text-left">
+            <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest block">Total Pesan Terkirim</span>
+            <p className="text-[9px] font-bold text-slate-500/90 leading-none">Menggunakan Layanan GEUNID</p>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-black text-slate-800 tracking-tight">{bData.number}</span>
+            <span className="text-[10px] font-black text-geun-blue tracking-wide uppercase">{bData.unit}</span>
           </div>
         </div>
-        <div className="glass-panel rounded-2xl p-4 flex flex-col justify-between shadow-soft">
-          <span className="text-[8.5px] font-semibold text-slate-400 uppercase tracking-widest">Status Sistem</span>
-          <div className="flex items-center gap-1.5 mt-2.5">
+        <div className="glass-panel rounded-2xl p-4 flex justify-between items-center shadow-soft bg-white/80 backdrop-blur-md border border-slate-200/50">
+          <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest text-left">Status Sistem</span>
+          <div className="flex items-center gap-1.5">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Online</span>
+            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Online</span>
           </div>
         </div>
       </div>
