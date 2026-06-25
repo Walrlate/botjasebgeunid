@@ -611,7 +611,7 @@ async def user_input_handler(event):
                 ubots = db_get_userbots_by_subscription(userbot_sub["id"])
                 connected_ubots = [u for u in ubots if u["status"] == "connected"]
                 if not connected_ubots:
-                    await event.respond("❌ **Userbot Terputus/Belum Terhubung!**\n\nSilakan sambungkan userbot Anda terlebih dahulu melalui **Panel Kontrol** -> **Sambungkan Userbot** sebelum mendaftarkan materi iklan.")
+                    await event.respond("❌ **Userbot Terputus/Belum Terhubung!**\n\nSilakan sambungkan userbot Anda terlebih dahulu melalui **Panel Kontrol** -> **Sambungkan Userbot** sebelum mendaftarkan materi jaseb.")
                     del login_states[user_id]
                     return
         else:
@@ -620,7 +620,7 @@ async def user_input_handler(event):
             if not is_fwd_package and event.message.forward:
                 await event.respond("❌ Paket REGULAR dilarang forward."); return
         
-        await event.respond("⏳ Menyimpan materi iklan...")
+        await event.respond("⏳ Menyimpan materi jaseb...")
         content = html.unparse(event.message.message or "", event.message.entities or [])
         media = await event.message.download_media(file="data/media/") if event.message.media else ""
         

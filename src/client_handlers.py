@@ -459,7 +459,7 @@ async def _show_mystatus(event, user_id: int):
             ub_line = f"\n🤖 Akun Userbot: **{conn_count}/{max_ub} Online**"
             
         text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:16]} ({time_left_str})\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
-        buttons = [[Button.inline("🔄 Sebar Ulang", b"resend_jaseb"), Button.inline("✍️ Edit Iklan", b"edit_jaseb_btn")], [Button.inline("⬅️ Kembali", b"start")]]
+        buttons = [[Button.inline("🔄 Sebar Ulang", b"resend_jaseb"), Button.inline("✍️ Edit Jaseb", b"edit_jaseb_btn")], [Button.inline("⬅️ Kembali", b"start")]]
 
     if hasattr(event, "edit"):
         try:
@@ -739,12 +739,12 @@ async def show_client_panel(event, edit=False):
         f"⏰ Jeda Broadcast: **Setiap {iv_label}**\n"
         f"📅 Tanggal Expired: **{end[:10]}**\n"
         f"👥 Akun Terhubung: **{len(ubots)}/{max_ub} Userbot**\n\n"
-        "**💡 PANDUAN PANEL KONTROL:**\n"
-        "• **✍️ Edit Iklan**: Mengubah materi (teks/foto/forward) iklan yang disebar.\n"
-        "• **⏰ Jam Ops (Schedule)**: Membatasi jam broadcast berjalan (misal: 08:00 - 22:00).\n"
-        "• **🤖 Auto Reply WTB**: Kata kunci reply otomatis saat ada prospek chat masuk.\n"
-        "• **📋 Target LPM**: Menentukan daftar grup LPM target Anda secara kustom.\n"
-        "• **🔄 Transfer Paket**: Memindahkan sisa lisensi paket ke User ID lain.\n\n"
+        "**💡 PANDUAN PANEL:**\n"
+        "• ✍️ **Edit Jaseb**: Atur teks, foto, atau forward promosi Anda.\n"
+        "• ⏰ **Jam Ops**: Batasi jam broadcast otomatis (contoh: 08:00 - 22:00).\n"
+        "• 🤖 **Auto Reply**: Balas otomatis jika ada chat masuk dari grup.\n"
+        "• 📋 **Target LPM**: Atur daftar grup target secara kustom.\n"
+        "• 🔄 **Transfer Paket**: Kirim lisensi paket aktif ke User ID lain.\n\n"
         "👇 **DAFTAR USERBOT ANDA** (Klik nomor untuk mengatur PM Permit/Bio/Koneksi):"
     )
     
@@ -762,7 +762,7 @@ async def show_client_panel(event, edit=False):
         buttons.append([Button.inline("🔌 Sambungkan Userbot Baru", f"client_connect_session_{sub_id}".encode())])
         
     buttons.append([
-        Button.inline("✍️ Edit Iklan", b"client_edit_ad"),
+        Button.inline("✍️ Edit Jaseb", b"client_edit_ad"),
         Button.inline("⏰ Jam Ops (Schedule)", b"schedule_main")
     ])
     buttons.append([
