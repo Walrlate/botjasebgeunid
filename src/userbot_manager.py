@@ -79,10 +79,14 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
         
     session_path = f"data/sessions/{session_name}"
     if not os.path.exists(f"{session_path}.session"):
-        logger.warning(f"Sesi file untuk {phone} (ID: {user_id}) tidak ditemukan secara lokal.")
-        from src.database import db_update_userbot_status
-        db_update_userbot_status(phone, 'disconnected')
-        return False
+        logger.info(f"Sesi file untuk {phone} tidak ditemukan secara lokal. Mencoba mengunduh dari Supabase Storage...")
+        from src.database import db_download_session_file
+        downloaded = db_download_session_file(session_name)
+        if not downloaded:
+            logger.warning(f"Sesi file untuk {phone} (ID: {user_id}) tidak ditemukan secara lokal maupun di Supabase Storage.")
+            from src.database import db_update_userbot_status
+            db_update_userbot_status(phone, 'disconnected')
+            return False
 
     async with get_session_lock(session_name):
         client = TelegramClient(

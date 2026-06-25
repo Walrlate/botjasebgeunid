@@ -1919,4 +1919,52 @@ def db_get_active_subscription_broadcast_details_by_id(sub_id: int):
         logger.error(f"Error in db_get_active_subscription_broadcast_details_by_id: {e}")
         return None
 
+def db_upload_session_file(session_name: str) -> bool:
+    """Mengunggah file .session lokal ke Supabase Storage (bucket 'sessions')."""
+    try:
+        supabase = get_supabase()
+        file_path = f"data/sessions/{session_name}.session"
+        if not os.path.exists(file_path):
+            logger.warning(f"File sesi lokal {file_path} tidak ditemukan untuk diunggah.")
+            return False
+            
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+            
+        # Pastikan bucket 'sessions' ada (buat jika belum ada)
+        try:
+            supabase.storage.create_bucket('sessions', options={'public': False})
+        except Exception:
+            pass
+            
+        supabase.storage.from_('sessions').upload(
+            path=f"{session_name}.session",
+            file=file_data,
+            file_options={"content-type": "application/octet-stream", "upsert": "true"}
+        )
+        logger.info(f"🟢 Sesi {session_name}.session berhasil disinkronkan ke Supabase Storage.")
+        return True
+    except Exception as e:
+        logger.error(f"Gagal mengunggah file sesi {session_name} ke Supabase Storage: {e}")
+        return False
+
+def db_download_session_file(session_name: str) -> bool:
+    """Mengunduh file .session dari Supabase Storage (bucket 'sessions') ke disk lokal."""
+    try:
+        supabase = get_supabase()
+        file_path = f"data/sessions/{session_name}.session"
+        
+        # Unduh file biner
+        res = supabase.storage.from_('sessions').download(f"{session_name}.session")
+        if res:
+            os.makedirs("data/sessions", exist_ok=True)
+            with open(file_path, 'wb') as f:
+                f.write(res)
+            logger.info(f"🟢 Sesi {session_name}.session berhasil diunduh dari Supabase Storage.")
+            return True
+        return False
+    except Exception as e:
+        logger.debug(f"Gagal mengunduh file sesi {session_name} dari Supabase Storage: {e}")
+        return False
+
 

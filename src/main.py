@@ -488,6 +488,12 @@ async def user_input_handler(event):
                     try: await old_client.disconnect()
                     except: pass
                 
+                try:
+                    from src.database import db_upload_session_file
+                    db_upload_session_file(session)
+                except Exception as upload_err:
+                    logger.error(f"Gagal upload file sesi bypass ke Supabase Storage: {upload_err}")
+                
                 active_clients[phone] = client
                 
                 # Beri tahu admin jika userbot klien berhasil terhubung
@@ -747,6 +753,11 @@ async def _save_userbot_session(event, client, phone):
     else:
         db_save_userbot(user_id, phone, session)
     await client.disconnect()
+    try:
+        from src.database import db_upload_session_file
+        db_upload_session_file(session)
+    except Exception as upload_err:
+        logger.error(f"Gagal upload file sesi ke Supabase Storage pada save_userbot_session: {upload_err}")
     if not is_admin:
         login_states[user_id] = {"state": "waiting_for_ad"}
         await event.respond("✅ **Userbot Terhubung!**\n\nSekarang silakan **KIRIM MATERI IKLAN** Anda ke sini:")
