@@ -56,17 +56,28 @@ async def init_db():
         raise e
 
 def db_ensure_user(user_id: int, username: str = "", full_name: str = ""):
-    """Memastikan user_id sudah ada di tabel users untuk menghindari pelanggaran foreign key."""
+    """Memastikan user_id sudah ada di tabel users dan memperbarui profil terbaru."""
     try:
         supabase = get_supabase()
         res = supabase.table("users").select("user_id").eq("user_id", user_id).execute()
+        
+        insert_data = {
+            "user_id": user_id,
+            "username": username or "",
+            "full_name": full_name or "",
+        }
+        
         if not res.data:
-            supabase.table("users").insert({
-                "user_id": user_id,
-                "username": username or "",
-                "full_name": full_name or "",
-            }).execute()
+            supabase.table("users").insert(insert_data).execute()
             logger.info(f"👤 User baru terdaftar otomatis: {user_id}")
+        else:
+            # Selalu update data profil terbaru jika parameter tidak kosong
+            if username or full_name:
+                update_data = {}
+                if username: update_data["username"] = username
+                if full_name: update_data["full_name"] = full_name
+                if update_data:
+                    supabase.table("users").update(update_data).eq("user_id", user_id).execute()
     except Exception as e:
         logger.error(f"Error in db_ensure_user untuk {user_id}: {e}")
 

@@ -295,6 +295,19 @@ async def user_input_handler(event):
     text = (event.text or "").strip()
     user_id = event.sender_id
     
+    # Daftarkan/update profil user ke database secara otomatis dan realtime
+    try:
+        sender = await event.get_sender()
+        if sender:
+            username = getattr(sender, 'username', '') or ""
+            first_name = getattr(sender, 'first_name', '') or ""
+            last_name = getattr(sender, 'last_name', '') or ""
+            full_name = f"{first_name} {last_name}".strip() if last_name else first_name
+            from src.database import db_ensure_user
+            db_ensure_user(user_id, username, full_name)
+    except Exception as e_user:
+        logger.error(f"Gagal update profil user realtime: {e_user}")
+    
     # Abaikan perintah utama agar tidak diproses ganda
     # Kecuali /skip dan /same yang dipakai dalam state machine
     if text.startswith("/") and not text.lower().startswith("/skip") and not text.lower().startswith("/same"):
