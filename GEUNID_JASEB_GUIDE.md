@@ -130,19 +130,16 @@ Di bawah ini adalah template tulisan dengan ornamen estetis elegan bertema orany
 ```text
 🤖 𝖯𝖱𝖨𝖢𝖤𝖫𝖨𝖲𝖳 𝖴𝖲𝖤𝖱𝖡𝖮𝖳 𝖦𝖤𝖴𝖭𝖨𝖣
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-𖤓 30 HARI : Rp 25.000
-𖤓 60 HARI : Rp 50.000
+🎁 *[ TRIAL USERBOT 1 HARI GRATIS ]*
+💸 *[ SEWA HANYA RP 3.000 / BULAN ]*
 
 ⚙️ 𝖥𝖨𝖳𝖴𝖱 & 𝖪𝖤𝖴𝖭𝖦𝖦𝖴𝖫𝖠𝖭:
 ┌───────────────────────────┐
-  ✔️ Support Mode Basic & Forward
+  ✔️ Real-Time Mini App Dashboard Control
+  ✔️ Super Secure Connection (Telegram API)
+  ✔️ Stealth Humanoid Typing Simulator (2-5s)
   ✔️ Support Foto, Video, & Emoji Premium
-  ✔️ Tanpa Watermark Store (Murni Toko Anda)
-  ✔️ Menggunakan Akun Buyer Sendiri
-  ✔️ Fitur Auto-Join & Leave Grup LPM
-  ✔️ Pilihan Jeda Slowly (30s) / Instant (3s)
-  ✔️ Deteksi Anti-Ban & Auto FloodWait Sleep
+  ✔️ Smart Auto-Join & Stays in LPM Groups
 └───────────────────────────┘
 
 📝 Note: Harga di atas adalah harga promo dan dapat disesuaikan sewaktu-waktu melalui sistem dynamic pricing.
