@@ -301,8 +301,20 @@ def _register_handlers(bot):
     @bot.on(events.NewMessage(pattern='/edit_jaseb'))
     async def edit_jaseb_command_handler(event):
         uid = int(event.sender_id)
-        sub = db_get_active_subscription_id(uid)
-        if not sub: await event.respond("❌ Anda tidak memiliki paket aktif."); return
+        from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+        subs = db_get_active_subscriptions_of_user(uid)
+        if not subs:
+            await event.respond("❌ Anda tidak memiliki paket aktif.")
+            return
+            
+        userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+        if userbot_sub:
+            ubots = db_get_userbots_by_subscription(userbot_sub["id"])
+            connected_ubots = [u for u in ubots if u["status"] == "connected"]
+            if not connected_ubots:
+                await event.respond("❌ **Userbot Terputus/Belum Terhubung!**\n\nSilakan sambungkan userbot Anda terlebih dahulu melalui **Panel Kontrol** -> **Sambungkan Userbot** sebelum mengedit iklan.")
+                return
+                
         _login_states[uid] = {"state": "waiting_for_ad"}
         await event.respond("✍️ **Kirim teks/materi jaseb baru Anda:**\n(Teks, Foto+Caption, atau Forward)")
 
@@ -461,6 +473,17 @@ def register_edit_jaseb_btn(bot, login_states):
     @bot.on(events.CallbackQuery(data=b"edit_jaseb_btn"))
     async def handler(event):
         uid = int(event.sender_id)
+        from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+        subs = db_get_active_subscriptions_of_user(uid)
+        userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+        if userbot_sub:
+            ubots = db_get_userbots_by_subscription(userbot_sub["id"])
+            connected_ubots = [u for u in ubots if u["status"] == "connected"]
+            if not connected_ubots:
+                await event.answer("❌ Sambungkan userbot terlebih dahulu!", alert=True)
+                await event.respond("❌ **Userbot Terputus/Belum Terhubung!**\n\nSilakan sambungkan userbot Anda terlebih dahulu melalui **Panel Kontrol** -> **Sambungkan Userbot** sebelum mengedit iklan.")
+                return
+                
         login_states[uid] = {"state": "waiting_for_ad"}
         await event.edit("✍️ **Kirim teks jaseb baru Anda sekarang:**")
 

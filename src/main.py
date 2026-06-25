@@ -603,7 +603,18 @@ async def user_input_handler(event):
         is_userbot = "userbot" in sub[0].lower()
         is_fwd_package = "forward" in sub[0].lower()
         
-        if not is_userbot:
+        if is_userbot:
+            from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+            subs = db_get_active_subscriptions_of_user(user_id)
+            userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+            if userbot_sub:
+                ubots = db_get_userbots_by_subscription(userbot_sub["id"])
+                connected_ubots = [u for u in ubots if u["status"] == "connected"]
+                if not connected_ubots:
+                    await event.respond("❌ **Userbot Terputus/Belum Terhubung!**\n\nSilakan sambungkan userbot Anda terlebih dahulu melalui **Panel Kontrol** -> **Sambungkan Userbot** sebelum mendaftarkan materi iklan.")
+                    del login_states[user_id]
+                    return
+        else:
             if is_fwd_package and not event.message.forward:
                 await event.respond("❌ Paket FORWARD wajib forward pesan asli."); return
             if not is_fwd_package and event.message.forward:

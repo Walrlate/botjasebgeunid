@@ -226,21 +226,35 @@ async def run_single_userbot_broadcast(bot, user_id: int, ad_id: int, session_na
             return res
         except Exception as e:
             logger.error(f"Gagal broadcast userbot pembeli {phone} ({user_id}): {e}")
-            from src.database import db_update_userbot_status
-            db_update_userbot_status(phone, 'disconnected')
             
+            is_authorized = True
             try:
-                await bot.send_message(user_id, f"⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot `{phone}` terputus or kedaluwarsa. Silakan sambungkan kembali via Bot.")
-            except: pass
-            
-            try:
-                from src.database import db_get_user_info
-                u_info = db_get_user_info(user_id)
-                from src.config import ADMIN_ID
-                from src.notifications import notify_admin_userbot_disconnected
-                await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), user_id, u_info["full_name"], u_info["username"])
-            except Exception as notif_err:
-                logger.error(f"Gagal kirim notif diskoneksi userbot ke admin: {notif_err}")
+                if eng.client:
+                    if not eng.client.is_connected():
+                        await eng.client.connect()
+                    is_authorized = await eng.client.is_user_authorized()
+            except Exception as auth_err:
+                logger.error(f"Gagal memeriksa status otorisasi untuk {phone}: {auth_err}")
+                is_authorized = False
+                
+            if not is_authorized:
+                from src.database import db_update_userbot_status
+                db_update_userbot_status(phone, 'disconnected')
+                
+                try:
+                    await bot.send_message(user_id, f"⚠️ **USERBOT TERPUTUS!**\n\nSesi userbot `{phone}` terputus or kedaluwarsa. Silakan sambungkan kembali via Bot.")
+                except: pass
+                
+                try:
+                    from src.database import db_get_user_info
+                    u_info = db_get_user_info(user_id)
+                    from src.config import ADMIN_ID
+                    from src.notifications import notify_admin_userbot_disconnected
+                    await notify_admin_userbot_disconnected(bot, int(ADMIN_ID), user_id, u_info["full_name"], u_info["username"])
+                except Exception as notif_err:
+                    logger.error(f"Gagal kirim notif diskoneksi userbot ke admin: {notif_err}")
+            else:
+                logger.warning(f"⚠️ Gangguan jaringan/sementara pada broadcast userbot {phone}. Status tetap connected.")
                 
             return {"success_count": 0, "failed_count": len(chunk_links), "success_links": []}
         finally:
