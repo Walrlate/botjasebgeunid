@@ -311,12 +311,13 @@ const Dashboard = () => {
 – Payment: ${paymentText}
 – Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
     } else {
+      const typeLabel = selectedPackage.type === 'regular' ? 'Regular' : 'Forward';
       const slotLine = selectedAdminSlot ? `\n– Pilihan Bot: Bot GEUNID JASEB ${selectedAdminSlot}` : '';
       return `🛎 <b>𝗙𝗢𝗥𝗠𝗔𝗧 𝗝𝗔𝗦𝗘𝗕 𝗢𝗧𝗢𝗠𝗔𝗧𝗜𝗦</b>${trxIdLine}
 – ID Telegram: ${user?.id || 'Belum terdeteksi'}
 – Username akun: ${getUsername() || '@username'}
 – Durasi Jaseb: ${selectedPackage.duration}
-– Paket jaseb: JASEB ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM${slotLine}
+– Paket jaseb: Paket ${typeLabel} ${selectedPackage.lpm} LPM${slotLine}
 – Payment: ${paymentText}
 – Request Lpm: (isi @lpm1 @lpm2, kalau gaada kosongin/hapus)
 – Total Harga: Rp ${finalAmount.toLocaleString('id-ID')}`;
@@ -391,9 +392,15 @@ const Dashboard = () => {
     const qrisFee = selectedPaymentMethod === 'qris' ? Math.round(basePrice * (qrisTaxPercent / 100)) : 0;
     const finalAmount = basePrice + qrisFee;
 
+    const typeLabel = selectedPackage.type === 'userbot'
+      ? 'Userbot'
+      : selectedPackage.type === 'regular'
+      ? 'Regular'
+      : 'Forward';
+
     const packName = selectedPackage.type === 'userbot'
       ? `Paket Userbot ${selectedPackage.duration}`
-      : `Jaseb ${selectedPackage.type.toUpperCase()} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
+      : `Paket ${typeLabel} ${selectedPackage.lpm} LPM ${selectedPackage.duration}`;
 
     try {
       const payload = {
