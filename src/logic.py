@@ -303,10 +303,34 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
             ubots = db_get_userbots_by_subscription(subscription_id)
             connected_ubots = [u for u in ubots if u["status"] == "connected"]
             
-            if not connected_ubots:
+            if not connected_ubots and not any(u["phone_number"] in active_clients for u in ubots):
                 try: await bot.send_message(user_id, "⚠️ Seluruh akun userbot Anda terputus! Sambungkan kembali melalui Panel.");
                 except: pass
                 return
+            
+            # Tunggu start_client_userbot selesai jika active_clients belum terisi
+            # (bisa terjadi jika broadcast dimulai sesaat setelah registrasi)
+            max_wait = 5
+            for wait_attempt in range(max_wait):
+                actually_connected = [u for u in ubots if u["phone_number"] in active_clients and active_clients[u["phone_number"]].is_connected()]
+                if actually_connected:
+                    break
+                logger.info(f"⏳ Menunggu userbot siap... percobaan {wait_attempt+1}/{max_wait}")
+                await asyncio.sleep(3)
+            
+            # Gunakan active_clients sebagai sumber kebenaran utama
+            # Fallback ke status DB jika active_clients kosong (Railway baru restart)
+            actually_connected = [u for u in ubots if u["phone_number"] in active_clients and active_clients[u["phone_number"]].is_connected()]
+            if not actually_connected:
+                actually_connected = connected_ubots  # Fallback ke DB
+                
+            if not actually_connected:
+                try: await bot.send_message(user_id, "⚠️ Userbot Anda belum siap. Tunggu 30 detik lalu coba lagi, atau reconnect dari Panel.");
+                except: pass
+                return
+            
+            connected_ubots = actually_connected
+
             
             # Ambil semua grup lokal yang diikuti oleh akun userbot ini secara otomatis
             userbot_local_groups = []

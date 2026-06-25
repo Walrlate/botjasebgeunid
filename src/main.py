@@ -1188,6 +1188,9 @@ async def handle_check_status_api(request):
     return web.json_response(res, headers={"Access-Control-Allow-Origin": "*"})
 
 async def start_user_broadcast(user_id: int):
+    # Jeda singkat agar start_client_userbot sempat selesai mendaftarkan userbot
+    # ke active_clients sebelum run_broadcast_cycle mengeceknya
+    await asyncio.sleep(5)
     await run_broadcast_cycle(bot, user_id, API_ID, API_HASH)
 
 async def run_jaseb_scheduler():
