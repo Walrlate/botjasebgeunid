@@ -55,6 +55,8 @@ active_broadcasts = set()
 
 def get_capacity_from_package(package_name: str) -> int:
     """Mendapatkan kapasitas LPM dari teks nama paket secara dinamis."""
+    if "userbot" in package_name.lower():
+        return 0
     m = re.search(r'(\d+)\s*LPM', package_name, re.IGNORECASE)
     if m:
         return int(m.group(1))
