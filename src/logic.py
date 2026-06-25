@@ -427,14 +427,50 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
             total_success = 0
             total_failed = 0
             all_success_links = []
+            leftover_links = []
+            flood_detected = False
             
             for r in results:
                 if isinstance(r, dict):
                     total_success += r.get("success_count", 0)
                     total_failed += r.get("failed_count", 0)
                     all_success_links.extend(r.get("success_links", []))
+                    if r.get("floodwait_seconds", 0) > 0 or r.get("unprocessed_links"):
+                        flood_detected = True
+                        leftover_links.extend(r.get("unprocessed_links", []))
                 elif isinstance(r, Exception):
                     logger.error(f"Error in single userbot broadcast task: {r}")
+            
+            if flood_detected and leftover_links:
+                from src.database import db_get_active_admin_userbots
+                active_admins = db_get_active_admin_userbots()
+                if active_admins:
+                    redirect_msg = (
+                        "⚠️ **Pemberitahuan Smart Redirect:**\n\n"
+                        "Akun userbot Anda terdeteksi terkena limit sementara (*FloodWait*) oleh Telegram.\n"
+                        "Sisa pengiriman iklan Anda dialihkan otomatis ke **Userbot Pool Admin GeunID** agar promosi tetap selesai terkirim hari ini!\n\n"
+                        "ℹ️ _Catatan: Format emoji premium/kustom dari akun Premium Anda mungkin disesuaikan menjadi format teks biasa selama pengalihan ini._"
+                    )
+                    try:
+                        await bot.send_message(user_id, redirect_msg)
+                    except: pass
+                    
+                    # Ambil admin pertama yang online
+                    sess_adm, phone_adm, aid_adm = active_admins[0]
+                    from src.userbot_manager import get_session_lock
+                    async with get_session_lock(sess_adm):
+                        from src.jaseb_engine import JasebEngine
+                        eng_admin = JasebEngine(f"data/sessions/{sess_adm}", api_id, api_hash)
+                        try:
+                            await eng_admin.start()
+                            res_admin = await eng_admin.broadcast_with_stealth(user_id, ad_id, leftover_links, 'slowly', subscription_id=subscription_id)
+                            total_success += res_admin.get("success_count", 0)
+                            total_failed += res_admin.get("failed_count", 0)
+                            all_success_links.extend(res_admin.get("success_links", []))
+                        except Exception as admin_err:
+                            logger.error(f"Gagal memproses redirect sisa iklan userbot ke admin {phone_adm}: {admin_err}")
+                        finally:
+                            await eng_admin.stop()
             
             await notify_client_broadcast_done(bot, user_id, total_success, total_failed, iv or 0.5, all_success_links)
         else:
