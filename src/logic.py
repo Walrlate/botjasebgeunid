@@ -341,6 +341,7 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
                 client = active_clients.get(phone)
                 if client:
                     try:
+                        ub_groups_count = 0
                         async for dialog in client.iter_dialogs(limit=100):
                             if dialog.is_group or dialog.is_channel:
                                 title = dialog.name or "Grup Tanpa Nama"
@@ -356,11 +357,17 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
                                     "group_id": group_id,
                                     "member_count": member_count
                                 })
+                                ub_groups_count += 1
                                 
                                 # Siapkan target kirim (utamakan link username, fallback ke ID grup jika privat)
                                 target_send = group_link if group_link else str(group_id)
                                 if target_send:
                                     userbot_local_links.append(target_send)
+                        try:
+                            from src.database import db_update_userbot_groups_count
+                            db_update_userbot_groups_count(phone, ub_groups_count)
+                        except Exception as count_err:
+                            logger.error(f"Gagal update groups_count untuk {phone}: {count_err}")
                     except Exception as ex_dlg:
                         logger.error(f"Error fetching local dialogs for broadcast on {phone}: {ex_dlg}")
             

@@ -110,6 +110,8 @@ const Dashboard = () => {
     userDays: 0,
     userSecondsLeft: 0,
     userInterval: 0,
+    is_admin: false,
+    userbots_list: [] as any[],
   });
 
   const fetchUserStats = async (userId: number) => {
@@ -133,6 +135,8 @@ const Dashboard = () => {
           userDays: d.days_left,
           userSecondsLeft: d.seconds_left,
           userInterval: d.interval,
+          is_admin: d.is_admin,
+          userbots_list: d.userbots_list || [],
         }));
       }
     } catch (err) {
@@ -170,6 +174,8 @@ const Dashboard = () => {
         userDays: days,
         userSecondsLeft: 0,
         userInterval: interval,
+        is_admin: false,
+        userbots_list: [],
       });
     }
   }, []);

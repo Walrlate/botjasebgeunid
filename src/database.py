@@ -492,6 +492,15 @@ def db_update_userbot_profile(phone: str, display_name: str, photo_url: str = No
         logger.warning(f"Gagal update profil userbot di database (kemungkinan kolom display_name/photo_url belum dibuat): {e}")
         return False
 
+def db_update_userbot_groups_count(phone: str, count: int) -> bool:
+    try:
+        supabase = get_supabase()
+        supabase.table("userbots").update({"groups_count": count}).eq("phone_number", phone).execute()
+        return True
+    except Exception as e:
+        logger.warning(f"Gagal update groups_count userbot di database (kemungkinan kolom groups_count belum dibuat): {e}")
+        return False
+
 def db_update_userbot_status(session_name_or_phone: str, status: str):
     try:
         supabase = get_supabase()

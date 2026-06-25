@@ -1085,34 +1085,50 @@ async def handle_user_stats_api(request):
                 if uid == ADMIN_ID:
                     # Owner: ambil semua userbot pembeli beserta profil username Telegram-nya
                     res_ub = supabase.table("userbots")\
-                        .select("user_id, phone_number, status, created_at, display_name, photo_url, users(username, full_name)")\
+                        .select("user_id, phone_number, status, created_at, display_name, photo_url, groups_count, users(username, full_name)")\
                         .order("created_at", desc=True)\
                         .execute()
                     ub_rows = res_ub.data or []
                 else:
                     # Pembeli: hanya ambil userbot miliknya sendiri
                     res_ub = supabase.table("userbots")\
-                        .select("phone_number, status, created_at, display_name, photo_url")\
+                        .select("phone_number, status, created_at, display_name, photo_url, groups_count")\
                         .eq("user_id", uid)\
                         .order("created_at", desc=True)\
                         .execute()
                     ub_rows = res_ub.data or []
             except Exception as select_err:
-                logger.warning(f"⚠️ Query userbots utama gagal: {select_err}. Menjalankan fallback query...")
-                # Fallback query tanpa kolom display_name dan photo_url
-                if uid == ADMIN_ID:
-                    res_ub = supabase.table("userbots")\
-                        .select("user_id, phone_number, status, created_at, users(username, full_name)")\
-                        .order("created_at", desc=True)\
-                        .execute()
-                    ub_rows = res_ub.data or []
-                else:
-                    res_ub = supabase.table("userbots")\
-                        .select("phone_number, status, created_at")\
-                        .eq("user_id", uid)\
-                        .order("created_at", desc=True)\
-                        .execute()
-                    ub_rows = res_ub.data or []
+                logger.warning(f"⚠️ Query userbots utama (dengan groups_count) gagal: {select_err}. Menjalankan fallback query tingkat 1...")
+                try:
+                    # Fallback query tanpa groups_count tapi dengan display_name/photo_url
+                    if uid == ADMIN_ID:
+                        res_ub = supabase.table("userbots")\
+                            .select("user_id, phone_number, status, created_at, display_name, photo_url, users(username, full_name)")\
+                            .order("created_at", desc=True)\
+                            .execute()
+                        ub_rows = res_ub.data or []
+                    else:
+                        res_ub = supabase.table("userbots")\
+                            .select("phone_number, status, created_at, display_name, photo_url")\
+                            .eq("user_id", uid)\
+                            .order("created_at", desc=True)\
+                            .execute()
+                        ub_rows = res_ub.data or []
+                except Exception as select_err2:
+                    logger.warning(f"⚠️ Query userbots fallback tingkat 1 gagal: {select_err2}. Menjalankan fallback dasar...")
+                    if uid == ADMIN_ID:
+                        res_ub = supabase.table("userbots")\
+                            .select("user_id, phone_number, status, created_at, users(username, full_name)")\
+                            .order("created_at", desc=True)\
+                            .execute()
+                        ub_rows = res_ub.data or []
+                    else:
+                        res_ub = supabase.table("userbots")\
+                            .select("phone_number, status, created_at")\
+                            .eq("user_id", uid)\
+                            .order("created_at", desc=True)\
+                            .execute()
+                        ub_rows = res_ub.data or []
 
             processed_ubots = []
             for ub in ub_rows:
@@ -1140,6 +1156,11 @@ async def handle_user_stats_api(request):
                             if ub_groups:
                                 from src.database import db_save_userbot_groups_to_lpm
                                 db_save_userbot_groups_to_lpm(ub_groups)
+                                try:
+                                    from src.database import db_update_userbot_groups_count
+                                    db_update_userbot_groups_count(phone, len(ub_groups))
+                                except Exception as count_err:
+                                    logger.error(f"Gagal update groups_count untuk {phone}: {count_err}")
                         except Exception as d_err:
                             logger.error(f"Error fetching dialogs for userbot {phone}: {d_err}")
                 ub["joined_groups"] = ub_groups

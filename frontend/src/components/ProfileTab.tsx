@@ -109,7 +109,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </p>
                 <p className="font-bold text-geun-blue text-[10px] mt-0.5">
                   {stats.userPackage.toLowerCase().includes('userbot')
-                    ? `${stats.userbots_list?.reduce((acc: number, ub: any) => acc + (ub.joined_groups?.length || 0), 0) || 0} Grup`
+                    ? `${stats.userbots_list?.reduce((acc: number, ub: any) => acc + (ub.joined_groups?.length || ub.groups_count || 0), 0) || 0} Grup`
                     : `${stats.userLpm} LPM`}
                 </p>
               </div>
