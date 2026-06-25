@@ -117,11 +117,7 @@ class JasebEngine:
             if cm.get("is_active"):
                 custom_map[cm["target_peer"].lower()] = cm["custom_message"]
 
-        # Branding Otomatis
-        if content and not (fwd_chat_id and fwd_msg_id):
-            import src.config
-            if "regular" in package_name.lower():
-                content = f"{content}\n\n• Promoted by @{src.config.BOT_USERNAME}"
+        # Branding tidak diterapkan — format asli iklan dipertahankan penuh
 
         # Fetch joined dialogs to cache memberships and avoid JoinChannelRequest
         joined_ids = set()
@@ -223,8 +219,7 @@ class JasebEngine:
                 # Putar kata iklan secara dinamis (Spintax Auto-Rotation)
                 final_content = resolve_spintax(final_content)
 
-                if not (fwd_chat_id and fwd_msg_id) and random.random() < 0.2:
-                    final_content = f"{final_content}\n#LPM #Promote"
+                # Tidak menambahkan hashtag — format asli pesan dipertahankan
 
                 # 5. EXECUTION
                 if is_promote:

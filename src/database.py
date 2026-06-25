@@ -1280,7 +1280,7 @@ def db_get_all_client_userbots(limit: int = 20):
     try:
         supabase = get_supabase()
         res = supabase.table("userbots")\
-            .select("user_id, phone_number, status, created_at")\
+            .select("user_id, phone_number, status, created_at, session_name")\
             .order("created_at", desc=True)\
             .limit(limit)\
             .execute()
@@ -1833,11 +1833,23 @@ def db_get_userbots_by_subscription(sub_id: int):
     """Mengambil daftar semua userbot (sesi, nomor telepon, status) yang terikat dengan ID langganan tertentu."""
     try:
         supabase = get_supabase()
-        res = supabase.table("userbots")\
-            .select("session_name, phone_number, status, pm_permit_status, custom_bio")\
-            .eq("subscription_id", sub_id)\
-            .execute()
-        return res.data or []
+        try:
+            res = supabase.table("userbots")\
+                .select("session_name, phone_number, status, pm_permit_status, custom_bio")\
+                .eq("subscription_id", sub_id)\
+                .execute()
+            return res.data or []
+        except Exception as e_select:
+            logger.warning(f"Gagal select lengkap userbots: {e_select}. Fallback ke kolom dasar.")
+            res = supabase.table("userbots")\
+                .select("session_name, phone_number, status")\
+                .eq("subscription_id", sub_id)\
+                .execute()
+            data = res.data or []
+            for r in data:
+                r["pm_permit_status"] = False
+                r["custom_bio"] = ""
+            return data
     except Exception as e:
         logger.error(f"Error in db_get_userbots_by_subscription: {e}")
         return []

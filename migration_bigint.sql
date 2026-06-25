@@ -39,4 +39,9 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1;
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS max_userbots INTEGER DEFAULT 1;
 ALTER TABLE forward_logs ADD COLUMN IF NOT EXISTS subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL;
 
+-- 8. Tambah kolom baru ke tabel userbots jika belum ada (PM Permit, Bio, dan Cooldown)
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS pm_permit_status BOOLEAN DEFAULT FALSE;
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS custom_bio TEXT;
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
+
 

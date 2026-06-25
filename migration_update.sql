@@ -61,3 +61,8 @@ ALTER TABLE userbots ADD CONSTRAINT userbots_session_name_key UNIQUE (session_na
 
 -- 8. Tambah kolom assigned_admin_ub_id ke transactions (sinkronisasi dengan kode Python)
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS assigned_admin_ub_id BIGINT REFERENCES admin_userbots(id) ON DELETE SET NULL;
+
+-- 9. Tambah kolom baru ke tabel userbots jika belum ada (PM Permit, Bio, dan Cooldown)
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS pm_permit_status BOOLEAN DEFAULT FALSE;
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS custom_bio TEXT;
+ALTER TABLE userbots ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;

@@ -49,14 +49,25 @@ async def reload_all_userbot_settings():
     try:
         from src.database import get_supabase
         supabase = get_supabase()
-        res = supabase.table("userbots").select("phone_number, pm_permit_status, custom_bio").execute()
-        if res.data:
-            for r in res.data:
-                phone = r["phone_number"]
-                client_settings[phone] = {
-                    "pm_permit": r.get("pm_permit_status", False),
-                    "bio": r.get("custom_bio", "")
-                }
+        try:
+            res = supabase.table("userbots").select("phone_number, pm_permit_status, custom_bio").execute()
+            if res.data:
+                for r in res.data:
+                    phone = r["phone_number"]
+                    client_settings[phone] = {
+                        "pm_permit": r.get("pm_permit_status", False),
+                        "bio": r.get("custom_bio", "")
+                    }
+        except Exception as e_select:
+            logger.warning(f"Gagal select lengkap userbot settings: {e_select}. Fallback ke query phone_number.")
+            res = supabase.table("userbots").select("phone_number").execute()
+            if res.data:
+                for r in res.data:
+                    phone = r["phone_number"]
+                    client_settings[phone] = {
+                        "pm_permit": False,
+                        "bio": ""
+                    }
         logger.info("✅ Pengaturan userbot klien berhasil dimuat ulang ke memori.")
     except Exception as e:
         logger.error(f"Error reload_all_userbot_settings: {e}")
@@ -158,20 +169,27 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             # Load profile settings untuk client ini
             from src.database import get_supabase
             supabase = get_supabase()
-            res = supabase.table("userbots").select("pm_permit_status, custom_bio").eq("phone_number", phone).execute()
-            if res.data:
+            try:
+                res = supabase.table("userbots").select("pm_permit_status, custom_bio").eq("phone_number", phone).execute()
+                if res.data:
+                    client_settings[phone] = {
+                        "pm_permit": res.data[0].get("pm_permit_status", False),
+                        "bio": res.data[0].get("custom_bio", "")
+                    }
+                    # Set Bio jika diatur
+                    bio_val = res.data[0].get("custom_bio")
+                    if bio_val:
+                        try:
+                            from telethon.tl.functions.account import UpdateProfileRequest
+                            await client(UpdateProfileRequest(about=bio_val[:70]))
+                        except Exception as bio_err:
+                            logger.warning(f"Gagal menset bio awal untuk {phone}: {bio_err}")
+            except Exception as e_select:
+                logger.warning(f"Gagal select pm_permit_status/custom_bio untuk {phone}: {e_select}. Menggunakan fallback.")
                 client_settings[phone] = {
-                    "pm_permit": res.data[0].get("pm_permit_status", False),
-                    "bio": res.data[0].get("custom_bio", "")
+                    "pm_permit": False,
+                    "bio": ""
                 }
-                # Set Bio jika diatur
-                bio_val = res.data[0].get("custom_bio")
-                if bio_val:
-                    try:
-                        from telethon.tl.functions.account import UpdateProfileRequest
-                        await client(UpdateProfileRequest(about=bio_val[:70]))
-                    except Exception as bio_err:
-                        logger.warning(f"Gagal menset bio awal untuk {phone}: {bio_err}")
             
             # Pasang Event Listener Perintah Selfbot Klien (Outgoing dari Owner)
             @client.on(events.NewMessage(outgoing=True))

@@ -764,15 +764,25 @@ async def show_single_userbot_menu(event, phone: str):
     """Menampilkan detail kontrol dan panduan untuk nomor userbot tertentu."""
     from src.database import get_supabase
     supabase = get_supabase()
-    res = supabase.table("userbots").select("status, pm_permit_status, custom_bio").eq("phone_number", phone).execute()
-    if not res.data:
-        await event.answer("❌ Userbot tidak ditemukan.", alert=True)
-        return
-        
-    r = res.data[0]
-    status = r.get("status", "disconnected")
-    pm_status = r.get("pm_permit_status", False)
-    custom_bio = r.get("custom_bio") or "(belum di-set)"
+    try:
+        res = supabase.table("userbots").select("status, pm_permit_status, custom_bio").eq("phone_number", phone).execute()
+        if not res.data:
+            await event.answer("❌ Userbot tidak ditemukan.", alert=True)
+            return
+        r = res.data[0]
+        status = r.get("status", "disconnected")
+        pm_status = r.get("pm_permit_status", False)
+        custom_bio = r.get("custom_bio") or "(belum di-set)"
+    except Exception as e_select:
+        logger.warning(f"Gagal select status/pm_permit_status/custom_bio untuk {phone}: {e_select}. Menggunakan fallback.")
+        res = supabase.table("userbots").select("status").eq("phone_number", phone).execute()
+        if not res.data:
+            await event.answer("❌ Userbot tidak ditemukan.", alert=True)
+            return
+        r = res.data[0]
+        status = r.get("status", "disconnected")
+        pm_status = False
+        custom_bio = "(belum di-set/kolom DB belum ada)"
     
     pm_label = "🟢 Aktif" if pm_status else "🔴 Nonaktif"
     status_icon = "🟢" if status == "connected" else "🔴"
