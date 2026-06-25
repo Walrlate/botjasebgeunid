@@ -535,6 +535,11 @@ async def user_input_handler(event):
                 return
                 
         session = f"admin_{phone[1:]}" if is_admin else f"user_{phone[1:]}"
+        session_file = f"data/sessions/{session}.session"
+        if os.path.exists(session_file):
+            try: os.remove(session_file)
+            except: pass
+
         client = TelegramClient(
             f"data/sessions/{session}", 
             API_ID, 
@@ -544,12 +549,21 @@ async def user_input_handler(event):
             connection_retries=10,
             retry_delay=5
         )
-        await client.connect()
         try:
+            await client.connect()
             res = await client.send_code_request(phone)
             login_states[user_id].update({"state": "waiting_for_otp", "phone": phone, "client": client, "hash": res.phone_code_hash})
             await event.respond("📨 **OTP dikirim!** Masukkan kode 5 digit:")
-        except Exception as e: await event.respond(f"❌ Gagal: {e}"); await clear_login_state(user_id)
+        except Exception as e:
+            await event.respond(f"❌ Gagal: {e}")
+            try:
+                await client.disconnect()
+            except:
+                pass
+            if os.path.exists(session_file):
+                try: os.remove(session_file)
+                except: pass
+            await clear_login_state(user_id)
 
     elif current_state == "waiting_for_otp":
         try:
