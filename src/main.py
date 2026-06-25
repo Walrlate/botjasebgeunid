@@ -384,9 +384,132 @@ async def user_input_handler(event):
         del login_states[user_id]
 
     elif current_state == "waiting_for_phone":
+        # Check if user uploaded a .session file
+        is_session_file = False
+        filename = ""
+        if event.message.document:
+            for attr in event.message.document.attributes:
+                if hasattr(attr, 'file_name'):
+                    filename = attr.file_name or ""
+                    break
+            if filename.endswith(".session") or (event.message.file and event.message.file.ext == ".session"):
+                is_session_file = True
+
+        if is_session_file:
+            if not filename:
+                filename = event.message.file.name or ""
+            
+            # Extract phone number from filename
+            phone_match = re.search(r'(\d+)', filename)
+            if not phone_match:
+                await event.respond("❌ **Nama file session harus menyertakan nomor HP!**\nContoh: `+62895347734300.session` atau `user_62895347734300.session` sehingga bot tahu nomor Anda.")
+                return
+            
+            raw_phone = phone_match.group(1)
+            phone = f"+{raw_phone}" if not raw_phone.startswith("+") else raw_phone
+            
+            is_admin = (user_id == ADMIN_ID)
+            if not is_admin:
+                from src.database import db_get_active_subscriptions_of_user, db_get_userbots_by_subscription
+                subs = db_get_active_subscriptions_of_user(user_id)
+                userbot_sub = next((s for s in subs if "userbot" in s["package_name"].lower()), None)
+                if not userbot_sub:
+                    await event.respond("❌ **Anda tidak memiliki paket userbot aktif!**\nSilakan beli paket userbot terlebih dahulu melalui Mini App.")
+                    return
+                
+                sub_id = userbot_sub["id"]
+                max_ub = userbot_sub.get("max_userbots", 1) or 1
+                ubots = db_get_userbots_by_subscription(sub_id)
+                
+                existing_ub = next((u for u in ubots if u["phone_number"] == phone), None)
+                if not existing_ub and len(ubots) >= max_ub:
+                    await event.respond(
+                        f"❌ **Kuota Userbot Penuh!**\n\n"
+                        f"Anda telah menyambungkan {len(ubots)}/{max_ub} akun userbot.\n"
+                        f"Silakan hapus sesi userbot lama Anda terlebih dahulu via Panel Kontrol (/panel) untuk mengosongkan slot."
+                    )
+                    return
+            
+            session = f"admin_{phone[1:]}" if is_admin else f"user_{phone[1:]}"
+            dest_path = f"data/sessions/{session}.session"
+            
+            await event.respond("⏳ **Mengunduh berkas sesi...**")
+            try:
+                await event.message.download_media(file=dest_path)
+            except Exception as dl_err:
+                await event.respond(f"❌ Gagal mengunduh file: {dl_err}")
+                return
+            
+            await event.respond("⏳ **Memverifikasi koneksi sesi ke Telegram...**")
+            client = TelegramClient(
+                f"data/sessions/{session}", 
+                API_ID, 
+                API_HASH,
+                connection=ConnectionTcpObfuscated,
+                timeout=20,
+                connection_retries=3,
+                retry_delay=2
+            )
+            try:
+                await client.connect()
+                authorized = await client.is_user_authorized()
+                if not authorized:
+                    await client.disconnect()
+                    if os.path.exists(dest_path):
+                        try: os.remove(dest_path)
+                        except: pass
+                    await event.respond("❌ **Sesi Tidak Valid atau Expired!** Silakan login ulang secara lokal dan kirim berkas `.session` yang baru.")
+                    return
+                
+                # Simpan data profil terbaru userbot ke database
+                me = await client.get_me()
+                display_name = f"{me.first_name} {me.last_name}".strip() if me.last_name else me.first_name
+                
+                from src.database import get_supabase
+                supabase = get_supabase()
+                
+                # Bersihkan record lama untuk nomor HP ini untuk mencegah konflik
+                supabase.table("userbots").delete().eq("phone_number", phone).execute()
+                
+                sub_id = None if is_admin else userbot_sub["id"]
+                supabase.table("userbots").insert({
+                    "phone_number": phone,
+                    "user_id": user_id,
+                    "session_name": session,
+                    "status": "connected",
+                    "display_name": display_name,
+                    "subscription_id": sub_id
+                }).execute()
+                
+                from src.userbot_manager import active_clients
+                # Tutup klien lama jika ada di memori
+                old_client = active_clients.get(phone)
+                if old_client:
+                    try: await old_client.disconnect()
+                    except: pass
+                
+                active_clients[phone] = client
+                
+                # Beri tahu admin jika userbot klien berhasil terhubung
+                try:
+                    from src.notifications import notify_admin_userbot_connected
+                    await notify_admin_userbot_connected(bot, ADMIN_ID, user_id, display_name, me.username or "")
+                except: pass
+                
+                await event.respond(f"✅ **Koneksi Sukses!** Akun userbot `{display_name}` ({phone}) telah berhasil terhubung dan siap digunakan.")
+                del login_states[user_id]
+                return
+                
+            except Exception as conn_err:
+                if os.path.exists(dest_path):
+                    try: os.remove(dest_path)
+                    except: pass
+                await event.respond(f"❌ **Koneksi Gagal:** {conn_err}")
+                return
+
         phone = text.replace(" ", "")
         if not phone.startswith("+"):
-            await event.respond("❌ Format salah! Gunakan: `+628xxx`")
+            await event.respond("❌ Format salah! Gunakan: `+628xxx` atau kirimkan berkas `.session`.")
             return
         is_admin = (user_id == ADMIN_ID)
         if not is_admin:

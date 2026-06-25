@@ -241,7 +241,15 @@ def _register_handlers(bot):
         uid = event.sender_id
         _login_states[uid] = {"state": "waiting_for_phone"}
         logger.info(f"🔑 client_connect_session_callback: set uid={uid} (type={type(uid)}) to waiting_for_phone, _login_states={list(_login_states.keys())}")
-        await event.edit("📱 **SAMBUNGKAN USERBOT BARU**\n\nMasukkan nomor HP akun Telegram Anda (+628xxx):", buttons=[[Button.inline("❌ Batal", b"client_panel")]])
+        await event.edit(
+            "📱 **SAMBUNGKAN USERBOT BARU**\n\n"
+            "Silakan ketik nomor HP Anda (+628xxx) untuk login via OTP Telegram.\n\n"
+            "💡 **Atau (Rekomendasi jika OTP Gagal/Limit):**\n"
+            "Kirimkan berkas `.session` hasil login lokal Anda langsung ke chat ini.\n"
+            "_(Nama file harus diawali nomor HP Anda, contoh: `+62895347734300.session`)_\n\n"
+            "Untuk membuat file `.session` di komputer Anda, Anda dapat mengunduh dan menjalankan berkas pengaktif sesi lokal `create_user_session.py`.",
+            buttons=[[Button.inline("❌ Batal", b"client_panel")]]
+        )
 
     @bot.on(events.CallbackQuery(data=b"client_target_lpm"))
     async def client_target_lpm_callback(event):
