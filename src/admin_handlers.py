@@ -45,6 +45,8 @@ from src.database import (
     db_set_subscription_interval,
     db_revoke_subscription,
     db_set_subscription_lpm_capacity,
+    db_get_pending_transactions,
+    db_get_transaction_detail,
     # Userbot Management
     db_get_all_client_userbots,
     db_admin_disconnect_client_userbot,
@@ -729,13 +731,51 @@ def _register_admin_handlers(bot):
     async def billing_command(event):
         if not await _admin_only_check(event): return
         _login_states.pop(event.sender_id, None)
-        await _show_billing_list(event)
+        await _show_billing_menu(event)
 
     @bot.on(events.CallbackQuery(data=b"admin_billing"))
     async def admin_billing_callback(event):
         if not await _admin_only_check(event): return
         _login_states.pop(event.sender_id, None)
+        await _show_billing_menu(event)
+
+    @bot.on(events.CallbackQuery(data=b"admin_billing_active"))
+    async def admin_billing_active_callback(event):
+        if not await _admin_only_check(event): return
         await _show_billing_list(event)
+
+    @bot.on(events.CallbackQuery(data=b"admin_billing_pending"))
+    async def admin_billing_pending_callback(event):
+        if not await _admin_only_check(event): return
+        await _show_pending_transactions(event)
+
+    @bot.on(events.CallbackQuery(data=b"admin_billing_search"))
+    async def admin_billing_search_callback(event):
+        if not await _admin_only_check(event): return
+        _login_states[event.sender_id] = {"state": "admin_search_trx"}
+        text = (
+            "🔍 **CARI TRANSAKSI**\n\n"
+            "Masukkan ID Transaksi / Invoice yang ingin dicari:\n"
+            "_(Contoh: `INV-1782348021916` atau `USERBOT-MAN-xxx`)_\n\n"
+            "Ketik langsung di kolom chat bot ini."
+        )
+        buttons = [[Button.inline("❌ Batal", b"admin_billing")]]
+        if hasattr(event, "edit"):
+            await event.edit(text, buttons=buttons)
+        else:
+            await event.respond(text, buttons=buttons)
+
+    @bot.on(events.CallbackQuery(pattern=b"trx_manage_(.+)"))
+    async def trx_manage_callback(event):
+        if not await _admin_only_check(event): return
+        trx_id = event.pattern_match.group(1).decode()
+        from src.database import db_get_transaction_detail
+        trx = db_get_transaction_detail(trx_id)
+        if not trx:
+            await event.answer("❌ Transaksi tidak ditemukan!", alert=True)
+            await _show_pending_transactions(event)
+            return
+        await _show_transaction_detail_message(event, trx)
 
     @bot.on(events.CallbackQuery(pattern=b"bill_detail_(\\d+)"))
     async def billing_detail_callback(event):
@@ -1653,6 +1693,21 @@ async def handle_admin_input(event, state_data: dict):
         else:
             await event.respond("❌ Gagal ubah kapasitas LPM.")
 
+    elif state == "admin_search_trx":
+        trx_id = text.strip()
+        from src.database import db_get_transaction_detail
+        trx = db_get_transaction_detail(trx_id)
+        if not trx:
+            await event.respond(
+                f"❌ **Transaksi `{trx_id}` tidak ditemukan!**\n\n"
+                f"Silakan coba masukkan ID Transaksi / Invoice yang valid:",
+                buttons=[[Button.inline("❌ Batal", b"admin_billing")]]
+            )
+            return
+        # Hapus state setelah pencarian sukses
+        del _login_states[user_id]
+        await _show_transaction_detail_message(event, trx)
+
     elif state == "admin_editing_lpm_desc":
         aid = state_data["target_admin_id"]
         new_desc = text.strip()
@@ -1984,30 +2039,55 @@ async def _show_admin_panel(event):
     await event.respond(text, buttons=buttons)
 
 
+async def _show_billing_menu(event):
+    text = (
+        "📋 **MENU BILLING & TRANSAKSI**\n\n"
+        "Silakan pilih submenu di bawah untuk mengelola:\n"
+        "• **Langganan Aktif**: Kelola lisensi Jaseb & Userbot yang sedang aktif.\n"
+        "• **Transaksi Pending**: Lihat & setujui pembayaran (QRIS/Manual) yang belum aktif.\n"
+        "• **Cari Transaksi**: Cari detail transaksi/invoice berdasarkan ID (Contoh: `INV-...`)."
+    )
+    buttons = [
+        [Button.inline("👥 Langganan Aktif", b"admin_billing_active"), Button.inline("⏳ Transaksi Pending", b"admin_billing_pending")],
+        [Button.inline("🔍 Cari Transaksi", b"admin_billing_search")],
+        [Button.inline("⬅️ Panel Admin", b"admin_main")]
+    ]
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons); return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
+
+
 async def _show_billing_list(event):
-    subs = db_get_all_subscriptions_detail(15)
+    subs = db_get_all_subscriptions_detail(50)
     if not subs:
-        buttons = [[Button.inline("⬅️ Kembali", b"admin_main")]]
+        buttons = [[Button.inline("⬅️ Kembali", b"admin_billing")]]
         if hasattr(event, "edit"):
             await event.edit("❌ Tidak ada langganan aktif.", buttons=buttons)
         else:
             await event.respond("❌ Tidak ada langganan aktif.", buttons=buttons)
         return
 
-    text = "👥 **LANGGANAN AKTIF**\n\n"
+    text = "👥 **LANGGANAN AKTIF (JASEB & USERBOT)**\n\n"
     buttons = []
     for sub in subs:
         uid = sub["user_id"]
         pkg = sub["package_name"]
         end = sub.get("end_date", "")
         end_clean = normalize_end(end)
-        cap = sub.get("capacity_lpm", 0)
-        iv = sub.get("broadcast_interval_hours", 0.5)
-        iv_label = f"{int(iv*60)}m" if iv < 1 else f"{iv}j"
-        text += f"• `{uid}` | {pkg[:25]} | {end_clean[:10]} | {cap}LPM/{iv_label}\n"
+        if "userbot" in pkg.lower():
+            max_ub = sub.get("max_userbots", 1) or 1
+            text += f"• 🤖 `{uid}` | {pkg[:20]} | {end_clean[:10]} | {max_ub} Akun\n"
+        else:
+            cap = sub.get("capacity_lpm", 0)
+            iv = sub.get("broadcast_interval_hours", 0.5)
+            iv_label = f"{int(iv*60)}m" if iv < 1 else f"{iv}j"
+            text += f"• 📢 `{uid}` | {pkg[:20]} | {end_clean[:10]} | {cap}LPM/{iv_label}\n"
         buttons.append([Button.inline(f"🔧 Kelola {uid}", f"bill_detail_{uid}".encode())])
 
-    buttons.append([Button.inline("⬅️ Kembali", b"admin_main")])
+    buttons.append([Button.inline("⬅️ Kembali", b"admin_billing")])
     if hasattr(event, "edit"):
         try:
             await event.edit(text, buttons=buttons); return
@@ -2024,27 +2104,115 @@ async def _show_billing_detail(event, uid: int):
         return
 
     pkg = sub.get("package_name", "-")
+    is_ub = "userbot" in pkg.lower()
     end = normalize_end(sub.get("end_date", ""))
-    cap = sub.get("capacity_lpm", 0)
-    iv = sub.get("broadcast_interval_hours", 0.5)
-    iv_label = f"{int(iv*60)} menit" if iv < 1 else f"{iv} jam"
-    req_lpm = sub.get("request_lpm") or "(default pool)"
+    
+    if is_ub:
+        max_ub = sub.get("max_userbots", 1) or 1
+        text = (
+            f"🔧 **KELOLA USER `{uid}` (USERBOT)**\n{'━'*22}\n\n"
+            f"📦 Paket: **{pkg}**\n"
+            f"🤖 Maksimal Akun: **{max_ub} Userbot**\n"
+            f"📅 Expired: **{end[:10]}**\n"
+        )
+        buttons = [
+            [Button.inline("📅 Perpanjang", f"bill_extend_{uid}".encode()),
+             Button.inline("🚫 Cabut Langganan", f"bill_revoke_{uid}".encode())],
+            [Button.inline("⬅️ Kembali", b"admin_billing_active")]
+        ]
+    else:
+        cap = sub.get("capacity_lpm", 0)
+        iv = sub.get("broadcast_interval_hours", 0.5)
+        iv_label = f"{int(iv*60)} menit" if iv < 1 else f"{iv} jam"
+        req_lpm = sub.get("request_lpm") or "(default pool)"
+        text = (
+            f"🔧 **KELOLA USER `{uid}` (JASEB)**\n{'━'*22}\n\n"
+            f"📦 Paket: **{pkg}**\n"
+            f"🎯 Kapasitas: **{cap} LPM**\n"
+            f"📅 Expired: **{end[:10]}**\n"
+            f"⏰ Interval: **{iv_label}**\n"
+            f"📋 LPM Custom: `{req_lpm[:50]}`\n"
+        )
+        buttons = [
+            [Button.inline("📅 Perpanjang", f"bill_extend_{uid}".encode()),
+             Button.inline("⏰ Ubah Interval", f"bill_interval_{uid}".encode())],
+            [Button.inline("🎯 Ubah LPM Cap", f"bill_lpmcap_{uid}".encode()),
+             Button.inline("🚫 Cabut Langganan", f"bill_revoke_{uid}".encode())],
+            [Button.inline("⬅️ Kembali", b"admin_billing_active")]
+        ]
+        
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons); return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
 
+
+async def _show_pending_transactions(event):
+    trxs = db_get_pending_transactions(15)
+    if not trxs:
+        buttons = [[Button.inline("⬅️ Kembali", b"admin_billing")]]
+        if hasattr(event, "edit"):
+            await event.edit("❌ Tidak ada transaksi pending saat ini.", buttons=buttons)
+        else:
+            await event.respond("❌ Tidak ada transaksi pending saat ini.", buttons=buttons)
+        return
+        
+    text = "⏳ **DAFTAR TRANSAKSI PENDING**\n\n"
+    buttons = []
+    for trx in trxs:
+        trx_id = trx["trx_id"]
+        pkg = trx["package_id"]
+        amt = trx["amount"]
+        text += f"• `{trx_id}` | {pkg[:20]} | Rp {amt:,}\n"
+        buttons.append([Button.inline(f"⚙️ Kelola {trx_id}", f"trx_manage_{trx_id}".encode())])
+        
+    buttons.append([Button.inline("⬅️ Kembali", b"admin_billing")])
+    if hasattr(event, "edit"):
+        try:
+            await event.edit(text, buttons=buttons); return
+        except Exception:
+            pass
+    await event.respond(text, buttons=buttons)
+
+
+async def _show_transaction_detail_message(event, trx: dict):
+    trx_id = trx["trx_id"]
+    uid = trx["user_id"]
+    pkg = trx["package_id"]
+    amt = trx["amount"]
+    status = trx["status"]
+    created_at = trx["created_at"]
+    
+    # Format created_at to WIB
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00").split("+")[0])
+        dt_wib = dt.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=7)))
+        date_str = dt_wib.strftime("%d/%m/%Y %H:%M WIB")
+    except Exception:
+        date_str = str(created_at)
+        
     text = (
-        f"🔧 **KELOLA USER `{uid}`**\n{'━'*22}\n\n"
-        f"📦 Paket: **{pkg}**\n"
-        f"🎯 Kapasitas: **{cap} LPM**\n"
-        f"📅 Expired: **{end[:10]}**\n"
-        f"⏰ Interval: **{iv_label}**\n"
-        f"📋 LPM Custom: `{req_lpm[:50]}`\n"
+        f"🆔 **DETAIL TRANSAKSI**\n"
+        f"{'━'*22}\n\n"
+        f"Invoice: `{trx_id}`\n"
+        f"User ID: `{uid}`\n"
+        f"Paket: **{pkg}**\n"
+        f"Nominal: **Rp {amt:,}**\n"
+        f"Status: `{status.upper()}`\n"
+        f"Tanggal: {date_str}\n"
     )
-    buttons = [
-        [Button.inline("📅 Perpanjang", f"bill_extend_{uid}".encode()),
-         Button.inline("⏰ Ubah Interval", f"bill_interval_{uid}".encode())],
-        [Button.inline("🎯 Ubah LPM Cap", f"bill_lpmcap_{uid}".encode()),
-         Button.inline("🚫 Cabut Langganan", f"bill_revoke_{uid}".encode())],
-        [Button.inline("⬅️ Kembali", b"admin_billing")]
-    ]
+    
+    buttons = []
+    if status == "pending":
+        buttons.append([
+            Button.inline("Approve ✅", f"approve_man_{trx_id}".encode()),
+            Button.inline("Reject ❌", f"reject_man_{trx_id}".encode())
+        ])
+    buttons.append([Button.inline("⬅️ Kembali ke Billing", b"admin_billing")])
+    
     if hasattr(event, "edit"):
         try:
             await event.edit(text, buttons=buttons); return

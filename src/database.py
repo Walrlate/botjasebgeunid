@@ -1023,7 +1023,7 @@ def db_get_all_subscriptions_detail(limit: int = 20):
         supabase = get_supabase()
         now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
-            .select("id, user_id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
+            .select("id, user_id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm, max_userbots")\
             .eq("status", "active")\
             .gt("end_date", now_str)\
             .order("end_date", desc=True)\
@@ -1040,7 +1040,7 @@ def db_get_subscription_by_user(user_id: int):
         supabase = get_supabase()
         now_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("subscriptions")\
-            .select("id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm")\
+            .select("id, package_name, capacity_lpm, end_date, broadcast_interval_hours, request_lpm, max_userbots")\
             .eq("user_id", user_id)\
             .eq("status", "active")\
             .gt("end_date", now_str)\
@@ -1052,6 +1052,33 @@ def db_get_subscription_by_user(user_id: int):
         return None
     except Exception as e:
         logger.error(f"Error in db_get_subscription_by_user: {e}")
+        return None
+
+def db_get_pending_transactions(limit: int = 10):
+    """Ambil transaksi pending terbaru."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("transactions")\
+            .select("id, user_id, trx_id, package_id, amount, payment_url, created_at, quantity")\
+            .eq("status", "pending")\
+            .order("created_at", desc=True)\
+            .limit(limit)\
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error in db_get_pending_transactions: {e}")
+        return []
+
+def db_get_transaction_detail(trx_id: str):
+    """Ambil detail transaksi berdasarkan trx_id/invoice."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("transactions").select("*").eq("trx_id", trx_id).execute()
+        if res.data:
+            return res.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error in db_get_transaction_detail: {e}")
         return None
 
 def db_extend_subscription(user_id: int, days: int) -> bool:
