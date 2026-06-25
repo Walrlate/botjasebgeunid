@@ -540,6 +540,40 @@ def register_edit_jaseb_btn(bot, login_states):
         success, msg = db_redeem_activation_token(token, event.sender_id)
         await event.respond(f"{'✅' if success else '❌'} {msg}")
 
+    @bot.on(events.NewMessage(pattern='/claimtrial'))
+    async def claim_free_trial_handler(event):
+        uid = event.sender_id
+        from src.database import db_has_user_claimed_trial, db_add_subscription
+        from datetime import datetime, timedelta, timezone
+        
+        if db_has_user_claimed_trial(uid):
+            await event.respond(
+                "❌ **BATAS KLAIM TERCAPAI**\n\n"
+                "Anda sudah pernah menggunakan paket Trial gratis sebelumnya. "
+                "Paket Trial hanya dapat diklaim **1 kali** per akun Telegram."
+            )
+            return
+            
+        start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        end_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        success = db_add_subscription(
+            user_id=uid,
+            package_name="Trial Userbot",
+            capacity_lpm=20,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        if success:
+            await event.respond(
+                "✅ **TRIAL USERBOT AKTIF!**\n\n"
+                "Selamat! Paket **Trial Userbot (1 Hari, 20 LPM)** berhasil diaktifkan secara gratis untuk akun Anda.\n\n"
+                "Silakan buka Mini App untuk mengaitkan akun Telegram Anda dan mulai menyebarkan promosi!"
+            )
+        else:
+            await event.respond("❌ Gagal mengaktifkan paket trial. Silakan hubungi admin.")
+
     @bot.on(events.CallbackQuery(data=b"claim_token_menu"))
     async def claim_token_menu_callback(event):
         uid = event.sender_id

@@ -194,8 +194,10 @@ async def start_client_userbot(user_id: int, session_name: str, phone: str):
             # Pasang Event Listener Perintah Selfbot Klien (Outgoing dari Owner)
             @client.on(events.NewMessage(outgoing=True))
             async def client_selfbot_handler(event):
-                # Proteksi Privasi: Hanya respon perintah self-panel jika dikirim di obrolan dengan bot utama
-                if BOT_ID != 0 and event.chat_id != BOT_ID:
+                # Proteksi Privasi: Izinkan respon di obrolan dengan bot utama ATAU Saved Messages (chat pribadi dengan diri sendiri)
+                is_saved_messages = (event.is_private and event.chat_id == event.sender_id)
+                is_bot_chat = (BOT_ID != 0 and event.chat_id == BOT_ID)
+                if not is_saved_messages and not is_bot_chat:
                     return
 
                 text = (event.text or "").strip()

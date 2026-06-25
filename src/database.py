@@ -2181,3 +2181,17 @@ def db_add_rating_bonus_points(user_id: int, rating: int) -> bool:
     except Exception as e:
         logger.error(f"Error in db_add_rating_bonus_points: {e}")
         return False
+
+def db_has_user_claimed_trial(user_id: int) -> bool:
+    """Memeriksa apakah pengguna sudah pernah memiliki/mengklaim paket trial sebelumnya."""
+    try:
+        supabase = get_supabase()
+        res = supabase.table("subscriptions")\
+            .select("id")\
+            .eq("user_id", user_id)\
+            .ilike("package_name", "%trial%")\
+            .execute()
+        return len(res.data) > 0
+    except Exception as e:
+        logger.error(f"Error in db_has_user_claimed_trial: {e}")
+        return False
