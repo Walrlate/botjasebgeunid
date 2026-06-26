@@ -541,13 +541,18 @@ def register_edit_jaseb_btn(bot, login_states):
         token = parts[1].strip()
         success, msg = db_redeem_activation_token(token, event.sender_id)
         if success:
-            from src.main import get_web_app_url
-            from telethon.tl.types import KeyboardButtonWebView
-            url = await get_web_app_url(event.sender_id)
-            buttons = [
-                [KeyboardButtonWebView(text="🚀 Hubungkan / Kelola Jaseb", url=url)]
-            ]
-            await event.respond(f"✅ {msg}", buttons=buttons)
+            from src.database import db_get_active_subscriptions_of_user
+            subs = db_get_active_subscriptions_of_user(event.sender_id)
+            buttons = []
+            if subs:
+                sub_active = subs[0]
+                pkg = sub_active["package_name"]
+                sub_id = sub_active["id"]
+                if "userbot" in pkg.lower():
+                    buttons.append([Button.inline("🔌 Hubungkan Userbot Sekarang", f"client_connect_session_{sub_id}".encode())])
+                else:
+                    buttons.append([Button.inline("✍️ Edit Jaseb (Materi Iklan)", b"client_edit_ad")])
+            await event.respond(f"✅ {msg}", buttons=buttons if buttons else None)
         else:
             await event.respond(f"❌ {msg}")
 
@@ -577,17 +582,18 @@ def register_edit_jaseb_btn(bot, login_states):
         )
         
         if success:
-            from src.main import get_web_app_url
-            from telethon.tl.types import KeyboardButtonWebView
-            url = await get_web_app_url(uid)
-            buttons = [
-                [KeyboardButtonWebView(text="🚀 Hubungkan Userbot Sekarang", url=url)]
-            ]
+            from src.database import db_get_active_subscription_id
+            sub_res = db_get_active_subscription_id(uid)
+            sub_id = sub_res[0] if sub_res else None
+            
+            buttons = []
+            if sub_id:
+                buttons.append([Button.inline("🔌 Hubungkan Userbot Sekarang", f"client_connect_session_{sub_id}".encode())])
             await event.respond(
                 "✅ **TRIAL USERBOT AKTIF!**\n\n"
                 "Selamat! Paket **Trial Userbot (3 Hari, Unlimited LPM)** berhasil diaktifkan secara gratis untuk akun Anda.\n\n"
-                "Silakan klik tombol di bawah untuk mengaitkan akun Telegram Anda dan mulai menyebarkan promosi!",
-                buttons=buttons
+                "Silakan klik tombol di bawah untuk mengaitkan akun Telegram Anda langsung di sini dan mulai menyebarkan promosi!",
+                buttons=buttons if buttons else None
             )
         else:
             await event.respond("❌ Gagal mengaktifkan paket trial. Silakan hubungi admin.")
