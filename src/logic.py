@@ -433,7 +433,10 @@ async def run_broadcast_cycle(bot, user_id: int, api_id, api_hash, subscription_
             target_links = list(dict.fromkeys(custom_links + userbot_local_links))
             
             # Batasi target_links agar tidak melebihi kapasitas (cap) jika cap > 0
-            if cap > 0:
+            if "userbot" in pkg.lower():
+                # Userbot tidak membatasi kapasitas target link (mengikuti grup di akun)
+                pass
+            elif cap > 0:
                 target_links = target_links[:cap]
             
             # Fallback jika target link kosong sama sekali, ambil dari LPM global

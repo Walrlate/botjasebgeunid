@@ -130,7 +130,7 @@ Di bawah ini adalah template tulisan dengan ornamen estetis elegan bertema orany
 ```text
 🤖 𝖯𝖱𝖨𝖢𝖤𝖫𝖨𝖲𝖳 𝖴𝖲𝖤𝖱𝖡𝖮𝖳 𝖦𝖤𝖴𝖭𝖨𝖣
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎁 *[ TRIAL USERBOT 1 HARI GRATIS ]*
+🎁 *[ TRIAL USERBOT 3 HARI GRATIS ]*
 💸 *[ SEWA HANYA RP 3.000 / BULAN ]*
 
 ⚙️ 𝖥𝖨𝖳𝖴𝖱 & 𝖪𝖤𝖴𝖭𝖦𝖦𝖴𝖫𝖠𝖭:

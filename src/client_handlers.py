@@ -493,12 +493,14 @@ async def _show_mystatus(event, user_id: int):
         iv_label = f"{int(iv*60)}m" if iv < 1 else f"{iv}j"
         
         ub_line = ""
+        cap_str = f"{cap} LPM"
         if "userbot" in pkg.lower():
             ubots = db_get_userbots_by_subscription(sub_id)
             conn_count = len([u for u in ubots if u["status"] == "connected"])
             ub_line = f"\n🤖 Akun Userbot: **{conn_count}/{max_ub} Online**"
+            cap_str = "Mengikuti Akun (Tanpa Batas)"
             
-        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap}\n📅 Habis: {end[:16]} ({time_left_str})\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
+        text = f"📊 **STATUS JASEB**\n\n📦 Paket: {pkg}\n🎯 LPM: {cap_str}\n📅 Habis: {end[:16]} ({time_left_str})\n⏰ Jadwal: Setiap {iv_label}\n📤 Terkirim: {total_sent} grup{ub_line}"
         buttons = [[Button.inline("🔄 Sebar Ulang", b"resend_jaseb"), Button.inline("✍️ Edit Jaseb", b"edit_jaseb_btn")], [Button.inline("⬅️ Kembali", b"start")]]
 
     if hasattr(event, "edit"):
@@ -555,12 +557,12 @@ def register_edit_jaseb_btn(bot, login_states):
             return
             
         start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        end_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        end_date = (datetime.now(timezone.utc) + timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
         
         success = db_add_subscription(
             user_id=uid,
             package_name="Trial Userbot",
-            capacity_lpm=20,
+            capacity_lpm=0,
             start_date=start_date,
             end_date=end_date
         )
@@ -568,7 +570,7 @@ def register_edit_jaseb_btn(bot, login_states):
         if success:
             await event.respond(
                 "✅ **TRIAL USERBOT AKTIF!**\n\n"
-                "Selamat! Paket **Trial Userbot (1 Hari, 20 LPM)** berhasil diaktifkan secara gratis untuk akun Anda.\n\n"
+                "Selamat! Paket **Trial Userbot (3 Hari, Unlimited LPM)** berhasil diaktifkan secara gratis untuk akun Anda.\n\n"
                 "Silakan buka Mini App untuk mengaitkan akun Telegram Anda dan mulai menyebarkan promosi!"
             )
         else:
