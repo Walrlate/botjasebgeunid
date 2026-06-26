@@ -540,7 +540,16 @@ def register_edit_jaseb_btn(bot, login_states):
             return
         token = parts[1].strip()
         success, msg = db_redeem_activation_token(token, event.sender_id)
-        await event.respond(f"{'✅' if success else '❌'} {msg}")
+        if success:
+            from src.main import get_web_app_url
+            from telethon.tl.types import KeyboardButtonWebView
+            url = await get_web_app_url(event.sender_id)
+            buttons = [
+                [KeyboardButtonWebView(text="🚀 Hubungkan / Kelola Jaseb", url=url)]
+            ]
+            await event.respond(f"✅ {msg}", buttons=buttons)
+        else:
+            await event.respond(f"❌ {msg}")
 
     @bot.on(events.NewMessage(pattern='/claimtrial'))
     async def claim_free_trial_handler(event):
@@ -568,10 +577,17 @@ def register_edit_jaseb_btn(bot, login_states):
         )
         
         if success:
+            from src.main import get_web_app_url
+            from telethon.tl.types import KeyboardButtonWebView
+            url = await get_web_app_url(uid)
+            buttons = [
+                [KeyboardButtonWebView(text="🚀 Hubungkan Userbot Sekarang", url=url)]
+            ]
             await event.respond(
                 "✅ **TRIAL USERBOT AKTIF!**\n\n"
                 "Selamat! Paket **Trial Userbot (3 Hari, Unlimited LPM)** berhasil diaktifkan secara gratis untuk akun Anda.\n\n"
-                "Silakan buka Mini App untuk mengaitkan akun Telegram Anda dan mulai menyebarkan promosi!"
+                "Silakan klik tombol di bawah untuk mengaitkan akun Telegram Anda dan mulai menyebarkan promosi!",
+                buttons=buttons
             )
         else:
             await event.respond("❌ Gagal mengaktifkan paket trial. Silakan hubungi admin.")
